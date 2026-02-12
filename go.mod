@@ -1,6 +1,6 @@
 module gopkg.in/telebot.v4
 
-go 1.16
+go 1.23
 
 require (
 	github.com/goccy/go-yaml v1.9.5
