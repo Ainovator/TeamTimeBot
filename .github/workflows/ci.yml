@@ -21,6 +21,9 @@ jobs:
           go-version: "1.23.x"
           cache: true
 
+      - name: Go version
+        run: go version
+
       - name: Verify dependencies
         run: go mod verify
 
