@@ -48,6 +48,7 @@ jobs:
               echo "Directory $APP_DIR does not contain git repo"
               exit 1
             fi
+            git config --global --add safe.directory "$APP_DIR"
             cd "$APP_DIR"
             git fetch --all --prune
             git checkout "$BRANCH"
