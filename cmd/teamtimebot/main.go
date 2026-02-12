@@ -24,15 +24,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	bot, err := tele.NewBot(tele.Settings{
-		Token:  cfg.BotToken,
-		Poller: &tele.LongPoller{Timeout: cfg.PollerTimeout},
-	})
+	bot, err := tele.NewBot(cfg.BotToken)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	messages := make(chan tele.Message, 100)
+	bot.Listen(messages, cfg.PollerTimeout)
+
 	telegram.RegisterHandlers(bot, store)
 	log.Println("TeamTimeBot started")
-	bot.Start()
+
+	for message := range messages {
+		bot.Serve(message)
+	}
 }
