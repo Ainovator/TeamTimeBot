@@ -28,7 +28,7 @@ jobs:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
-          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          APP_DIR: /opt/teamtimebot
           BRANCH: master
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -38,6 +38,9 @@ jobs:
           envs: APP_DIR,BRANCH
           script: |
             set -e
+            whoami
+            printf 'APP_DIR=[%s]\n' "$APP_DIR"
+            ls -la "$APP_DIR" || true
             if [ -z "$APP_DIR" ]; then
               APP_DIR="$HOME/teamtimebot"
             fi
