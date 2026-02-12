@@ -12,10 +12,19 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' }}
     timeout-minutes: 15
 
     steps:
+      - name: Validate required secrets
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          test -n "$SSH_HOST" || (echo "Missing secret: SSH_HOST" && exit 1)
+          test -n "$SSH_USER" || (echo "Missing secret: SSH_USER" && exit 1)
+          test -n "$SSH_KEY" || (echo "Missing secret: SSH_KEY" && exit 1)
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -25,7 +34,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
+          port: 22
           envs: APP_DIR,BRANCH
           script: |
             set -e
