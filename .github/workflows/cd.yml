@@ -2,7 +2,7 @@ name: CD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 concurrency:
@@ -20,7 +20,7 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           APP_DIR: ${{ secrets.SERVER_APP_DIR }}
-          BRANCH: main
+          BRANCH: master
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
