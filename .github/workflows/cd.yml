@@ -1,0 +1,47 @@
+name: CD
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_KEY != '' }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          APP_DIR: ${{ secrets.SERVER_APP_DIR }}
+          BRANCH: main
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          envs: APP_DIR,BRANCH
+          script: |
+            set -e
+            if [ -z "$APP_DIR" ]; then
+              APP_DIR="$HOME/teamtimebot"
+            fi
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "Directory $APP_DIR does not contain git repo"
+              exit 1
+            fi
+            cd "$APP_DIR"
+            git fetch --all --prune
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+            docker compose -f docker-compose.prod.yml build bot
+            docker compose -f docker-compose.prod.yml up -d db
+            docker compose -f docker-compose.prod.yml run --rm bot /migrate -dir /migrations up
+            docker compose -f docker-compose.prod.yml up -d bot
+            docker image prune -f
