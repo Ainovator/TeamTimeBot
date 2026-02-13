@@ -106,6 +106,8 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleTemplateRoutes(w, r, chatID, parts[2:])
 	case "polls":
 		s.handlePollRoutes(w, r, chatID, parts[2:])
+	case "registration":
+		s.handleRegistrationRoutes(w, r, chatID, parts[2:])
 	case "schedules":
 		s.handleScheduleRoutes(w, r, chatID, parts[2:])
 	case "events":
@@ -115,6 +117,37 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (s *Server) handleRegistrationRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if len(parts) == 1 && parts[0] == "publish" && r.Method == http.MethodPost {
+		if s.bot == nil {
+			writeErrorMessage(w, http.StatusBadRequest, "manual controls are unavailable: bot is not configured")
+			return
+		}
+		template, err := s.store.EnsureDefaultRegistrationTemplate(r.Context(), chatID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
+		sent, err := s.bot.SendPollWithMeta(chat, template.Question, template.Options, nil)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if sent == nil {
+			writeErrorMessage(w, http.StatusBadRequest, "telegram did not return poll metadata")
+			return
+		}
+		if _, err := s.store.CreateEventPollPost(r.Context(), chatID, nil, template.Name, sent.MessageID, sent.PollID); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+	writeMethodNotAllowed(w)
 }
 
 func (s *Server) handlePollRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {

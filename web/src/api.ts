@@ -327,6 +327,11 @@ export async function fetchGroupPollVotes(chatID: number, postID: number): Promi
   return parseResponse<GroupPollVoteItem[]>(res)
 }
 
+export async function publishRegistration(chatID: number) {
+  const res = await fetch(`/api/groups/${chatID}/registration/publish`, { method: 'POST' })
+  await parseResponse<{ status: string }>(res)
+}
+
 export async function fetchEventHistory(chatID: number): Promise<EventHistoryItem[]> {
   const res = await fetch(`/api/groups/${chatID}/events/history`)
   return parseResponse<EventHistoryItem[]>(res)

@@ -14,6 +14,7 @@ import {
   fetchEventHistory,
   fetchGroupPolls,
   fetchGroupPollVotes,
+  publishRegistration,
   generateEventBillingForInstance,
   fetchEventPollHistoryForInstance,
   fetchEventTeamSplit,
@@ -387,15 +388,19 @@ export default function App() {
 
         const hasActive = resolvedChatID !== null && loadedGroups.some((group) => group.chatID === resolvedChatID)
         if (!hasActive) {
+          const first = loadedGroups[0]
           navigateTo(
             {
-              chatID: loadedGroups[0].chatID,
-              orgKey: makeOrgKey(loadedGroups[0].title, loadedGroups[0].chatID),
-              section: 'overview',
-              templateView: 'list',
-              templateName: null,
-              eventView: 'list',
-              eventID: null,
+              chatID: first.chatID,
+              orgKey: makeOrgKey(first.title, first.chatID),
+              section: activeSection,
+              memberID: activeSection === 'members' ? activeMemberID : null,
+              historyEventID: activeSection === 'events' ? activeHistoryEventID : null,
+              pollPostID: activeSection === 'polls' ? activePollPostID : null,
+              templateView: activeSection === 'templates' ? activeTemplateView : 'list',
+              templateName: activeSection === 'templates' ? activeTemplateName : null,
+              eventView: activeSection === 'event_templates' ? activeEventView : 'list',
+              eventID: activeSection === 'event_templates' ? activeEventID : null,
             },
             true,
           )
@@ -979,6 +984,13 @@ export default function App() {
     }
   }
 
+  async function onPublishRegistration() {
+    if (activeChatID === null) {
+      return
+    }
+    await runAction(() => publishRegistration(activeChatID), 'Регистрация опубликована')
+  }
+
   async function onCreateTemplate(e: FormEvent) {
     e.preventDefault()
     if (activeChatID === null) {
@@ -1016,6 +1028,10 @@ export default function App() {
 
   async function onDeleteTemplate(templateName: string) {
     if (activeChatID === null) {
+      return
+    }
+    if (templateName.trim().toLowerCase() === 'регистрация') {
+      setError('Нельзя удалить системный шаблон \"Регистрация\"')
       return
     }
     await runAction(() => deleteTemplate(activeChatID, templateName), 'Шаблон удален')
@@ -1129,6 +1145,11 @@ export default function App() {
 
   async function onDeleteTemplateEditor() {
     if (activeChatID === null || !activeTemplateName) {
+      return
+    }
+
+    if (activeTemplateName.trim().toLowerCase() === 'регистрация') {
+      setError('Нельзя удалить системный шаблон \"Регистрация\"')
       return
     }
 
@@ -1857,6 +1878,11 @@ export default function App() {
               <strong>{details.group.timezone}</strong>
             </div>
           </div>
+          <div className="manual-controls">
+            <button type="button" className="btn-secondary" onClick={() => void onPublishRegistration()}>
+              Опубликовать регистрацию
+            </button>
+          </div>
         </section>
       </>
     )
@@ -2170,6 +2196,7 @@ export default function App() {
               value={templateEditor.name}
               onChange={(e) => setTemplateEditor((prev) => ({ ...prev, name: e.target.value }))}
               required
+              disabled={activeTemplateName?.trim().toLowerCase() === 'регистрация'}
             />
             <h4>Вопрос</h4>
             <input
@@ -2210,9 +2237,11 @@ export default function App() {
             </button>
             <div className="split-forms">
               <button type="submit">Сохранить изменения</button>
-              <button type="button" className="btn-danger" onClick={() => void onDeleteTemplateEditor()}>
-                Удалить шаблон
-              </button>
+              {activeTemplateName?.trim().toLowerCase() === 'регистрация' ? null : (
+                <button type="button" className="btn-danger" onClick={() => void onDeleteTemplateEditor()}>
+                  Удалить шаблон
+                </button>
+              )}
             </div>
           </form>
         ) : null}
@@ -2348,9 +2377,11 @@ export default function App() {
                   >
                     Открыть
                   </button>
-                  <button className="btn-danger" onClick={() => onDeleteTemplate(template.name)}>
-                    Удалить
-                  </button>
+                  {template.name.trim().toLowerCase() === 'регистрация' ? null : (
+                    <button className="btn-danger" onClick={() => onDeleteTemplate(template.name)}>
+                      Удалить
+                    </button>
+                  )}
                 </div>
               </div>
             ))

@@ -100,6 +100,11 @@ func RegisterHandlers(bot *tele.Bot, store *postgres.Store) {
 			return
 		}
 
+		if _, err := store.EnsureDefaultRegistrationTemplate(context.Background(), chat.ID); err != nil {
+			_ = c.Bot.SendMessage(chat, "Группа сохранена, но не удалось создать шаблон \"Регистрация\": "+err.Error(), nil)
+			return
+		}
+
 		_ = c.Bot.SendMessage(chat, fmt.Sprintf("Группа сохранена: %s (%s). Админы синхронизированы.", group.Title, group.Timezone), nil)
 	})
 

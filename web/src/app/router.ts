@@ -38,6 +38,68 @@ export function parseRoute(pathname: string): RouteState {
   }
 
   const segments = pathname.split('/').filter(Boolean)
+
+  // Support direct section URLs without /org/<orgKey>/ prefix.
+  // We will resolve the actual organization later after groups are loaded.
+  if (segments.length > 0 && segments[0] !== 'org') {
+    const section = segments[0]
+    if (section === 'overview' || section === 'members' || section === 'templates' || section === 'polls' || section === 'events') {
+      route.section = section
+    }
+    if (section === 'history') {
+      route.section = 'events'
+    }
+    if (section === 'event-templates') {
+      route.section = 'event_templates'
+    }
+
+    // Parse sub-routes relative to the section, e.g. /templates/new, /event-templates/10.
+    const rest = segments.slice(1)
+    if (route.section === 'templates') {
+      if (rest.length >= 1) {
+        if (rest[0] === 'new') {
+          route.templateView = 'create'
+        } else {
+          route.templateView = 'edit'
+          route.templateName = decodeURIComponent(rest[0])
+        }
+      }
+    }
+    if (route.section === 'members' && rest.length >= 1) {
+      const memberID = Number(rest[0])
+      if (!Number.isNaN(memberID)) {
+        route.memberID = memberID
+      }
+    }
+    if (route.section === 'polls' && rest.length >= 1) {
+      const postID = Number(rest[0])
+      if (!Number.isNaN(postID)) {
+        route.pollPostID = postID
+      }
+    }
+    if (route.section === 'events' && rest.length >= 1) {
+      const eventID = Number(rest[0])
+      if (!Number.isNaN(eventID)) {
+        route.historyEventID = eventID
+      }
+    }
+    if (route.section === 'event_templates') {
+      if (rest.length >= 1) {
+        if (rest[0] === 'new') {
+          route.eventView = 'create'
+        } else {
+          const eventID = Number(rest[0])
+          if (!Number.isNaN(eventID)) {
+            route.eventView = 'edit'
+            route.eventID = eventID
+          }
+        }
+      }
+    }
+
+    return route
+  }
+
   if (segments.length < 2 || segments[0] !== 'org') {
     return route
   }

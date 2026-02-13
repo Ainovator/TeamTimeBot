@@ -26,8 +26,8 @@ export function toHourMinute(value: string): string {
   return value.slice(0, 5)
 }
 
-export function formatMoney(value?: number): string {
-  if (value === undefined) {
+export function formatMoney(value?: number | null): string {
+  if (value === undefined || value === null) {
     return 'не указана'
   }
   return `${value.toFixed(2)} ₽`

@@ -581,6 +581,39 @@ func (s *Store) UpsertPollTemplateWithCounted(
 	return &template, nil
 }
 
+func (s *Store) EnsureDefaultRegistrationTemplate(ctx context.Context, chatID int64) (*TemplateDetails, error) {
+	const name = "Регистрация"
+	const question = "Регистрация: выбери вариант"
+	options := []string{"Зарегистрироваться", "Не буду"}
+	counted := []int{0}
+
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Do not overwrite an existing template if the admin edited it.
+	var existing PollTemplate
+	if err := s.db.WithContext(ctx).
+		Where("group_id = ? AND name = ? AND is_active = TRUE", group.ID, name).
+		First(&existing).Error; err == nil {
+		return s.GetTemplateByName(ctx, chatID, name)
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	if _, err := s.UpsertPollTemplateWithCounted(ctx, chatID, name, question, options, counted); err != nil {
+		return nil, err
+	}
+	return s.GetTemplateByName(ctx, chatID, name)
+}
+
+func isSystemTemplateName(templateName string) bool {
+	// Keep this simple and explicit for now.
+	// If we later add more system templates, they can be listed here.
+	return strings.EqualFold(strings.TrimSpace(templateName), "Регистрация")
+}
+
 func (s *Store) UpsertSchedule(
 	ctx context.Context,
 	chatID int64,
@@ -1121,6 +1154,10 @@ func (s *Store) SetScheduleActive(ctx context.Context, chatID int64, scheduleID 
 }
 
 func (s *Store) DeleteTemplateByName(ctx context.Context, chatID int64, templateName string) error {
+	if isSystemTemplateName(templateName) {
+		return errors.New("нельзя удалить системный шаблон \"Регистрация\"")
+	}
+
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
 		return err
@@ -1279,6 +1316,12 @@ func (s *Store) UpdateTemplateByNameWithCounted(
 	options []string,
 	countedOptions []int,
 ) (*TemplateDetails, error) {
+	// Prevent renaming of system templates to avoid breaking integrations
+	// that rely on a stable name.
+	if isSystemTemplateName(currentName) && strings.TrimSpace(newName) != "" && !strings.EqualFold(strings.TrimSpace(newName), strings.TrimSpace(currentName)) {
+		return nil, errors.New("нельзя переименовать системный шаблон \"Регистрация\"")
+	}
+
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
 		return nil, err
@@ -1585,7 +1628,9 @@ func (s *Store) ListEventsByChatID(ctx context.Context, chatID int64) ([]EventVi
 	var rows []EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.cancel_notify_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		// Be defensive: older rows (or partially-migrated DBs) may have NULLs in some columns.
+		// Scanning NULL into Go string/int fields will error and break the whole page.
+		Select("ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.group_id = ? AND ge.is_active = TRUE", group.ID).
 		Order("id DESC").
@@ -1604,7 +1649,7 @@ func (s *Store) ListArchivedEventsByChatID(ctx context.Context, chatID int64) ([
 	var rows []EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.cancel_notify_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.group_id = ? AND ge.is_active = FALSE", group.ID).
 		Order("id DESC").
@@ -1623,7 +1668,7 @@ func (s *Store) GetEventByID(ctx context.Context, chatID int64, eventID uint64) 
 	var row EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.cancel_notify_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE", eventID, group.ID).
 		First(&row).Error; err != nil {
@@ -2517,7 +2562,7 @@ func (s *Store) ListActiveEventsWithGroups(ctx context.Context) ([]EventWithGrou
 	var rows []EventWithGroupView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id AS event_id, ge.group_id, g.chat_id, g.timezone, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.cancel_notify_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id AS event_id, ge.group_id, g.chat_id, g.timezone, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(pt.name, '') AS poll_template").
 		Joins("JOIN telegram_groups g ON g.id = ge.group_id").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.is_active = TRUE AND ge.publish_enabled = TRUE AND g.is_active = TRUE").
