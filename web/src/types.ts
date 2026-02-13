@@ -153,3 +153,17 @@ export type MemberSkillProfile = {
 export type ApiError = {
   error: string
 }
+
+export type AuthConfig = {
+  enabled: boolean
+  telegramLoginBot?: string
+  sessionCookieName?: string
+}
+
+export type AuthUser = {
+  id: number
+  username: string
+  firstName: string
+  lastName: string
+  authDate: number
+}

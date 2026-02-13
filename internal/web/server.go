@@ -2,6 +2,10 @@ package web
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,13 +23,55 @@ import (
 )
 
 type Config struct {
-	StaticDir string
+	StaticDir                string
+	TelegramLoginBotUsername string
+	TelegramBotToken         string
+	SessionSecret            string
 }
 
 type Server struct {
 	store     *postgres.Store
 	staticDir string
 	bot       *tele.Bot
+	auth      authConfig
+}
+
+type authConfig struct {
+	enabled    bool
+	loginBot   string
+	botToken   string
+	cookieName string
+	secret     []byte
+}
+
+type authContextKey string
+
+const authUserContextKey authContextKey = "auth_user"
+
+type AuthUser struct {
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	AuthDate  int64  `json:"authDate"`
+}
+
+type sessionClaims struct {
+	UserID    int64  `json:"userId"`
+	Username  string `json:"username"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Exp       int64  `json:"exp"`
+}
+
+type telegramAuthPayload struct {
+	ID        int64  `json:"id"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Username  string `json:"username"`
+	PhotoURL  string `json:"photo_url"`
+	AuthDate  int64  `json:"auth_date"`
+	Hash      string `json:"hash"`
 }
 
 type GroupDetails struct {
@@ -40,12 +87,35 @@ type ErrorResponse struct {
 }
 
 func NewServer(store *postgres.Store, bot *tele.Bot, cfg Config) *Server {
-	return &Server{store: store, bot: bot, staticDir: strings.TrimSpace(cfg.StaticDir)}
+	loginBot := strings.TrimSpace(cfg.TelegramLoginBotUsername)
+	botToken := strings.TrimSpace(cfg.TelegramBotToken)
+	secret := strings.TrimSpace(cfg.SessionSecret)
+	if secret == "" {
+		secret = botToken
+	}
+
+	auth := authConfig{
+		enabled:    loginBot != "" && botToken != "" && secret != "",
+		loginBot:   loginBot,
+		botToken:   botToken,
+		cookieName: "tt_session",
+		secret:     []byte(secret),
+	}
+	return &Server{
+		store:     store,
+		bot:       bot,
+		staticDir: strings.TrimSpace(cfg.StaticDir),
+		auth:      auth,
+	}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealth)
+	mux.HandleFunc("/api/auth/config", s.handleAuthConfig)
+	mux.HandleFunc("/api/auth/me", s.handleAuthMe)
+	mux.HandleFunc("/api/auth/telegram", s.handleAuthTelegram)
+	mux.HandleFunc("/api/auth/logout", s.handleAuthLogout)
 	mux.HandleFunc("/api/groups", s.handleGroups)
 	mux.HandleFunc("/api/groups/", s.handleGroupRoutes)
 	mux.HandleFunc("/", s.handleStaticOrInfo)
@@ -65,12 +135,108 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w)
 		return
 	}
-	groups, err := s.store.ListActiveGroups(r.Context())
+	if !s.auth.enabled {
+		groups, err := s.store.ListActiveGroups(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, groups)
+		return
+	}
+	authUser, ok := s.authUserFromRequest(r)
+	if !ok {
+		writeErrorMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	groups, err := s.store.ListActiveGroupsForAdmin(r.Context(), authUser.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, groups)
+}
+
+func (s *Server) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"enabled":           s.auth.enabled,
+		"telegramLoginBot":  s.auth.loginBot,
+		"sessionCookieName": s.auth.cookieName,
+	})
+}
+
+func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w)
+		return
+	}
+	if !s.auth.enabled {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"enabled": false, "user": nil})
+		return
+	}
+	user, ok := s.authUserFromRequest(r)
+	if !ok {
+		writeErrorMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"enabled": true, "user": user})
+}
+
+func (s *Server) handleAuthTelegram(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w)
+		return
+	}
+	if !s.auth.enabled {
+		writeErrorMessage(w, http.StatusBadRequest, "telegram auth is not configured")
+		return
+	}
+	var req telegramAuthPayload
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	user, err := s.verifyTelegramLogin(req)
+	if err != nil {
+		writeErrorMessage(w, http.StatusUnauthorized, "telegram auth verification failed")
+		return
+	}
+	token, err := s.buildSessionToken(user)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     s.auth.cookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   7 * 24 * 60 * 60,
+	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "user": user})
+}
+
+func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     s.auth.cookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
@@ -1103,6 +1269,132 @@ func sanitizeOptions(options []string) []string {
 		}
 	}
 	return result
+}
+
+func (s *Server) authUserFromRequest(r *http.Request) (AuthUser, bool) {
+	if !s.auth.enabled {
+		return AuthUser{}, false
+	}
+	cookie, err := r.Cookie(s.auth.cookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return AuthUser{}, false
+	}
+	claims, err := s.parseSessionToken(cookie.Value)
+	if err != nil {
+		return AuthUser{}, false
+	}
+	return AuthUser{
+		ID:        claims.UserID,
+		Username:  claims.Username,
+		FirstName: claims.FirstName,
+		LastName:  claims.LastName,
+		AuthDate:  time.Now().Unix(),
+	}, true
+}
+
+func (s *Server) verifyTelegramLogin(req telegramAuthPayload) (AuthUser, error) {
+	if req.ID == 0 || req.AuthDate == 0 || strings.TrimSpace(req.Hash) == "" {
+		return AuthUser{}, errors.New("invalid telegram auth payload")
+	}
+	authTime := time.Unix(req.AuthDate, 0)
+	if authTime.Before(time.Now().Add(-24 * time.Hour)) {
+		return AuthUser{}, errors.New("telegram auth payload expired")
+	}
+
+	values := map[string]string{
+		"auth_date":  strconv.FormatInt(req.AuthDate, 10),
+		"first_name": strings.TrimSpace(req.FirstName),
+		"id":         strconv.FormatInt(req.ID, 10),
+		"last_name":  strings.TrimSpace(req.LastName),
+		"photo_url":  strings.TrimSpace(req.PhotoURL),
+		"username":   strings.TrimSpace(req.Username),
+	}
+	keys := make([]string, 0, len(values))
+	for k, v := range values {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, key := range keys {
+		lines = append(lines, key+"="+values[key])
+	}
+	dataCheckString := strings.Join(lines, "\n")
+
+	botSecretHash := sha256.Sum256([]byte(s.auth.botToken))
+	mac := hmac.New(sha256.New, botSecretHash[:])
+	_, _ = mac.Write([]byte(dataCheckString))
+	expected := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(expected), []byte(strings.TrimSpace(req.Hash))) {
+		return AuthUser{}, errors.New("invalid telegram hash")
+	}
+
+	return AuthUser{
+		ID:        req.ID,
+		Username:  strings.TrimSpace(req.Username),
+		FirstName: strings.TrimSpace(req.FirstName),
+		LastName:  strings.TrimSpace(req.LastName),
+		AuthDate:  req.AuthDate,
+	}, nil
+}
+
+func (s *Server) buildSessionToken(user AuthUser) (string, error) {
+	claims := sessionClaims{
+		UserID:    user.ID,
+		Username:  user.Username,
+		FirstName: user.FirstName,
+		LastName:  user.LastName,
+		Exp:       time.Now().Add(7 * 24 * time.Hour).Unix(),
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	payloadEncoded := base64.RawURLEncoding.EncodeToString(payload)
+	mac := hmac.New(sha256.New, s.auth.secret)
+	_, _ = mac.Write([]byte(payloadEncoded))
+	signature := hex.EncodeToString(mac.Sum(nil))
+	return payloadEncoded + "." + signature, nil
+}
+
+func (s *Server) parseSessionToken(token string) (sessionClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return sessionClaims{}, errors.New("invalid session token")
+	}
+	payloadEncoded := strings.TrimSpace(parts[0])
+	signature := strings.TrimSpace(parts[1])
+	if payloadEncoded == "" || signature == "" {
+		return sessionClaims{}, errors.New("invalid session token parts")
+	}
+	mac := hmac.New(sha256.New, s.auth.secret)
+	_, _ = mac.Write([]byte(payloadEncoded))
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(expectedSig), []byte(signature)) {
+		return sessionClaims{}, errors.New("invalid session signature")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(payloadEncoded)
+	if err != nil {
+		return sessionClaims{}, err
+	}
+	var claims sessionClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return sessionClaims{}, err
+	}
+	if claims.UserID == 0 || claims.Exp <= 0 || time.Now().Unix() > claims.Exp {
+		return sessionClaims{}, errors.New("session expired")
+	}
+	return claims, nil
+}
+
+func isSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
 func decodeJSON(r *http.Request, dst interface{}) error {

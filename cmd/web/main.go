@@ -32,7 +32,10 @@ func main() {
 	}
 
 	srv := web.NewServer(store, bot, web.Config{
-		StaticDir: os.Getenv("WEB_STATIC_DIR"),
+		StaticDir:                os.Getenv("WEB_STATIC_DIR"),
+		TelegramLoginBotUsername: os.Getenv("WEB_TELEGRAM_LOGIN_BOT"),
+		TelegramBotToken:         cfg.BotToken,
+		SessionSecret:            os.Getenv("WEB_SESSION_SECRET"),
 	})
 
 	addr := os.Getenv("WEB_ADDR")
