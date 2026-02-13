@@ -1,7 +1,6 @@
 package telebot
 
 import (
-	"fmt"
 	"os"
 	"testing"
 )
@@ -13,11 +12,7 @@ func TestBot(t *testing.T) {
 
 	token := os.Getenv("TELEBOT_SECRET")
 	if token == "" {
-		fmt.Println("ERROR: " +
-			"In order to test telebot functionality, you need to set up " +
-			"TELEBOT_SECRET environmental variable, which represents an API " +
-			"key to a Telegram bot.\n")
-		t.Fatal("Could't find TELEBOT_SECRET, aborting.")
+		t.Skip("TELEBOT_SECRET is not set; skipping integration test.")
 	}
 
 	_, err := NewBot(token)
