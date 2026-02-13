@@ -351,6 +351,38 @@ h4 {
   font-size: 13px;
 }
 
+.event-info-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+
+.event-info-grid p,
+.event-info-grid > span {
+  margin: 0;
+  display: grid;
+  gap: 3px;
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.event-info-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.history-card-title {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.history-info-grid {
+  margin-top: 8px;
+}
+
 .form-grid {
   margin-top: 12px;
   display: grid;
@@ -1344,6 +1376,10 @@ button:disabled {
   }
 
   .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .event-info-grid {
     grid-template-columns: 1fr;
   }
 

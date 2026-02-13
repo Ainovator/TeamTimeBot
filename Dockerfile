@@ -1,3 +1,13 @@
+FROM node:20-alpine AS web-builder
+
+WORKDIR /web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+
+COPY web/ ./
+RUN npm run build
+
 FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
@@ -18,5 +28,6 @@ COPY --from=builder /out/teamtimebot /teamtimebot
 COPY --from=builder /out/migrate /migrate
 COPY --from=builder /out/web /web
 COPY --from=builder /app/db/migrations /migrations
+COPY --from=web-builder /web/dist /web-static
 
 ENTRYPOINT ["/teamtimebot"]

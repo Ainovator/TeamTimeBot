@@ -46,7 +46,7 @@ services:
     entrypoint: ["/web"]
     environment:
       WEB_ADDR: ${WEB_ADDR:-:8080}
-      WEB_STATIC_DIR: ${WEB_STATIC_DIR:-}
+      WEB_STATIC_DIR: ${WEB_STATIC_DIR:-/web-static}
       DATABASE_URL: ${DATABASE_URL:-}
       POSTGRES_HOST: ${POSTGRES_HOST:-db}
       POSTGRES_DB: ${POSTGRES_DB:-teamtimebot}

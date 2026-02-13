@@ -152,12 +152,14 @@ export default function App() {
     templateName: '',
   })
   const [eventsMode, setEventsMode] = useState<'active' | 'archived'>('active')
+  const [eventsTypeFilter, setEventsTypeFilter] = useState<'' | 'training' | 'activity'>('')
   const [archivedEvents, setArchivedEvents] = useState<EventView[]>([])
   const [eventActivity, setEventActivity] = useState<EventActivitySummary | null>(null)
   const [eventActivityLoading, setEventActivityLoading] = useState(false)
   const [eventActivityError, setEventActivityError] = useState('')
   const [showEventActivity, setShowEventActivity] = useState(false)
   const [eventHistory, setEventHistory] = useState<EventHistoryItem[]>([])
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'completed'>('')
   const [eventHistoryLoading, setEventHistoryLoading] = useState(false)
   const [eventHistoryError, setEventHistoryError] = useState('')
   const [eventPollHistory, setEventPollHistory] = useState<EventPollHistoryItem[]>([])
@@ -184,6 +186,19 @@ export default function App() {
     () => events.find((event) => event.id === activeEventID) ?? null,
     [events, activeEventID],
   )
+  const displayedEvents = useMemo(() => {
+    const source = eventsMode === 'active' ? events : ensureList(archivedEvents)
+    if (eventsTypeFilter === '') {
+      return source
+    }
+    return source.filter((event) => event.eventType === eventsTypeFilter)
+  }, [archivedEvents, events, eventsMode, eventsTypeFilter])
+  const filteredEventHistory = useMemo(() => {
+    if (historyStatusFilter === '') {
+      return eventHistory
+    }
+    return eventHistory.filter((item) => item.status === historyStatusFilter)
+  }, [eventHistory, historyStatusFilter])
   const filteredMembers = useMemo(() => {
     const query = membersSearch.trim().toLowerCase()
     return members.filter((member) => {
@@ -2474,72 +2489,117 @@ export default function App() {
           </div>
         </div>
 
+        <div className="form-grid form-grid-3 members-filters">
+          <label className="field">
+            <span>Тип события</span>
+            <select value={eventsTypeFilter} onChange={(e) => setEventsTypeFilter(e.target.value as '' | 'training' | 'activity')}>
+              <option value="">Все типы</option>
+              <option value="training">Тренировка</option>
+              <option value="activity">Мероприятие</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Режим</span>
+            <input value={eventsMode === 'active' ? 'Активные' : 'Архив'} readOnly />
+          </label>
+          <label className="field">
+            <span>Результат</span>
+            <input value={`${displayedEvents.length} шт.`} readOnly />
+          </label>
+        </div>
+
         <div className="list-block">
-          {(eventsMode === 'active' ? events : ensureList(archivedEvents)).length ? (
-            (eventsMode === 'active' ? events : ensureList(archivedEvents)).map((event) => (
-              <div
-                className={`event-card ${eventsMode === 'active' ? 'clickable' : ''}`}
-                key={event.id}
-                onClick={
-                  eventsMode === 'active'
-                    ? () =>
-                        navigateTo({
-                          chatID: activeChatID,
-                          section: 'events',
-                          templateView: 'list',
-                          templateName: null,
-                          eventView: 'edit',
-                          eventID: event.id,
-                        })
-                    : undefined
-                }
-              >
-                <div>
-                  <strong>
-                    #{event.id} {event.name}
-                  </strong>
-                  <p>
-                    Тип: {event.eventType === 'training' ? 'Тренировка' : 'Мероприятие'}
-                  </p>
-                  <p>
-                    День: {weekdayLabel(event.startWeekday)} | {toHourMinute(event.startTime)} - {toHourMinute(event.endTime)}
-                  </p>
-                  <p>
-                    Опрос: {event.pollTemplate || 'не привязан'} | Публикация: {weekdayLabel(event.pollPublishWeekday || event.startWeekday)}{' '}
-                    {toHourMinute(event.pollPublishTime)} | Стоимость: {formatMoney(event.costAmount)}
-                  </p>
-                  <p>
-                    Анонс: {event.announcementEnabled ? `включен (${announcementLeadLabel(event.announcementLeadMinutes || 60)})` : 'выключен'}
-                  </p>
-                  <p>Публикации: {event.publishEnabled ? 'активны' : 'отключены'}</p>
-                  <p>
-                    Расчёт: {event.settlementEnabled ? 'включен' : 'выключен'} | Перед началом: {event.settlementPublishBefore ? 'да' : 'нет'} |
-                    После: {event.settlementPublishAfter ? 'да' : 'нет'}
-                  </p>
-                </div>
-                <div className="list-actions">
-                  {eventsMode === 'active' ? (
-                    <button
-                      className="btn-danger btn-icon"
-                      title="В архив"
-                      aria-label="В архив"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void onArchiveEvent(event.id)
-                      }}
+          {displayedEvents.length ? (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>ID / Название</th>
+                    <th>Тип</th>
+                    <th>Расписание</th>
+                    <th>Опрос</th>
+                    <th>Статус</th>
+                    <th>Стоимость</th>
+                    <th>Действие</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayedEvents.map((event) => (
+                    <tr
+                      key={event.id}
+                      className={eventsMode === 'active' ? 'member-row' : undefined}
+                      onClick={
+                        eventsMode === 'active'
+                          ? () =>
+                              navigateTo({
+                                chatID: activeChatID,
+                                section: 'events',
+                                templateView: 'list',
+                                templateName: null,
+                                eventView: 'edit',
+                                eventID: event.id,
+                              })
+                          : undefined
+                      }
                     >
-                      <span aria-hidden>🗃</span>
-                    </button>
-                  ) : (
-                    <button className="btn-secondary" onClick={() => void onUnarchiveEvent(event.id)}>
-                      Восстановить
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
+                      <td>
+                        <div className="person-cell">
+                          <strong>#{event.id} {event.name}</strong>
+                          <span>
+                            {event.announcementEnabled
+                              ? `Анонс: ${announcementLeadLabel(event.announcementLeadMinutes || 60)}`
+                              : 'Анонс: выключен'}
+                          </span>
+                        </div>
+                      </td>
+                      <td>{event.eventType === 'training' ? 'Тренировка' : 'Мероприятие'}</td>
+                      <td>
+                        <div className="person-cell">
+                          <strong>
+                            {weekdayLabel(event.startWeekday)} · {toHourMinute(event.startTime)} - {toHourMinute(event.endTime)}
+                          </strong>
+                          <span>
+                            Публикация: {weekdayLabel(event.pollPublishWeekday || event.startWeekday)} {toHourMinute(event.pollPublishTime)}
+                          </span>
+                        </div>
+                      </td>
+                      <td>{event.pollTemplate || 'не привязан'}</td>
+                      <td>
+                        <div className="person-cell">
+                          <strong>{event.publishEnabled ? 'Публикации активны' : 'Публикации отключены'}</strong>
+                          <span>
+                            Расчёт: {event.settlementEnabled ? 'вкл' : 'выкл'} · до: {event.settlementPublishBefore ? 'да' : 'нет'} · после:{' '}
+                            {event.settlementPublishAfter ? 'да' : 'нет'}
+                          </span>
+                        </div>
+                      </td>
+                      <td>{formatMoney(event.costAmount)}</td>
+                      <td>
+                        {eventsMode === 'active' ? (
+                          <button
+                            className="btn-danger btn-icon"
+                            title="В архив"
+                            aria-label="В архив"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void onArchiveEvent(event.id)
+                            }}
+                          >
+                            <span aria-hidden>🗃</span>
+                          </button>
+                        ) : (
+                          <button className="btn-secondary" onClick={() => void onUnarchiveEvent(event.id)}>
+                            Восстановить
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
-            <p className="muted">{eventsMode === 'active' ? 'Событий пока нет' : 'Архив пуст'}</p>
+            <p className="muted">{eventsTypeFilter ? 'По выбранному типу событий нет' : eventsMode === 'active' ? 'Событий пока нет' : 'Архив пуст'}</p>
           )}
         </div>
       </section>
@@ -2557,41 +2617,83 @@ export default function App() {
           <div className="template-head">
             <h3>История событий</h3>
           </div>
+          <div className="form-grid form-grid-3 members-filters">
+            <label className="field">
+              <span>Статус</span>
+              <select
+                value={historyStatusFilter}
+                onChange={(e) =>
+                  setHistoryStatusFilter(e.target.value as '' | 'in_voting' | 'on_distribution' | 'completed')
+                }
+              >
+                <option value="">Все статусы</option>
+                <option value="in_voting">В голосовании</option>
+                <option value="on_distribution">На распределении</option>
+                <option value="completed">Завершено</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Период</span>
+              <input value="Последние события" readOnly />
+            </label>
+            <label className="field">
+              <span>Результат</span>
+              <input value={`${filteredEventHistory.length} шт.`} readOnly />
+            </label>
+          </div>
           {eventHistoryLoading ? <p className="muted">Загрузка истории событий...</p> : null}
           {eventHistoryError ? <p className="muted">Ошибка: {eventHistoryError}</p> : null}
           {!eventHistoryLoading && !eventHistoryError && eventHistory.length === 0 ? <p className="muted">Событий пока нет</p> : null}
 
-          {!eventHistoryLoading && eventHistory.length > 0 ? (
-            <div className="list-block">
-              {eventHistory.map((item) => (
-                <button
-                  key={item.eventID}
-                  type="button"
-                  className="history-poll-btn"
-                  onClick={() =>
-                    navigateTo({
-                      chatID: activeChatID,
-                      section: 'history',
-                      historyEventID: item.eventID,
-                      templateView: 'list',
-                      templateName: null,
-                      eventView: 'list',
-                      eventID: null,
-                    })
-                  }
-                >
-                  <span>
-                    #{item.eventID} · {item.name} · {item.eventType === 'training' ? 'Тренировка' : 'Мероприятие'}
-                  </span>
-                  <span>Статус: {historyStatusLabel(item.status)}</span>
-                  <span>Следующий старт: {formatDateTime(item.nextStartAt)}</span>
-                  <span>
-                    Опрос: {item.pollTemplate || 'не привязан'} · Последняя публикация:{' '}
-                    {item.latestPollAt ? formatDateTime(item.latestPollAt) : 'нет'}
-                  </span>
-                </button>
-              ))}
+          {!eventHistoryLoading && filteredEventHistory.length > 0 ? (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>ID / Название</th>
+                    <th>Тип</th>
+                    <th>Статус</th>
+                    <th>Следующий старт</th>
+                    <th>Опрос</th>
+                    <th>Последняя публикация</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEventHistory.map((item) => (
+                    <tr
+                      key={item.eventID}
+                      className="member-row"
+                      onClick={() =>
+                        navigateTo({
+                          chatID: activeChatID,
+                          section: 'history',
+                          historyEventID: item.eventID,
+                          templateView: 'list',
+                          templateName: null,
+                          eventView: 'list',
+                          eventID: null,
+                        })
+                      }
+                    >
+                      <td>
+                        <div className="person-cell">
+                          <strong>#{item.eventID} · {item.name}</strong>
+                          <span>{item.publishEnabled ? 'Публикации активны' : 'Публикации отключены'}</span>
+                        </div>
+                      </td>
+                      <td>{item.eventType === 'training' ? 'Тренировка' : 'Мероприятие'}</td>
+                      <td>{historyStatusLabel(item.status)}</td>
+                      <td>{formatDateTime(item.nextStartAt)}</td>
+                      <td>{item.pollTemplate || 'не привязан'}</td>
+                      <td>{item.latestPollAt ? formatDateTime(item.latestPollAt) : 'нет'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+          ) : null}
+          {!eventHistoryLoading && eventHistory.length > 0 && filteredEventHistory.length === 0 ? (
+            <p className="muted">По выбранному статусу событий нет</p>
           ) : null}
         </section>
       )
