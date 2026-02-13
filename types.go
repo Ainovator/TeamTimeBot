@@ -80,8 +80,16 @@ type Update struct {
 	Payload *Message `json:"message"`
 
 	// optional
-	Callback *Callback `json:"callback_query"`
-	Query    *Query    `json:"inline_query"`
+	Callback   *Callback   `json:"callback_query"`
+	Query      *Query      `json:"inline_query"`
+	PollAnswer *PollAnswer `json:"poll_answer"`
+}
+
+// PollAnswer object represents an answer of a user in a non-anonymous poll.
+type PollAnswer struct {
+	PollID    string `json:"poll_id"`
+	User      User   `json:"user"`
+	OptionIDs []int  `json:"option_ids"`
 }
 
 // Thumbnail object represents an image/sticker of a particular size.

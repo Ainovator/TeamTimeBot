@@ -20,6 +20,42 @@ func (TelegramGroup) TableName() string {
 	return "telegram_groups"
 }
 
+type TelegramUser struct {
+	ID          uint64 `gorm:"primaryKey"`
+	TelegramID  int64  `gorm:"uniqueIndex;not null"`
+	Username    string
+	FirstName   string
+	LastName    string
+	Language    string
+	IsBot       bool      `gorm:"not null;default:false"`
+	FirstSeenAt time.Time `gorm:"not null;default:now()"`
+	LastSeenAt  time.Time `gorm:"not null;default:now()"`
+	IsActive    bool      `gorm:"not null;default:true"`
+	CreatedAt   time.Time `gorm:"not null;default:now()"`
+	UpdatedAt   time.Time `gorm:"not null;default:now()"`
+}
+
+func (TelegramUser) TableName() string {
+	return "telegram_users"
+}
+
+type GroupMember struct {
+	ID             uint64    `gorm:"primaryKey"`
+	GroupID        uint64    `gorm:"not null;index;uniqueIndex:ux_group_member"`
+	UserTelegramID int64     `gorm:"not null;uniqueIndex:ux_group_member"`
+	Role           string    `gorm:"not null;default:member"`
+	Status         string    `gorm:"not null;default:active"`
+	JoinedAt       time.Time `gorm:"not null;default:now()"`
+	LastSeenAt     time.Time `gorm:"not null;default:now()"`
+	IsActive       bool      `gorm:"not null;default:true"`
+	CreatedAt      time.Time `gorm:"not null;default:now()"`
+	UpdatedAt      time.Time `gorm:"not null;default:now()"`
+}
+
+func (GroupMember) TableName() string {
+	return "group_members"
+}
+
 type PollTemplate struct {
 	ID        uint64         `gorm:"primaryKey"`
 	GroupID   uint64         `gorm:"not null;index;uniqueIndex:ux_group_template_name"`
@@ -48,4 +84,58 @@ type PollSchedule struct {
 
 func (PollSchedule) TableName() string {
 	return "poll_schedules"
+}
+
+type GroupEvent struct {
+	ID              uint64  `gorm:"primaryKey"`
+	GroupID         uint64  `gorm:"not null;index"`
+	PollTemplateID  *uint64 `gorm:"index"`
+	Name            string  `gorm:"not null"`
+	StartWeekday    int16   `gorm:"not null"`
+	PollPublishTime string
+	StartTime       string `gorm:"not null"`
+	EndTime         string `gorm:"not null"`
+	CostAmount      *float64
+	IsActive        bool      `gorm:"not null;default:true"`
+	CreatedAt       time.Time `gorm:"not null;default:now()"`
+	UpdatedAt       time.Time `gorm:"not null;default:now()"`
+}
+
+func (GroupEvent) TableName() string {
+	return "group_events"
+}
+
+type EventPollPost struct {
+	ID                uint64    `gorm:"primaryKey"`
+	GroupID           uint64    `gorm:"not null;index"`
+	EventID           *uint64   `gorm:"index"`
+	TemplateID        uint64    `gorm:"not null;index"`
+	TelegramMessageID int64     `gorm:"not null"`
+	TelegramPollID    string    `gorm:"index"`
+	Status            string    `gorm:"not null;default:open"`
+	PublishedAt       time.Time `gorm:"not null;default:now()"`
+	CreatedAt         time.Time `gorm:"not null;default:now()"`
+	UpdatedAt         time.Time `gorm:"not null;default:now()"`
+}
+
+func (EventPollPost) TableName() string {
+	return "event_poll_posts"
+}
+
+type EventPollVote struct {
+	ID        uint64 `gorm:"primaryKey"`
+	PostID    uint64 `gorm:"not null;index;uniqueIndex:ux_post_user_vote"`
+	UserID    int64  `gorm:"not null;uniqueIndex:ux_post_user_vote"`
+	Username  string
+	FirstName string
+	LastName  string
+	Choice    string    `gorm:"not null"`
+	Source    string    `gorm:"not null;default:inline"`
+	VotedAt   time.Time `gorm:"not null;default:now()"`
+	CreatedAt time.Time `gorm:"not null;default:now()"`
+	UpdatedAt time.Time `gorm:"not null;default:now()"`
+}
+
+func (EventPollVote) TableName() string {
+	return "event_poll_votes"
 }

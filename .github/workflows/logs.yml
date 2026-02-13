@@ -1,0 +1,42 @@
+name: Logs
+
+on:
+  workflow_dispatch:
+    inputs:
+      lines:
+        description: "How many log lines to show"
+        required: true
+        default: "200"
+
+jobs:
+  bot-logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Validate required secrets
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          test -n "$SSH_HOST" || (echo "Missing secret: SSH_HOST" && exit 1)
+          test -n "$SSH_USER" || (echo "Missing secret: SSH_USER" && exit 1)
+          test -n "$SSH_KEY" || (echo "Missing secret: SSH_KEY" && exit 1)
+
+      - name: Read bot logs over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          APP_DIR: /opt/teamtimebot
+          LINES: ${{ github.event.inputs.lines }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: 22
+          envs: APP_DIR,LINES
+          script: |
+            set -e
+            cd "$APP_DIR"
+            docker compose -f docker-compose.prod.yml ps
+            docker compose -f docker-compose.prod.yml logs --tail "$LINES" bot

@@ -22,3 +22,9 @@ _testmain.go
 *.exe
 *.test
 *.prof
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.prod.example

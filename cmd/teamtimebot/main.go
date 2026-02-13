@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	tele "gopkg.in/telebot.v4"
 
 	"gopkg.in/telebot.v4/internal/config"
+	"gopkg.in/telebot.v4/internal/scheduler"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
 	"gopkg.in/telebot.v4/internal/telegram"
 )
@@ -28,14 +30,33 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	bot.Errors = make(chan error, 100)
 
 	messages := make(chan tele.Message, 100)
-	bot.Listen(messages, cfg.PollerTimeout)
+	bot.Messages = messages
 
 	telegram.RegisterHandlers(bot, store)
 	log.Println("TeamTimeBot started")
+	go scheduler.NewPollScheduler(bot, store).Start(context.Background())
+	go scheduler.NewEventPollScheduler(bot, store).Start(context.Background())
+	go scheduler.NewEventSettlementScheduler(bot, store).Start(context.Background())
 
-	for message := range messages {
-		bot.Serve(message)
+	callbacks := make(chan tele.Callback, 100)
+	bot.Callbacks = callbacks
+	pollAnswers := make(chan tele.PollAnswer, 100)
+	bot.PollAnswers = pollAnswers
+	go bot.Start(cfg.PollerTimeout)
+
+	for {
+		select {
+		case message := <-messages:
+			bot.Serve(message)
+		case callback := <-callbacks:
+			telegram.HandleCallback(bot, store, callback)
+		case pollAnswer := <-pollAnswers:
+			telegram.HandlePollAnswer(store, pollAnswer)
+		case botErr := <-bot.Errors:
+			log.Printf("telegram poller error: %v", botErr)
+		}
 	}
 }

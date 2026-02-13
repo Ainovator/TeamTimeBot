@@ -12,11 +12,12 @@ import (
 
 // Bot represents a separate Telegram bot instance.
 type Bot struct {
-	Token     string
-	Identity  User
-	Messages  chan Message
-	Queries   chan Query
-	Callbacks chan Callback
+	Token       string
+	Identity    User
+	Messages    chan Message
+	Queries     chan Query
+	Callbacks   chan Callback
+	PollAnswers chan PollAnswer
 
 	// Telebot debugging channel. If present, Telebot
 	// will use it to report all occuring errors.
@@ -45,7 +46,7 @@ func NewBot(token string) (*Bot, error) {
 // Listen starts a new polling goroutine, one that periodically looks for
 // updates and delivers new messages to the subscription channel.
 func (b *Bot) Listen(subscription chan Message, timeout time.Duration) {
-	go b.poll(subscription, nil, nil, timeout)
+	go b.poll(subscription, nil, nil, nil, timeout)
 }
 
 // Start periodically polls messages, updates and callbacks into their
@@ -53,7 +54,7 @@ func (b *Bot) Listen(subscription chan Message, timeout time.Duration) {
 //
 // NOTE: It's a blocking method!
 func (b *Bot) Start(timeout time.Duration) {
-	b.poll(b.Messages, b.Queries, b.Callbacks, timeout)
+	b.poll(b.Messages, b.Queries, b.Callbacks, b.PollAnswers, timeout)
 }
 
 func (b *Bot) debug(err error) {
@@ -66,6 +67,7 @@ func (b *Bot) poll(
 	messages chan Message,
 	queries chan Query,
 	callbacks chan Callback,
+	pollAnswers chan PollAnswer,
 	timeout time.Duration,
 ) {
 	var latestUpdate int64
@@ -97,6 +99,12 @@ func (b *Bot) poll(
 				}
 
 				callbacks <- *update.Callback
+			} else if update.PollAnswer != nil {
+				if pollAnswers == nil {
+					continue
+				}
+
+				pollAnswers <- *update.PollAnswer
 			}
 
 			latestUpdate = update.ID
@@ -136,6 +144,71 @@ func (b *Bot) SendMessage(recipient Recipient, message string, options *SendOpti
 	}
 
 	return nil
+}
+
+type SentPoll struct {
+	MessageID int64
+	PollID    string
+}
+
+// SendPoll sends a native Telegram poll to recipient.
+func (b *Bot) SendPoll(recipient Recipient, question string, options []string, sendOptions *SendOptions) error {
+	_, err := b.SendPollWithMeta(recipient, question, options, sendOptions)
+	return err
+}
+
+// SendPollWithMeta sends a native Telegram poll and returns message/poll metadata.
+func (b *Bot) SendPollWithMeta(recipient Recipient, question string, options []string, sendOptions *SendOptions) (*SentPoll, error) {
+	payload := struct {
+		ChatID              string   `json:"chat_id"`
+		Question            string   `json:"question"`
+		Options             []string `json:"options"`
+		IsAnonymous         bool     `json:"is_anonymous"`
+		ReplyToMessageID    int      `json:"reply_to_message_id,omitempty"`
+		DisableNotification bool     `json:"disable_notification,omitempty"`
+	}{
+		ChatID:      recipient.Destination(),
+		Question:    question,
+		Options:     options,
+		IsAnonymous: false,
+	}
+
+	if sendOptions != nil {
+		if sendOptions.ReplyTo.ID != 0 {
+			payload.ReplyToMessageID = sendOptions.ReplyTo.ID
+		}
+		payload.DisableNotification = sendOptions.DisableNotification
+	}
+
+	responseJSON, err := b.sendCommand("sendPoll", payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var responseReceived struct {
+		Ok     bool
+		Result struct {
+			ID   int64 `json:"message_id"`
+			Poll struct {
+				ID string `json:"id"`
+			} `json:"poll"`
+		} `json:"result"`
+		Description string
+	}
+
+	err = json.Unmarshal(responseJSON, &responseReceived)
+	if err != nil {
+		return nil, errors.Wrap(err, "bad response json")
+	}
+
+	if !responseReceived.Ok {
+		return nil, errors.Errorf("api error: %s", responseReceived.Description)
+	}
+
+	return &SentPoll{
+		MessageID: responseReceived.Result.ID,
+		PollID:    responseReceived.Result.Poll.ID,
+	}, nil
 }
 
 // ForwardMessage forwards a message to recipient.

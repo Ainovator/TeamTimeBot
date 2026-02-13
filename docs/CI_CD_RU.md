@@ -35,7 +35,7 @@
 4. Выполни первый старт вручную:
    - `docker compose -f docker-compose.prod.yml build bot`
    - `docker compose -f docker-compose.prod.yml up -d db`
-   - `docker compose -f docker-compose.prod.yml run --rm bot /migrate -dir /migrations up`
+   - `docker compose -f docker-compose.prod.yml run --rm --entrypoint /migrate bot -dir /migrations up`
    - `docker compose -f docker-compose.prod.yml up -d bot`
 5. Примени миграции:
    - команда уже встроена в последовательность выше и в CD workflow.
