@@ -52,7 +52,7 @@ export const sections: SectionItem[] = [
   },
   {
     id: 'events',
-    title: 'События',
+    title: 'Шаблоны событий',
     subtitle: 'Тренировки и стоимость',
     icon: (
       <Icon>
