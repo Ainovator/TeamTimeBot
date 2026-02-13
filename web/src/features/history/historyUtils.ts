@@ -4,6 +4,9 @@ export function historyStatusLabel(status: EventHistoryItem['status']): string {
   if (status === 'not_held') {
     return 'Не состоялось'
   }
+  if (status === 'on_review') {
+    return 'На проверке'
+  }
   if (status === 'in_voting') {
     return 'В голосовании'
   }

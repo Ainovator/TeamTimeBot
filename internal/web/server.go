@@ -107,9 +107,24 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleScheduleRoutes(w, r, chatID, parts[2:])
 	case "events":
 		s.handleEventRoutes(w, r, chatID, parts[2:])
+	case "billing":
+		s.handleBillingRoutes(w, r, chatID, parts[2:])
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (s *Server) handleBillingRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if len(parts) == 1 && parts[0] == "summary" && r.Method == http.MethodGet {
+		summary, err := s.store.GetGroupDebtSummary(r.Context(), chatID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, summary)
+		return
+	}
+	writeMethodNotAllowed(w)
 }
 
 func (s *Server) handleGroupDetails(w http.ResponseWriter, r *http.Request, chatID int64) {
@@ -814,6 +829,52 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		}
 		writeJSON(w, http.StatusOK, summary)
 		return
+	}
+
+	if len(parts) == 2 && parts[1] == "billing" {
+		eventID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid event id")
+			return
+		}
+		if r.Method == http.MethodGet {
+			billing, err := s.store.GetEventBilling(r.Context(), chatID, eventID)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if billing == nil {
+				writeJSON(w, http.StatusOK, nil)
+				return
+			}
+			writeJSON(w, http.StatusOK, billing)
+			return
+		}
+		if r.Method == http.MethodPut {
+			var req struct {
+				Statuses []struct {
+					UserID int64 `json:"userID"`
+					Paid   bool  `json:"paid"`
+				} `json:"statuses"`
+			}
+			if err := decodeJSON(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			statuses := make(map[int64]bool, len(req.Statuses))
+			for _, item := range req.Statuses {
+				if item.UserID == 0 {
+					continue
+				}
+				statuses[item.UserID] = item.Paid
+			}
+			if err := s.store.SaveEventBillingPayments(r.Context(), chatID, eventID, statuses); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			return
+		}
 	}
 
 	if len(parts) == 2 && parts[1] == "polls" && r.Method == http.MethodGet {

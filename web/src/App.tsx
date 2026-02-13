@@ -9,9 +9,11 @@ import {
   deleteTemplate,
   fetchArchivedEvents,
   fetchEventActivity,
+  fetchEventBilling,
   fetchEventHistory,
   fetchEventPollHistory,
   fetchEventTeamSplit,
+  fetchGroupDebtSummary,
   fetchGroupDetails,
   fetchGroupMembers,
   fetchGroups,
@@ -25,6 +27,7 @@ import {
   publishEventSettlement,
   publishEventTeamSplit,
   saveEventTeamSplit,
+  saveEventBilling,
   unarchiveEvent,
   updateMemberProfile,
   updateMemberSkills,
@@ -61,10 +64,12 @@ import { buildTemplatePayload, ensureAtLeastTwoOptions, ensureAtLeastTwoTemplate
 import type {
   EventActivitySummary,
   EventHistoryItem,
+  EventBilling,
   EventPollHistoryItem,
   EventTeamSplitState,
   EventView,
   Group,
+  GroupDebtSummary,
   GroupDetails,
   GroupMember,
   MemberSkillProfile,
@@ -176,7 +181,8 @@ export default function App() {
   const [eventActivityError, setEventActivityError] = useState('')
   const [showEventActivity, setShowEventActivity] = useState(false)
   const [eventHistory, setEventHistory] = useState<EventHistoryItem[]>([])
-  const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'completed' | 'not_held'>('')
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'on_review' | 'completed' | 'not_held'>('')
+  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'billing'>('distribution')
   const [eventHistoryLoading, setEventHistoryLoading] = useState(false)
   const [eventHistoryError, setEventHistoryError] = useState('')
   const [eventPollHistory, setEventPollHistory] = useState<EventPollHistoryItem[]>([])
@@ -188,6 +194,11 @@ export default function App() {
   const [teamSplitError, setTeamSplitError] = useState('')
   const [draggedPlayerID, setDraggedPlayerID] = useState<number | null>(null)
   const [teamCEnabled, setTeamCEnabled] = useState(false)
+  const [eventBilling, setEventBilling] = useState<EventBilling | null>(null)
+  const [eventBillingLoading, setEventBillingLoading] = useState(false)
+  const [eventBillingError, setEventBillingError] = useState('')
+  const [eventBillingDraft, setEventBillingDraft] = useState<Record<number, boolean>>({})
+  const [groupDebtSummary, setGroupDebtSummary] = useState<GroupDebtSummary | null>(null)
 
   const templateNames = useMemo(() => ensureList(details?.templateNames), [details])
   const templates = useMemo(() => ensureList(details?.templates), [details])
@@ -383,6 +394,8 @@ export default function App() {
       setMemberSkillProfiles({})
       setSelectedMemberSkills(null)
       setEventHistory([])
+      setEventBilling(null)
+      setGroupDebtSummary(null)
       setActiveHistoryEventID(null)
       setArchivedEvents([])
       return
@@ -393,6 +406,8 @@ export default function App() {
       setMemberSkillProfiles({})
       setSelectedMemberSkills(null)
       setEventHistory([])
+      setEventBilling(null)
+      setGroupDebtSummary(null)
       setActiveHistoryEventID(null)
       setArchivedEvents([])
       return
@@ -609,6 +624,52 @@ export default function App() {
   }, [activeSection, activeChatID, activeHistoryEventID, success])
 
   useEffect(() => {
+    if (activeSection !== 'history' || activeChatID === null || activeHistoryEventID === null) {
+      setEventBilling(null)
+      setEventBillingDraft({})
+      return
+    }
+    let cancelled = false
+    setEventBillingLoading(true)
+    setEventBillingError('')
+    void fetchEventBilling(activeChatID, activeHistoryEventID)
+      .then((billing) => {
+        if (cancelled) {
+          return
+        }
+        setEventBilling(billing)
+        const draft: Record<number, boolean> = {}
+        if (billing?.players) {
+          for (const player of billing.players) {
+            draft[player.userID] = Boolean(player.isPaid)
+          }
+        }
+        setEventBillingDraft(draft)
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+        setEventBilling(null)
+        setEventBillingDraft({})
+        setEventBillingError((err as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setEventBillingLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, activeHistoryEventID, success])
+
+  useEffect(() => {
+    setHistoryDetailTab('distribution')
+  }, [activeHistoryEventID])
+
+  useEffect(() => {
     if (activeSection !== 'history' || activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null) {
       return
     }
@@ -707,6 +768,12 @@ export default function App() {
       const loadedDetails = await fetchGroupDetails(chatID)
       setDetails(loadedDetails)
       let loadedMembers: GroupMember[] = []
+      try {
+        const debt = await fetchGroupDebtSummary(chatID)
+        setGroupDebtSummary(debt)
+      } catch {
+        setGroupDebtSummary(null)
+      }
       try {
         const loadedArchived = await fetchArchivedEvents(chatID)
         setArchivedEvents(loadedArchived)
@@ -1422,6 +1489,33 @@ export default function App() {
     )
   }
 
+  async function onSaveBilling() {
+    if (activeChatID === null || activeHistoryEventID === null || !eventBilling) {
+      return
+    }
+    try {
+      const statuses = eventBilling.players.map((player) => ({
+        userID: player.userID,
+        paid: Boolean(eventBillingDraft[player.userID]),
+      }))
+      await saveEventBilling(activeChatID, activeHistoryEventID, statuses)
+      setSuccess('Оплаты сохранены')
+      await reloadActiveOrganization(activeChatID, { silent: true })
+      const refreshed = await fetchEventBilling(activeChatID, activeHistoryEventID)
+      setEventBilling(refreshed)
+      const draft: Record<number, boolean> = {}
+      if (refreshed?.players) {
+        for (const player of refreshed.players) {
+          draft[player.userID] = Boolean(player.isPaid)
+        }
+      }
+      setEventBillingDraft(draft)
+      setEventBillingError('')
+    } catch (err) {
+      setEventBillingError((err as Error).message)
+    }
+  }
+
   async function loadMemberProfile(userTelegramID: number) {
     if (activeChatID === null) {
       return
@@ -1589,6 +1683,10 @@ export default function App() {
           <article className="metric-card">
             <p className="metric-label">События</p>
             <p className="metric-value">{events.length}</p>
+          </article>
+          <article className="metric-card">
+            <p className="metric-label">Общий долг группы</p>
+            <p className="metric-value">{formatMoney(groupDebtSummary?.totalDebt ?? 0)}</p>
           </article>
         </section>
 
@@ -2951,12 +3049,13 @@ export default function App() {
               <select
                 value={historyStatusFilter}
                 onChange={(e) =>
-                  setHistoryStatusFilter(e.target.value as '' | 'in_voting' | 'on_distribution' | 'completed' | 'not_held')
+                  setHistoryStatusFilter(e.target.value as '' | 'in_voting' | 'on_distribution' | 'on_review' | 'completed' | 'not_held')
                 }
               >
                 <option value="">Все статусы</option>
                 <option value="in_voting">В голосовании</option>
                 <option value="on_distribution">На распределении</option>
+                <option value="on_review">На проверке</option>
                 <option value="not_held">Не состоялось</option>
                 <option value="completed">Завершено</option>
               </select>
@@ -2985,6 +3084,7 @@ export default function App() {
                     <th>Следующий старт</th>
                     <th>Опрос</th>
                     <th>Последняя публикация</th>
+                    <th>Долг</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3015,6 +3115,7 @@ export default function App() {
                       <td>{formatDateTime(item.nextStartAt)}</td>
                       <td>{item.pollTemplate || 'не привязан'}</td>
                       <td>{item.latestPollAt ? formatDateTime(item.latestPollAt) : 'нет'}</td>
+                      <td>{formatMoney(item.debtAmount ?? 0)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3059,34 +3160,55 @@ export default function App() {
             <div className="team-split-head">
               <div>
                 <strong>Распределение по командам: {selectedHistoryEvent.name}</strong>
-                <p className="muted">Статус: {historyStatusLabel(selectedHistoryEvent.status)}</p>
+                <p className="muted">
+                  Статус: {historyStatusLabel(selectedHistoryEvent.status)} · Долг: {formatMoney(selectedHistoryEvent.debtAmount ?? 0)}
+                </p>
               </div>
             </div>
 
-            {eventPollHistoryLoading ? <p className="muted">Загружаю историю опросов...</p> : null}
-            {eventPollHistoryError ? <p className="muted">Ошибка: {eventPollHistoryError}</p> : null}
-            {!eventPollHistoryLoading && !eventPollHistoryError && eventPollHistory.length === 0 ? (
-              <p className="muted">Пока нет опубликованных опросов для этого события.</p>
-            ) : null}
+            <div className="history-tabs">
+              <button
+                type="button"
+                className={historyDetailTab === 'distribution' ? 'history-tab active' : 'history-tab'}
+                onClick={() => setHistoryDetailTab('distribution')}
+              >
+                Распределение
+              </button>
+              <button
+                type="button"
+                className={historyDetailTab === 'billing' ? 'history-tab active' : 'history-tab'}
+                onClick={() => setHistoryDetailTab('billing')}
+              >
+                Оплата
+              </button>
+            </div>
 
-            {!eventPollHistoryLoading && eventPollHistory.length > 0 ? (
-              <div className="list-block">
-                {eventPollHistory.map((item) => (
-                  <button
-                    key={item.postID}
-                    type="button"
-                    className={selectedHistoryPostID === item.postID ? 'history-poll-btn active' : 'history-poll-btn'}
-                    onClick={() => setSelectedHistoryPostID(item.postID)}
-                  >
-                    <span>#{item.postID} · {formatDateTime(item.publishedAt)}</span>
-                    <span>Учет: {item.countedVotes} / Всего: {item.totalVotes}</span>
-                    <span>{item.teamsConfigured ? 'Команды сохранены' : 'Команды не сохранены'}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            {historyDetailTab === 'distribution' ? (
+              <>
+                {eventPollHistoryLoading ? <p className="muted">Загружаю историю опросов...</p> : null}
+                {eventPollHistoryError ? <p className="muted">Ошибка: {eventPollHistoryError}</p> : null}
+                {!eventPollHistoryLoading && !eventPollHistoryError && eventPollHistory.length === 0 ? (
+                  <p className="muted">Пока нет опубликованных опросов для этого события.</p>
+                ) : null}
 
-            {selectedHistoryPostID !== null ? (
+                {!eventPollHistoryLoading && eventPollHistory.length > 0 ? (
+                  <div className="list-block">
+                    {eventPollHistory.map((item) => (
+                      <button
+                        key={item.postID}
+                        type="button"
+                        className={selectedHistoryPostID === item.postID ? 'history-poll-btn active' : 'history-poll-btn'}
+                        onClick={() => setSelectedHistoryPostID(item.postID)}
+                      >
+                        <span>#{item.postID} · {formatDateTime(item.publishedAt)}</span>
+                        <span>Учет: {item.countedVotes} / Всего: {item.totalVotes}</span>
+                        <span>{item.teamsConfigured ? 'Команды сохранены' : 'Команды не сохранены'}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {selectedHistoryPostID !== null ? (
               <>
                 {teamSplitLoading ? <p className="muted">Загружаю участников...</p> : null}
                 {teamSplitError ? <p className="muted">Ошибка: {teamSplitError}</p> : null}
@@ -3248,6 +3370,93 @@ export default function App() {
                   </>
                 ) : null}
               </>
+                ) : null}
+              </>
+            ) : null}
+
+            {historyDetailTab === 'billing' ? (
+              <section className="content-card">
+                <div className="template-head">
+                  <h4>Оплата события</h4>
+                </div>
+                {eventBillingLoading ? <p className="muted">Загружаю оплаты...</p> : null}
+                {eventBillingError ? <p className="muted">Ошибка: {eventBillingError}</p> : null}
+                {!eventBillingLoading && !eventBillingError && !eventBilling ? (
+                  <p className="muted">Расчет по событию пока не создан.</p>
+                ) : null}
+                {eventBilling ? (
+                  <>
+                    <div className="detail-grid">
+                      <div>
+                        <span>Дата расчёта</span>
+                        <strong>{formatDateTime(eventBilling.localDate)}</strong>
+                      </div>
+                      <div>
+                        <span>Участников</span>
+                        <strong>{eventBilling.participantsCount}</strong>
+                      </div>
+                      <div>
+                        <span>На человека</span>
+                        <strong>{formatMoney(eventBilling.amountPerPerson)}</strong>
+                      </div>
+                      <div>
+                        <span>Оплачено</span>
+                        <strong>{eventBilling.paidCount}</strong>
+                      </div>
+                      <div>
+                        <span>Не оплачено</span>
+                        <strong>{eventBilling.unpaidCount}</strong>
+                      </div>
+                      <div>
+                        <span>Долг по событию</span>
+                        <strong>{formatMoney(eventBilling.debtAmount)}</strong>
+                      </div>
+                    </div>
+                    <div className="table-wrap">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Игрок</th>
+                            <th>Сумма</th>
+                            <th>Оплатил</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {eventBilling.players.map((player) => (
+                            <tr key={player.userID}>
+                              <td>{`${player.firstName ?? ''} ${player.lastName ?? ''}`.trim() || (player.username ? `@${player.username}` : `ID ${player.userID}`)}</td>
+                              <td>{formatMoney(player.amountDue)}</td>
+                              <td>
+                                <label className="toggle-field">
+                                  <span className="toggle-label-spacer" aria-hidden="true">.</span>
+                                  <span className="toggle-checkbox">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(eventBillingDraft[player.userID])}
+                                      onChange={(e) =>
+                                        setEventBillingDraft((prev) => ({
+                                          ...prev,
+                                          [player.userID]: e.target.checked,
+                                        }))
+                                      }
+                                    />
+                                    <span aria-hidden>✓</span>
+                                  </span>
+                                </label>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="manual-controls">
+                      <button type="button" onClick={() => void onSaveBilling()}>
+                        Сохранить оплаты
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </section>
             ) : null}
           </section>
         ) : null}

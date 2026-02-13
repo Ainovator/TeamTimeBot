@@ -5,7 +5,9 @@ import type {
   EventTeamSplitState,
   EventActivitySummary,
   EventView,
+  EventBilling,
   Group,
+  GroupDebtSummary,
   GroupDetails,
   GroupMember,
   MemberSkillProfile,
@@ -302,6 +304,29 @@ export async function fetchEventPollHistory(chatID: number, eventID: number): Pr
 export async function fetchEventHistory(chatID: number): Promise<EventHistoryItem[]> {
   const res = await fetch(`/api/groups/${chatID}/events/history`)
   return parseResponse<EventHistoryItem[]>(res)
+}
+
+export async function fetchGroupDebtSummary(chatID: number): Promise<GroupDebtSummary> {
+  const res = await fetch(`/api/groups/${chatID}/billing/summary`)
+  return parseResponse<GroupDebtSummary>(res)
+}
+
+export async function fetchEventBilling(chatID: number, eventID: number): Promise<EventBilling | null> {
+  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/billing`)
+  return parseResponse<EventBilling | null>(res)
+}
+
+export async function saveEventBilling(
+  chatID: number,
+  eventID: number,
+  statuses: Array<{ userID: number; paid: boolean }>,
+) {
+  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/billing`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ statuses }),
+  })
+  await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchEventTeamSplit(chatID: number, eventID: number, postID: number): Promise<EventTeamSplitState> {

@@ -748,6 +748,26 @@ h4 {
   margin: 4px 0 0;
 }
 
+.history-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.history-tab {
+  border: 1px solid rgba(95, 136, 214, 0.38);
+  border-radius: 10px;
+  background: rgba(18, 31, 53, 0.68);
+  color: var(--text-main);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.history-tab.active {
+  border-color: rgba(107, 157, 255, 0.95);
+  background: rgba(45, 88, 162, 0.35);
+}
+
 .team-chance {
   display: flex;
   align-items: center;

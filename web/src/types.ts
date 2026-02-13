@@ -108,9 +108,39 @@ export type EventHistoryItem = {
   latestPostID?: number
   latestPollAt?: string
   nextStartAt: string
-  status: 'completed' | 'in_voting' | 'on_distribution' | 'not_held'
+  status: 'completed' | 'in_voting' | 'on_distribution' | 'on_review' | 'not_held'
   canDistribute: boolean
   publishEnabled: boolean
+  debtAmount: number
+}
+
+export type EventBillingPlayer = {
+  userID: number
+  username: string
+  firstName: string
+  lastName: string
+  amountDue: number
+  isPaid: boolean
+  paidAt?: string
+}
+
+export type EventBilling = {
+  eventID: number
+  settlementID: number
+  localDate: string
+  totalAmount: number
+  amountPerPerson: number
+  participantsCount: number
+  paidCount: number
+  unpaidCount: number
+  debtAmount: number
+  players: EventBillingPlayer[]
+  allPaymentsChecked: boolean
+}
+
+export type GroupDebtSummary = {
+  totalDebt: number
+  unpaidRows: number
 }
 
 export type GroupDetails = {
