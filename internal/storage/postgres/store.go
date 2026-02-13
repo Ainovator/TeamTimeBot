@@ -115,15 +115,18 @@ const (
 )
 
 type EventHistoryItem struct {
+	InstanceID     uint64             `json:"instanceID"`
 	EventID        uint64             `json:"eventID"`
 	Name           string             `json:"name"`
 	EventType      string             `json:"eventType"`
+	LocalDate      time.Time          `json:"localDate"`
 	StartWeekday   int                `json:"startWeekday"`
 	StartTime      string             `json:"startTime"`
 	PollTemplate   string             `json:"pollTemplate"`
 	LatestPostID   *uint64            `json:"latestPostID"`
 	LatestPollAt   *time.Time         `json:"latestPollAt"`
 	NextStartAt    time.Time          `json:"nextStartAt"`
+	EndAt          time.Time          `json:"endAt"`
 	Status         EventHistoryStatus `json:"status"`
 	CanDistribute  bool               `json:"canDistribute"`
 	PublishEnabled bool               `json:"publishEnabled"`
@@ -169,6 +172,35 @@ type EventPollHistoryItem struct {
 	CountedVotes      int       `json:"countedVotes"`
 	TotalVotes        int       `json:"totalVotes"`
 	TeamsConfigured   bool      `json:"teamsConfigured"`
+}
+
+type GroupPollItem struct {
+	PostID            uint64     `json:"postID"`
+	InstanceID        *uint64    `json:"instanceID,omitempty"`
+	EventID           *uint64    `json:"eventID,omitempty"`
+	EventName         string     `json:"eventName"`
+	EventLocalDate    *time.Time `json:"eventLocalDate,omitempty"`
+	TemplateName      string     `json:"templateName"`
+	Question          string     `json:"question"`
+	TelegramMessageID int64      `json:"telegramMessageID"`
+	TelegramPollID    string     `json:"telegramPollID"`
+	Status            string     `json:"status"`
+	PublishedAt       time.Time  `json:"publishedAt"`
+	CountedVotes      int        `json:"countedVotes"`
+	TotalVotes        int        `json:"totalVotes"`
+}
+
+type GroupPollVoteItem struct {
+	UserID      int64     `json:"userID"`
+	Username    string    `json:"username"`
+	FirstName   string    `json:"firstName"`
+	LastName    string    `json:"lastName"`
+	Choice      string    `json:"choice"`
+	ChoiceIndex *int      `json:"choiceIndex,omitempty"`
+	ChoiceLabel string    `json:"choiceLabel"`
+	Counted     bool      `json:"counted"`
+	Source      string    `json:"source"`
+	VotedAt     time.Time `json:"votedAt"`
 }
 
 type TeamSplitPlayer struct {
@@ -244,6 +276,7 @@ type EventPollPostView struct {
 	ID                uint64
 	GroupID           uint64
 	EventID           *uint64
+	InstanceID        *uint64
 	TemplateID        uint64
 	TemplateName      string
 	TelegramMessageID int64
@@ -659,6 +692,181 @@ func (s *Store) getGroupByChatID(ctx context.Context, chatID int64) (*TelegramGr
 
 func (s *Store) GetGroupByChatID(ctx context.Context, chatID int64) (*TelegramGroup, error) {
 	return s.getGroupByChatID(ctx, chatID)
+}
+
+func (s *Store) getGroupByID(ctx context.Context, groupID uint64) (*TelegramGroup, error) {
+	var group TelegramGroup
+	if err := s.db.WithContext(ctx).Where("id = ? AND is_active = TRUE", groupID).First(&group).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("group not found")
+		}
+		return nil, err
+	}
+	return &group, nil
+}
+
+func clampInstanceStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case string(EventHistoryStatusInVoting):
+		return string(EventHistoryStatusInVoting)
+	case string(EventHistoryStatusOnDistribution):
+		return string(EventHistoryStatusOnDistribution)
+	case string(EventHistoryStatusOnReview):
+		return string(EventHistoryStatusOnReview)
+	case string(EventHistoryStatusCompleted):
+		return string(EventHistoryStatusCompleted)
+	case string(EventHistoryStatusNotHeld):
+		return string(EventHistoryStatusNotHeld)
+	default:
+		return string(EventHistoryStatusInVoting)
+	}
+}
+
+func ensureEventInstanceTx(
+	ctx context.Context,
+	tx *gorm.DB,
+	groupID uint64,
+	eventID uint64,
+	localDate time.Time,
+	plannedStartAt time.Time,
+	plannedEndAt time.Time,
+	status string,
+	pollTemplateOverride *PollTemplate,
+) (*EventInstance, error) {
+	status = clampInstanceStatus(status)
+	record := map[string]interface{}{
+		"group_id":         groupID,
+		"event_id":         eventID,
+		"local_date":       localDate.Format("2006-01-02"),
+		"planned_start_at": plannedStartAt.UTC(),
+		"planned_end_at":   plannedEndAt.UTC(),
+		"status":           status,
+	}
+
+	// Snapshot settings at creation time. On conflict, we intentionally do NOT update these fields,
+	// so that later template edits do not affect already-created instances.
+	type snapshotRow struct {
+		Name                    string
+		EventType               string
+		StartWeekday            int
+		StartTime               string
+		EndTime                 string
+		PublishEnabled          bool
+		CostAmount              *float64
+		MinVotesToHold          int
+		CancelLeadMinutes       int
+		CancelNotifyEnabled     bool
+		SettlementEnabled       bool
+		SettlementPublishBefore bool
+		SettlementPublishAfter  bool
+		AnnouncementText        string
+		AnnouncementEnabled     bool
+		AnnouncementLeadMinutes int
+		TeamsAutoSplit          bool
+		TeamsPublishList        bool
+		TeamSize                int
+		PollTemplateID          *uint64
+		PollTemplateName        string
+		PollQuestion            string
+		PollOptions             datatypes.JSON
+		PollCountedOptions      datatypes.JSON
+	}
+	var snap snapshotRow
+	if err := tx.WithContext(ctx).
+		Table("group_events ge").
+		Select(`
+			ge.name,
+			ge.event_type,
+			ge.start_weekday,
+			ge.start_time,
+			ge.end_time,
+			ge.publish_enabled,
+			ge.cost_amount,
+			ge.min_votes_to_hold,
+			ge.cancel_lead_minutes,
+			ge.cancel_notify_enabled,
+			ge.settlement_enabled,
+			ge.settlement_publish_before,
+			ge.settlement_publish_after,
+			COALESCE(ge.announcement_text, '') AS announcement_text,
+			ge.announcement_enabled,
+			ge.announcement_lead_minutes,
+			ge.teams_auto_split,
+			ge.teams_publish_list,
+			ge.team_size,
+			ge.poll_template_id,
+			COALESCE(pt.name, '') AS poll_template_name,
+			COALESCE(pt.question, '') AS poll_question,
+			COALESCE(pt.options, '[]'::jsonb) AS poll_options,
+			COALESCE(pt.counted_options, '[]'::jsonb) AS poll_counted_options
+		`).
+		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
+		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE", eventID, groupID).
+		Take(&snap).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("event not found")
+		}
+		return nil, err
+	}
+
+	// Poll snapshot comes from the template actually used for this poll (if provided),
+	// otherwise from the currently bound template on the event.
+	if pollTemplateOverride != nil {
+		snap.PollTemplateID = &pollTemplateOverride.ID
+		snap.PollTemplateName = pollTemplateOverride.Name
+		snap.PollQuestion = pollTemplateOverride.Question
+		snap.PollOptions = pollTemplateOverride.Options
+		snap.PollCountedOptions = pollTemplateOverride.CountedOptions
+	}
+
+	record["event_name"] = snap.Name
+	record["event_type"] = snap.EventType
+	record["start_weekday"] = snap.StartWeekday
+	record["start_time"] = snap.StartTime
+	record["end_time"] = snap.EndTime
+	record["publish_enabled"] = snap.PublishEnabled
+	record["cost_amount"] = snap.CostAmount
+	record["min_votes_to_hold"] = snap.MinVotesToHold
+	record["cancel_lead_minutes"] = snap.CancelLeadMinutes
+	record["cancel_notify_enabled"] = snap.CancelNotifyEnabled
+	record["settlement_enabled"] = snap.SettlementEnabled
+	record["settlement_publish_before"] = snap.SettlementPublishBefore
+	record["settlement_publish_after"] = snap.SettlementPublishAfter
+	record["announcement_text"] = snap.AnnouncementText
+	record["announcement_enabled"] = snap.AnnouncementEnabled
+	record["announcement_lead_minutes"] = snap.AnnouncementLeadMinutes
+	record["teams_auto_split"] = snap.TeamsAutoSplit
+	record["teams_publish_list"] = snap.TeamsPublishList
+	record["team_size"] = snap.TeamSize
+	record["poll_template_id"] = snap.PollTemplateID
+	record["poll_template_name"] = snap.PollTemplateName
+	record["poll_question"] = snap.PollQuestion
+	record["poll_options"] = snap.PollOptions
+	record["poll_counted_options"] = snap.PollCountedOptions
+
+	if err := tx.WithContext(ctx).Table("event_instances").
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "event_id"},
+				{Name: "local_date"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"planned_start_at": record["planned_start_at"],
+				"planned_end_at":   record["planned_end_at"],
+				"updated_at":       gorm.Expr("NOW()"),
+			}),
+		}).
+		Create(record).Error; err != nil {
+		return nil, err
+	}
+	var instance EventInstance
+	if err := tx.WithContext(ctx).
+		Table("event_instances").
+		Where("event_id = ? AND local_date = ?", eventID, localDate.Format("2006-01-02")).
+		Take(&instance).Error; err != nil {
+		return nil, err
+	}
+	return &instance, nil
 }
 
 func (s *Store) ListActiveGroups(ctx context.Context) ([]GroupView, error) {
@@ -1982,18 +2190,6 @@ func (s *Store) CreateEventPollPost(
 		return nil, err
 	}
 
-	if eventID != nil {
-		var event GroupEvent
-		if err := s.db.WithContext(ctx).
-			Where("id = ? AND group_id = ? AND is_active = TRUE", *eventID, group.ID).
-			First(&event).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, errors.New("event not found")
-			}
-			return nil, err
-		}
-	}
-
 	post := EventPollPost{
 		GroupID:           group.ID,
 		EventID:           eventID,
@@ -2003,7 +2199,173 @@ func (s *Store) CreateEventPollPost(
 		Status:            "open",
 		PublishedAt:       time.Now().UTC(),
 	}
-	if err := s.db.WithContext(ctx).Create(&post).Error; err != nil {
+
+	if eventID == nil {
+		if err := s.db.WithContext(ctx).Create(&post).Error; err != nil {
+			return nil, err
+		}
+		return &post, nil
+	}
+
+	var event GroupEvent
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND group_id = ? AND is_active = TRUE", *eventID, group.ID).
+		First(&event).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("event not found")
+		}
+		return nil, err
+	}
+
+	loc, err := time.LoadLocation(group.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	startHour, startMinute, err := parseClockTime(event.StartTime)
+	if err != nil {
+		return nil, err
+	}
+	endHour, endMinute, err := parseClockTime(event.EndTime)
+	if err != nil {
+		return nil, err
+	}
+
+	nowLocal := post.PublishedAt.In(loc)
+	plannedStartLocal := nextWeekdayTime(nowLocal, int(event.StartWeekday), startHour, startMinute)
+	plannedEndLocal := time.Date(
+		plannedStartLocal.Year(),
+		plannedStartLocal.Month(),
+		plannedStartLocal.Day(),
+		endHour,
+		endMinute,
+		0,
+		0,
+		loc,
+	)
+	if !plannedEndLocal.After(plannedStartLocal) {
+		plannedEndLocal = plannedEndLocal.Add(24 * time.Hour)
+	}
+	localDate := time.Date(plannedStartLocal.Year(), plannedStartLocal.Month(), plannedStartLocal.Day(), 0, 0, 0, 0, loc)
+
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		instance, err := ensureEventInstanceTx(
+			ctx,
+			tx,
+			group.ID,
+			event.ID,
+			localDate,
+			plannedStartLocal,
+			plannedEndLocal,
+			string(EventHistoryStatusInVoting),
+			&template,
+		)
+		if err != nil {
+			return err
+		}
+		var existingPostID uint64
+		if err := tx.WithContext(ctx).
+			Table("event_poll_posts").
+			Select("id").
+			Where("instance_id = ?", instance.ID).
+			Order("id DESC").
+			Limit(1).
+			Scan(&existingPostID).Error; err != nil {
+			return err
+		}
+		if existingPostID != 0 {
+			return errors.New("poll already exists for this event instance")
+		}
+		post.InstanceID = &instance.ID
+		if err := tx.Create(&post).Error; err != nil {
+			return err
+		}
+		return tx.Table("event_instances").
+			Where("id = ?", instance.ID).
+			Updates(map[string]interface{}{
+				"poll_post_id": post.ID,
+				"updated_at":   gorm.Expr("NOW()"),
+			}).Error
+	}); err != nil {
+		return nil, err
+	}
+	return &post, nil
+}
+
+func (s *Store) CreateEventPollPostForInstance(
+	ctx context.Context,
+	chatID int64,
+	eventID uint64,
+	instanceID uint64,
+	templateName string,
+	telegramMessageID int64,
+	telegramPollID string,
+) (*EventPollPost, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(templateName) == "" {
+		return nil, errors.New("template name is required")
+	}
+	if telegramMessageID == 0 {
+		return nil, errors.New("telegram message id is required")
+	}
+
+	var template PollTemplate
+	if err := s.db.WithContext(ctx).
+		Where("group_id = ? AND name = ? AND is_active = TRUE", group.ID, strings.TrimSpace(templateName)).
+		First(&template).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("template not found")
+		}
+		return nil, err
+	}
+
+	var event GroupEvent
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND group_id = ? AND is_active = TRUE", eventID, group.ID).
+		First(&event).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("event not found")
+		}
+		return nil, err
+	}
+
+	var instance EventInstance
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND group_id = ? AND event_id = ? AND is_active = TRUE", instanceID, group.ID, event.ID).
+		First(&instance).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("event instance not found")
+		}
+		return nil, err
+	}
+	if instance.PollPostID != nil {
+		return nil, errors.New("poll already exists for this event instance")
+	}
+
+	post := EventPollPost{
+		GroupID:           group.ID,
+		EventID:           &event.ID,
+		InstanceID:        &instance.ID,
+		TemplateID:        template.ID,
+		TelegramMessageID: telegramMessageID,
+		TelegramPollID:    strings.TrimSpace(telegramPollID),
+		Status:            "open",
+		PublishedAt:       time.Now().UTC(),
+	}
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&post).Error; err != nil {
+			return err
+		}
+		return tx.Table("event_instances").
+			Where("id = ?", instance.ID).
+			Updates(map[string]interface{}{
+				"poll_post_id": post.ID,
+				"status":       string(EventHistoryStatusInVoting),
+				"updated_at":   gorm.Expr("NOW()"),
+			}).Error
+	}); err != nil {
 		return nil, err
 	}
 	return &post, nil
@@ -2108,7 +2470,7 @@ func (s *Store) GetEventPollPostByTelegramPollID(ctx context.Context, telegramPo
 	var row EventPollPostView
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("epp.id, epp.group_id, epp.event_id, epp.template_id, pt.name AS template_name, epp.telegram_message_id, epp.telegram_poll_id, epp.status, epp.published_at").
+		Select("epp.id, epp.group_id, epp.event_id, epp.instance_id, epp.template_id, pt.name AS template_name, epp.telegram_message_id, epp.telegram_poll_id, epp.status, epp.published_at").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 		Where("epp.telegram_poll_id = ?", telegramPollID).
 		Order("epp.id DESC").
@@ -2273,7 +2635,7 @@ func (s *Store) GetLatestEventPollPostForRange(ctx context.Context, eventID uint
 	var row EventPollPostView
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("epp.id, epp.group_id, epp.event_id, epp.template_id, pt.name AS template_name, epp.telegram_message_id, epp.telegram_poll_id, epp.status, epp.published_at").
+		Select("epp.id, epp.group_id, epp.event_id, epp.instance_id, epp.template_id, pt.name AS template_name, epp.telegram_message_id, epp.telegram_poll_id, epp.status, epp.published_at").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 		Where("epp.event_id = ? AND epp.published_at >= ? AND epp.published_at < ?", eventID, fromUTC, toUTC).
 		Order("epp.id DESC").
@@ -2290,7 +2652,7 @@ func (s *Store) GetLatestEventPollPost(ctx context.Context, eventID uint64) (*Ev
 	var row EventPollPostView
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("epp.id, epp.group_id, epp.event_id, epp.template_id, pt.name AS template_name, epp.telegram_message_id, epp.telegram_poll_id, epp.status, epp.published_at").
+		Select("epp.id, epp.group_id, epp.event_id, epp.instance_id, epp.template_id, pt.name AS template_name, epp.telegram_message_id, epp.telegram_poll_id, epp.status, epp.published_at").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 		Where("epp.event_id = ?", eventID).
 		Order("epp.id DESC").
@@ -2314,10 +2676,314 @@ func (s *Store) CountVotesForPostChoice(ctx context.Context, postID uint64, choi
 	return int(count), nil
 }
 
+func (s *Store) EnsureEventInstanceForDate(
+	ctx context.Context,
+	groupID uint64,
+	eventID uint64,
+	localDate time.Time,
+	startTime string,
+	endTime string,
+	status string,
+	timezone string,
+) (*EventInstance, error) {
+	loc, err := time.LoadLocation(strings.TrimSpace(timezone))
+	if err != nil {
+		loc = time.UTC
+	}
+	startHour, startMinute, err := parseClockTime(startTime)
+	if err != nil {
+		return nil, err
+	}
+	endHour, endMinute, err := parseClockTime(endTime)
+	if err != nil {
+		return nil, err
+	}
+	startLocal := time.Date(localDate.Year(), localDate.Month(), localDate.Day(), startHour, startMinute, 0, 0, loc)
+	endLocal := time.Date(localDate.Year(), localDate.Month(), localDate.Day(), endHour, endMinute, 0, 0, loc)
+	if !endLocal.After(startLocal) {
+		endLocal = endLocal.Add(24 * time.Hour)
+	}
+
+	var instance *EventInstance
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		row, err := ensureEventInstanceTx(ctx, tx, groupID, eventID, localDate, startLocal, endLocal, status, nil)
+		if err != nil {
+			return err
+		}
+		instance = row
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return instance, nil
+}
+
+type EventInstanceSnapshotView struct {
+	InstanceID     uint64
+	GroupID        uint64
+	EventID        uint64
+	EventName      string
+	Timezone       string
+	ChatID         int64
+	LocalDate      time.Time
+	PlannedStartAt time.Time
+	PlannedEndAt   time.Time
+	PollPostID     *uint64
+
+	CostAmount              *float64
+	MinVotesToHold          int
+	CancelLeadMinutes       int
+	CancelNotifyEnabled     bool
+	SettlementEnabled       bool
+	SettlementPublishBefore bool
+	SettlementPublishAfter  bool
+
+	PollCountedOptions datatypes.JSON
+}
+
+func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID uint64, eventID uint64, localDate time.Time) (*EventInstanceSnapshotView, error) {
+	type row struct {
+		InstanceID              uint64
+		GroupID                 uint64
+		EventID                 uint64
+		EventName               string
+		Timezone                string
+		ChatID                  int64
+		LocalDate               time.Time
+		PlannedStartAt          time.Time
+		PlannedEndAt            time.Time
+		PollPostID              *uint64
+		CostAmount              *float64
+		MinVotesToHold          int
+		CancelLeadMinutes       int
+		CancelNotifyEnabled     bool
+		SettlementEnabled       bool
+		SettlementPublishBefore bool
+		SettlementPublishAfter  bool
+		PollCountedOptions      datatypes.JSON
+	}
+	var r row
+	err := s.db.WithContext(ctx).
+		Table("event_instances ei").
+		Select(`
+			ei.id AS instance_id,
+			ei.group_id,
+			ei.event_id,
+			ei.event_name,
+			g.timezone,
+			g.chat_id,
+			ei.local_date,
+			ei.planned_start_at,
+			ei.planned_end_at,
+			ei.poll_post_id,
+			ei.cost_amount,
+			ei.min_votes_to_hold,
+			ei.cancel_lead_minutes,
+			ei.cancel_notify_enabled,
+			ei.settlement_enabled,
+			ei.settlement_publish_before,
+			ei.settlement_publish_after,
+			COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options
+		`).
+		Joins("JOIN telegram_groups g ON g.id = ei.group_id").
+		Where("ei.group_id = ? AND ei.event_id = ? AND ei.local_date = ? AND ei.is_active = TRUE AND g.is_active = TRUE", groupID, eventID, localDate.Format("2006-01-02")).
+		Take(&r).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &EventInstanceSnapshotView{
+		InstanceID:              r.InstanceID,
+		GroupID:                 r.GroupID,
+		EventID:                 r.EventID,
+		EventName:               r.EventName,
+		Timezone:                r.Timezone,
+		ChatID:                  r.ChatID,
+		LocalDate:               r.LocalDate,
+		PlannedStartAt:          r.PlannedStartAt,
+		PlannedEndAt:            r.PlannedEndAt,
+		PollPostID:              r.PollPostID,
+		CostAmount:              r.CostAmount,
+		MinVotesToHold:          r.MinVotesToHold,
+		CancelLeadMinutes:       r.CancelLeadMinutes,
+		CancelNotifyEnabled:     r.CancelNotifyEnabled,
+		SettlementEnabled:       r.SettlementEnabled,
+		SettlementPublishBefore: r.SettlementPublishBefore,
+		SettlementPublishAfter:  r.SettlementPublishAfter,
+		PollCountedOptions:      r.PollCountedOptions,
+	}, nil
+}
+
+func (s *Store) ListEventInstancesForCancellation(ctx context.Context, nowUTC time.Time) ([]EventInstanceSnapshotView, error) {
+	untilUTC := nowUTC.Add(24 * time.Hour)
+	type row struct {
+		InstanceID     uint64
+		GroupID        uint64
+		EventID        uint64
+		EventName      string
+		Timezone       string
+		ChatID         int64
+		LocalDate      time.Time
+		PlannedStartAt time.Time
+		PlannedEndAt   time.Time
+		PollPostID     *uint64
+
+		MinVotesToHold      int
+		CancelLeadMinutes   int
+		CancelNotifyEnabled bool
+		PollCountedOptions  datatypes.JSON
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_instances ei").
+		Select(`
+			ei.id AS instance_id,
+			ei.group_id,
+			ei.event_id,
+			ei.event_name,
+			g.timezone,
+			g.chat_id,
+			ei.local_date,
+			ei.planned_start_at,
+			ei.planned_end_at,
+			ei.poll_post_id,
+			ei.min_votes_to_hold,
+			ei.cancel_lead_minutes,
+			ei.cancel_notify_enabled,
+			COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options
+		`).
+		Joins("JOIN telegram_groups g ON g.id = ei.group_id").
+		Where(`
+			ei.is_active = TRUE
+			AND g.is_active = TRUE
+			AND ei.cancel_notify_enabled = TRUE
+			AND ei.min_votes_to_hold > 0
+			AND ei.planned_start_at > ?
+			AND ei.planned_start_at <= ?
+			AND ei.status IN ('in_voting', 'on_distribution', 'on_review')
+		`, nowUTC, untilUTC).
+		Order("ei.planned_start_at ASC, ei.id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]EventInstanceSnapshotView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, EventInstanceSnapshotView{
+			InstanceID:          r.InstanceID,
+			GroupID:             r.GroupID,
+			EventID:             r.EventID,
+			EventName:           r.EventName,
+			Timezone:            r.Timezone,
+			ChatID:              r.ChatID,
+			LocalDate:           r.LocalDate,
+			PlannedStartAt:      r.PlannedStartAt,
+			PlannedEndAt:        r.PlannedEndAt,
+			PollPostID:          r.PollPostID,
+			MinVotesToHold:      r.MinVotesToHold,
+			CancelLeadMinutes:   r.CancelLeadMinutes,
+			CancelNotifyEnabled: r.CancelNotifyEnabled,
+			PollCountedOptions:  r.PollCountedOptions,
+		})
+	}
+	return out, nil
+}
+
+func (s *Store) SetEventInstanceStatusByEventDate(ctx context.Context, groupID uint64, eventID uint64, localDate time.Time, status string) error {
+	status = clampInstanceStatus(status)
+	result := s.db.WithContext(ctx).
+		Table("event_instances").
+		Where("group_id = ? AND event_id = ? AND local_date = ? AND is_active = TRUE", groupID, eventID, localDate.Format("2006-01-02")).
+		Updates(map[string]interface{}{
+			"status":     status,
+			"updated_at": gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("event instance not found")
+	}
+	return nil
+}
+
+func (s *Store) CreateEventInstanceFromTemplate(ctx context.Context, chatID int64, eventID uint64, localDateRaw string) (*EventInstance, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	var event GroupEvent
+	if err := s.db.WithContext(ctx).
+		Where("id = ? AND group_id = ? AND is_active = TRUE", eventID, group.ID).
+		First(&event).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("event not found")
+		}
+		return nil, err
+	}
+
+	loc, err := time.LoadLocation(group.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	startHour, startMinute, err := parseClockTime(event.StartTime)
+	if err != nil {
+		return nil, err
+	}
+	nowLocal := time.Now().In(loc)
+
+	var localDate time.Time
+	trimmed := strings.TrimSpace(localDateRaw)
+	if trimmed == "" {
+		nextStartLocal := nextWeekdayTime(nowLocal, int(event.StartWeekday), startHour, startMinute)
+		localDate = time.Date(nextStartLocal.Year(), nextStartLocal.Month(), nextStartLocal.Day(), 0, 0, 0, 0, loc)
+		for i := 0; i < 104; i++ {
+			var existing struct {
+				ID         uint64
+				PollPostID *uint64
+			}
+			err := s.db.WithContext(ctx).
+				Table("event_instances").
+				Select("id, poll_post_id").
+				Where("group_id = ? AND event_id = ? AND local_date = ? AND is_active = TRUE", group.ID, event.ID, localDate.Format("2006-01-02")).
+				Take(&existing).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			if existing.PollPostID == nil {
+				break
+			}
+			localDate = localDate.AddDate(0, 0, 7)
+		}
+	} else {
+		parsed, err := time.ParseInLocation("2006-01-02", trimmed, loc)
+		if err != nil {
+			return nil, errors.New("invalid localDate format, expected YYYY-MM-DD")
+		}
+		localDate = time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, loc)
+	}
+
+	return s.EnsureEventInstanceForDate(
+		ctx,
+		group.ID,
+		event.ID,
+		localDate,
+		event.StartTime,
+		event.EndTime,
+		string(EventHistoryStatusInVoting),
+		group.Timezone,
+	)
+}
+
 func (s *Store) CreateEventSettlement(
 	ctx context.Context,
 	groupID uint64,
 	eventID uint64,
+	instanceID *uint64,
 	postID *uint64,
 	localDate time.Time,
 	totalAmount float64,
@@ -2328,6 +2994,7 @@ func (s *Store) CreateEventSettlement(
 		record := map[string]interface{}{
 			"group_id":           groupID,
 			"event_id":           eventID,
+			"instance_id":        instanceID,
 			"post_id":            postID,
 			"local_date":         localDate.Format("2006-01-02"),
 			"total_amount":       totalAmount,
@@ -2360,11 +3027,12 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 	var settlement struct {
 		ID              uint64
 		PostID          *uint64
+		InstanceID      *uint64
 		AmountPerPerson float64
 	}
 	if err := tx.WithContext(ctx).
 		Table("event_settlements").
-		Select("id, post_id, amount_per_person").
+		Select("id, post_id, instance_id, amount_per_person").
 		Where("id = ?", settlementID).
 		Take(&settlement).Error; err != nil {
 		return err
@@ -2373,22 +3041,38 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 		return nil
 	}
 
-	var template struct {
-		Options        datatypes.JSON
-		CountedOptions datatypes.JSON
-	}
-	if err := tx.WithContext(ctx).
-		Table("event_poll_posts epp").
-		Select("COALESCE(pt.options, '[]'::jsonb) AS options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
-		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
-		Where("epp.id = ?", *settlement.PostID).
-		Take(&template).Error; err != nil {
-		return err
-	}
 	var options []string
-	_ = json.Unmarshal(template.Options, &options)
 	var counted []int
-	_ = json.Unmarshal(template.CountedOptions, &counted)
+	if settlement.InstanceID != nil {
+		var snap struct {
+			Options        datatypes.JSON
+			CountedOptions datatypes.JSON
+		}
+		if err := tx.WithContext(ctx).
+			Table("event_instances").
+			Select("COALESCE(poll_options, '[]'::jsonb) AS options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options").
+			Where("id = ?", *settlement.InstanceID).
+			Take(&snap).Error; err != nil {
+			return err
+		}
+		_ = json.Unmarshal(snap.Options, &options)
+		_ = json.Unmarshal(snap.CountedOptions, &counted)
+	} else {
+		var template struct {
+			Options        datatypes.JSON
+			CountedOptions datatypes.JSON
+		}
+		if err := tx.WithContext(ctx).
+			Table("event_poll_posts epp").
+			Select("COALESCE(pt.options, '[]'::jsonb) AS options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+			Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+			Where("epp.id = ?", *settlement.PostID).
+			Take(&template).Error; err != nil {
+			return err
+		}
+		_ = json.Unmarshal(template.Options, &options)
+		_ = json.Unmarshal(template.CountedOptions, &counted)
+	}
 	counted = normalizeCountedOptionIndexes(len(options), counted)
 	if len(counted) == 0 {
 		return nil
@@ -2527,6 +3211,183 @@ func (s *Store) GetEventBilling(ctx context.Context, chatID int64, eventID uint6
 	}, nil
 }
 
+func (s *Store) GetEventBillingByInstance(ctx context.Context, chatID int64, instanceID uint64) (*EventBillingView, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	var instance struct {
+		ID      uint64
+		EventID uint64
+	}
+	if err := s.db.WithContext(ctx).
+		Table("event_instances").
+		Select("id, event_id").
+		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, group.ID).
+		Take(&instance).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var settlement struct {
+		ID                uint64
+		EventID           uint64
+		LocalDate         time.Time
+		TotalAmount       float64
+		ParticipantsCount int
+		AmountPerPerson   float64
+	}
+	if err := s.db.WithContext(ctx).
+		Table("event_settlements").
+		Select("id, event_id, local_date, total_amount, participants_count, amount_per_person").
+		Where("group_id = ? AND instance_id = ?", group.ID, instance.ID).
+		Order("id DESC").
+		Take(&settlement).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.ensureSettlementPaymentsTx(ctx, tx, settlement.ID)
+	}); err != nil {
+		return nil, err
+	}
+
+	type paymentRow struct {
+		UserID    int64
+		Username  string
+		FirstName string
+		LastName  string
+		AmountDue float64
+		IsPaid    bool
+		PaidAt    *time.Time
+	}
+	var rows []paymentRow
+	if err := s.db.WithContext(ctx).
+		Table("event_settlement_payments").
+		Select("user_id, COALESCE(username, '') AS username, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name, amount_due, is_paid, paid_at").
+		Where("settlement_id = ?", settlement.ID).
+		Order("first_name ASC, last_name ASC, username ASC, user_id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	players := make([]EventBillingParticipant, 0, len(rows))
+	paidCount := 0
+	unpaidCount := 0
+	debt := 0.0
+	for _, row := range rows {
+		players = append(players, EventBillingParticipant{
+			UserID:    row.UserID,
+			Username:  row.Username,
+			FirstName: row.FirstName,
+			LastName:  row.LastName,
+			AmountDue: row.AmountDue,
+			IsPaid:    row.IsPaid,
+			PaidAt:    row.PaidAt,
+		})
+		if row.IsPaid {
+			paidCount++
+		} else {
+			unpaidCount++
+			debt += row.AmountDue
+		}
+	}
+
+	return &EventBillingView{
+		EventID:            settlement.EventID,
+		SettlementID:       settlement.ID,
+		LocalDate:          settlement.LocalDate,
+		TotalAmount:        settlement.TotalAmount,
+		AmountPerPerson:    settlement.AmountPerPerson,
+		ParticipantsCount:  settlement.ParticipantsCount,
+		PaidCount:          paidCount,
+		UnpaidCount:        unpaidCount,
+		DebtAmount:         debt,
+		Players:            players,
+		AllPaymentsChecked: len(players) > 0 && unpaidCount == 0,
+	}, nil
+}
+
+func (s *Store) EnsureEventBillingByInstance(ctx context.Context, chatID int64, instanceID uint64) (*EventBillingView, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var inst struct {
+		ID             uint64
+		GroupID        uint64
+		EventID        uint64
+		LocalDate      time.Time
+		PollPostID     *uint64
+		CostAmount     *float64
+		PollOptions    datatypes.JSON
+		CountedOptions datatypes.JSON
+		Status         string
+	}
+	if err := s.db.WithContext(ctx).
+		Table("event_instances").
+		Select("id, group_id, event_id, local_date, poll_post_id, cost_amount, COALESCE(poll_options, '[]'::jsonb) AS poll_options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, status").
+		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, group.ID).
+		Take(&inst).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("event instance not found")
+		}
+		return nil, err
+	}
+	if strings.TrimSpace(inst.Status) == string(EventHistoryStatusNotHeld) {
+		return nil, errors.New("event instance is not held")
+	}
+	if inst.PollPostID == nil {
+		return nil, errors.New("no published poll for this event instance")
+	}
+
+	var options []string
+	_ = json.Unmarshal(inst.PollOptions, &options)
+	var counted []int
+	_ = json.Unmarshal(inst.CountedOptions, &counted)
+	counted = normalizeCountedOptionIndexes(len(options), counted)
+	if len(counted) == 0 {
+		return nil, errors.New("template has no options marked with accounting flag")
+	}
+	choices := make([]string, 0, len(counted))
+	for _, idx := range counted {
+		choices = append(choices, "option_"+strconv.Itoa(idx))
+	}
+	participants, err := s.CountVotesForPostChoices(ctx, *inst.PollPostID, choices)
+	if err != nil {
+		return nil, err
+	}
+
+	totalAmount := 4000.0
+	if inst.CostAmount != nil {
+		totalAmount = *inst.CostAmount
+	}
+	perPerson := 0.0
+	if participants > 0 {
+		perPerson = totalAmount / float64(participants)
+	}
+
+	// If settlement already exists, return it (and ensure missing payment rows exist).
+	existing, err := s.GetEventBillingByInstance(ctx, chatID, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return existing, nil
+	}
+
+	if err := s.CreateEventSettlement(ctx, group.ID, inst.EventID, &inst.ID, inst.PollPostID, inst.LocalDate, totalAmount, participants, perPerson); err != nil {
+		return nil, err
+	}
+	return s.GetEventBillingByInstance(ctx, chatID, instanceID)
+}
+
 func (s *Store) SaveEventBillingPayments(ctx context.Context, chatID int64, eventID uint64, statuses map[int64]bool) error {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
@@ -2569,6 +3430,66 @@ func (s *Store) SaveEventBillingPayments(ctx context.Context, chatID int64, even
 			}
 		}
 		return nil
+	})
+}
+
+func (s *Store) SaveEventBillingPaymentsByInstance(ctx context.Context, chatID int64, instanceID uint64, statuses map[int64]bool) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	var settlement struct {
+		ID      uint64
+		EventID uint64
+	}
+	if err := s.db.WithContext(ctx).
+		Table("event_settlements").
+		Select("id, event_id").
+		Where("group_id = ? AND instance_id = ?", group.ID, instanceID).
+		Order("id DESC").
+		Take(&settlement).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("settlement not found")
+		}
+		return err
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.ensureSettlementPaymentsTx(ctx, tx, settlement.ID); err != nil {
+			return err
+		}
+		for userID, isPaid := range statuses {
+			updates := map[string]interface{}{
+				"is_paid":    isPaid,
+				"updated_at": gorm.Expr("NOW()"),
+			}
+			if isPaid {
+				updates["paid_at"] = gorm.Expr("NOW()")
+			} else {
+				updates["paid_at"] = gorm.Expr("NULL")
+			}
+			if err := tx.Table("event_settlement_payments").
+				Where("settlement_id = ? AND user_id = ?", settlement.ID, userID).
+				Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+		var unpaid int64
+		if err := tx.Table("event_settlement_payments").
+			Where("settlement_id = ? AND is_paid = FALSE", settlement.ID).
+			Count(&unpaid).Error; err != nil {
+			return err
+		}
+		nextStatus := string(EventHistoryStatusOnReview)
+		if unpaid == 0 {
+			nextStatus = string(EventHistoryStatusCompleted)
+		}
+		return tx.Table("event_instances").
+			Where("id = ? AND group_id = ?", instanceID, group.ID).
+			Updates(map[string]interface{}{
+				"status":     nextStatus,
+				"updated_at": gorm.Expr("NOW()"),
+			}).Error
 	})
 }
 
@@ -2960,6 +3881,272 @@ func (s *Store) ListEventPollHistory(ctx context.Context, chatID int64, eventID 
 			CountedVotes:      countedVotes,
 			TotalVotes:        int(totalVotes),
 			TeamsConfigured:   sessionCount > 0,
+		})
+	}
+	return items, nil
+}
+
+func (s *Store) ListEventPollHistoryByInstance(ctx context.Context, chatID int64, instanceID uint64) ([]EventPollHistoryItem, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	var exists int64
+	if err := s.db.WithContext(ctx).
+		Table("event_instances").
+		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, group.ID).
+		Count(&exists).Error; err != nil {
+		return nil, err
+	}
+	if exists == 0 {
+		return nil, errors.New("event instance not found")
+	}
+
+	type row struct {
+		PostID            uint64
+		TelegramMessageID int64
+		TelegramPollID    string
+		Status            string
+		PublishedAt       time.Time
+		Question          string
+		TemplateOptions   datatypes.JSON
+		CountedOptions    datatypes.JSON
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts epp").
+		Select("epp.id AS post_id, epp.telegram_message_id, COALESCE(epp.telegram_poll_id, '') AS telegram_poll_id, epp.status, epp.published_at, COALESCE(pt.question, '') AS question, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Where("epp.group_id = ? AND epp.instance_id = ?", group.ID, instanceID).
+		Order("epp.published_at DESC, epp.id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	items := make([]EventPollHistoryItem, 0, len(rows))
+	for _, r := range rows {
+		var options []string
+		_ = json.Unmarshal(r.TemplateOptions, &options)
+		var counted []int
+		_ = json.Unmarshal(r.CountedOptions, &counted)
+		counted = normalizeCountedOptionIndexes(len(options), counted)
+
+		var totalVotes int64
+		if err := s.db.WithContext(ctx).
+			Table("event_poll_votes").
+			Where("post_id = ?", r.PostID).
+			Count(&totalVotes).Error; err != nil {
+			return nil, err
+		}
+
+		countedVotes := 0
+		if len(counted) > 0 {
+			choices := make([]string, 0, len(counted))
+			for _, idx := range counted {
+				choices = append(choices, "option_"+strconv.Itoa(idx))
+			}
+			countedVotes, err = s.CountVotesForPostChoices(ctx, r.PostID, choices)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		var sessionCount int64
+		if err := s.db.WithContext(ctx).
+			Table("event_team_sessions").
+			Where("post_id = ?", r.PostID).
+			Count(&sessionCount).Error; err != nil {
+			return nil, err
+		}
+
+		items = append(items, EventPollHistoryItem{
+			PostID:            r.PostID,
+			TelegramMessageID: r.TelegramMessageID,
+			TelegramPollID:    r.TelegramPollID,
+			Status:            r.Status,
+			PublishedAt:       r.PublishedAt,
+			Question:          r.Question,
+			CountedVotes:      countedVotes,
+			TotalVotes:        int(totalVotes),
+			TeamsConfigured:   sessionCount > 0,
+		})
+	}
+	return items, nil
+}
+
+func (s *Store) ListGroupPollsByChatID(ctx context.Context, chatID int64) ([]GroupPollItem, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	type row struct {
+		PostID            uint64
+		InstanceID        *uint64
+		EventID           *uint64
+		EventName         string
+		EventLocalDate    *time.Time
+		TemplateName      string
+		Question          string
+		TelegramMessageID int64
+		TelegramPollID    string
+		Status            string
+		PublishedAt       time.Time
+		TemplateOptions   datatypes.JSON
+		CountedOptions    datatypes.JSON
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts epp").
+		Select(`
+			epp.id AS post_id,
+			epp.instance_id,
+			epp.event_id,
+			COALESCE(ge.name, '') AS event_name,
+			ei.local_date AS event_local_date,
+			COALESCE(pt.name, '') AS template_name,
+			COALESCE(pt.question, '') AS question,
+			epp.telegram_message_id,
+			COALESCE(epp.telegram_poll_id, '') AS telegram_poll_id,
+			epp.status,
+			epp.published_at,
+			COALESCE(pt.options, '[]'::jsonb) AS template_options,
+			COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options
+		`).
+		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Joins("LEFT JOIN group_events ge ON ge.id = epp.event_id").
+		Joins("LEFT JOIN event_instances ei ON ei.id = epp.instance_id").
+		Where("epp.group_id = ?", group.ID).
+		Order("epp.published_at DESC, epp.id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]GroupPollItem, 0, len(rows))
+	for _, r := range rows {
+		var options []string
+		_ = json.Unmarshal(r.TemplateOptions, &options)
+		var counted []int
+		_ = json.Unmarshal(r.CountedOptions, &counted)
+		counted = normalizeCountedOptionIndexes(len(options), counted)
+
+		var totalVotes int64
+		if err := s.db.WithContext(ctx).
+			Table("event_poll_votes").
+			Where("post_id = ?", r.PostID).
+			Count(&totalVotes).Error; err != nil {
+			return nil, err
+		}
+
+		countedVotes := 0
+		if len(counted) > 0 {
+			choices := make([]string, 0, len(counted))
+			for _, idx := range counted {
+				choices = append(choices, "option_"+strconv.Itoa(idx))
+			}
+			countedVotes, err = s.CountVotesForPostChoices(ctx, r.PostID, choices)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		out = append(out, GroupPollItem{
+			PostID:            r.PostID,
+			InstanceID:        r.InstanceID,
+			EventID:           r.EventID,
+			EventName:         r.EventName,
+			EventLocalDate:    r.EventLocalDate,
+			TemplateName:      r.TemplateName,
+			Question:          r.Question,
+			TelegramMessageID: r.TelegramMessageID,
+			TelegramPollID:    r.TelegramPollID,
+			Status:            r.Status,
+			PublishedAt:       r.PublishedAt,
+			CountedVotes:      countedVotes,
+			TotalVotes:        int(totalVotes),
+		})
+	}
+	return out, nil
+}
+
+func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, postID uint64) ([]GroupPollVoteItem, error) {
+	if postID == 0 {
+		return nil, errors.New("post_id is required")
+	}
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	type postRow struct {
+		TemplateOptions datatypes.JSON
+		CountedOptions  datatypes.JSON
+	}
+	var post postRow
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts epp").
+		Select("COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Where("epp.id = ? AND epp.group_id = ?", postID, group.ID).
+		Take(&post).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("poll post not found")
+		}
+		return nil, err
+	}
+
+	var options []string
+	_ = json.Unmarshal(post.TemplateOptions, &options)
+	var counted []int
+	_ = json.Unmarshal(post.CountedOptions, &counted)
+	counted = normalizeCountedOptionIndexes(len(options), counted)
+	countedChoices := make(map[string]struct{}, len(counted))
+	for _, idx := range counted {
+		countedChoices["option_"+strconv.Itoa(idx)] = struct{}{}
+	}
+
+	type voteRow struct {
+		UserID    int64
+		Username  string
+		FirstName string
+		LastName  string
+		Choice    string
+		Source    string
+		VotedAt   time.Time
+	}
+	var rows []voteRow
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_votes ev").
+		Select("ev.user_id, COALESCE(tu.username, ev.username, '') AS username, COALESCE(tu.first_name, ev.first_name, '') AS first_name, COALESCE(tu.last_name, ev.last_name, '') AS last_name, ev.choice, ev.source, ev.voted_at").
+		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = ev.user_id").
+		Where("ev.post_id = ?", postID).
+		Order("ev.voted_at ASC, ev.user_id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	items := make([]GroupPollVoteItem, 0, len(rows))
+	for _, row := range rows {
+		choiceLabel := row.Choice
+		var choiceIndex *int
+		if idx, ok := parsePollOptionChoice(row.Choice); ok {
+			idxCopy := idx
+			choiceIndex = &idxCopy
+			if idx >= 0 && idx < len(options) {
+				choiceLabel = options[idx]
+			}
+		}
+		_, countedChoice := countedChoices[row.Choice]
+		items = append(items, GroupPollVoteItem{
+			UserID:      row.UserID,
+			Username:    row.Username,
+			FirstName:   row.FirstName,
+			LastName:    row.LastName,
+			Choice:      row.Choice,
+			ChoiceIndex: choiceIndex,
+			ChoiceLabel: choiceLabel,
+			Counted:     countedChoice,
+			Source:      row.Source,
+			VotedAt:     row.VotedAt,
 		})
 	}
 	return items, nil
@@ -3382,117 +4569,82 @@ func (s *Store) ListEventHistory(ctx context.Context, chatID int64) ([]EventHist
 	}
 	nowLocal := time.Now().In(loc)
 
-	type eventRow struct {
-		EventID           uint64
-		Name              string
-		EventType         string
-		StartWeekday      int
-		StartTime         string
-		EndTime           string
-		PollTemplate      string
-		MinVotesToHold    int
-		CancelLeadMinutes int
-		PublishEnabled    bool
+	type row struct {
+		InstanceID     uint64
+		EventID        uint64
+		Name           string
+		EventType      string
+		PollPostID     *uint64
+		LocalDate      time.Time
+		StartWeekday   int
+		StartTime      string
+		EndTime        string
+		PollTemplate   string
+		PublishEnabled bool
+		Status         string
+		PlannedStartAt time.Time
+		PlannedEndAt   time.Time
 	}
-	var rows []eventRow
+	var rows []row
 	if err := s.db.WithContext(ctx).
-		Table("group_events ge").
-		Select("ge.id AS event_id, ge.name, ge.event_type, ge.start_weekday, ge.start_time, ge.end_time, COALESCE(pt.name, '') AS poll_template, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.publish_enabled").
-		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
-		Where("ge.group_id = ? AND ge.is_active = TRUE", group.ID).
-		Order("ge.id DESC").
+		Table("event_instances ei").
+		Select("ei.id AS instance_id, ei.event_id, ei.poll_post_id, ei.event_name AS name, ei.event_type, ei.local_date, ei.start_weekday, ei.start_time, ei.end_time, COALESCE(ei.poll_template_name, '') AS poll_template, ei.publish_enabled, ei.status, ei.planned_start_at, ei.planned_end_at").
+		Joins("JOIN group_events ge ON ge.id = ei.event_id").
+		Where("ei.group_id = ? AND ei.is_active = TRUE AND ge.is_active = TRUE", group.ID).
+		Order("ei.local_date DESC, ei.id DESC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 
 	items := make([]EventHistoryItem, 0, len(rows))
 	for _, row := range rows {
-		hour, minute, err := parseClockTime(row.StartTime)
-		if err != nil {
-			continue
-		}
-		endHour, endMinute, err := parseClockTime(row.EndTime)
-		if err != nil {
-			continue
-		}
-		nextStart := nextWeekdayTime(nowLocal, row.StartWeekday, hour, minute)
-		cycleStart := nextStart.AddDate(0, 0, -7)
-		cycleEnd := time.Date(cycleStart.Year(), cycleStart.Month(), cycleStart.Day(), endHour, endMinute, 0, 0, loc)
-		if !cycleEnd.After(cycleStart) {
-			cycleEnd = cycleEnd.Add(24 * time.Hour)
-		}
-		distributionStart := nextStart.Add(-30 * time.Minute)
+		startLocal := row.PlannedStartAt.In(loc)
+		endLocal := row.PlannedEndAt.In(loc)
+		distributionStart := startLocal.Add(-30 * time.Minute)
 
-		var latest struct {
-			ID            uint64
-			PublishedAt   time.Time
-			TemplateOpts  datatypes.JSON
-			CountedOption datatypes.JSON
-		}
-		var latestPostID *uint64
-		var latestPollAt *time.Time
-		if err := s.db.WithContext(ctx).
-			Table("event_poll_posts epp").
-			Select("epp.id, epp.published_at, COALESCE(pt.options, '[]'::jsonb) AS template_opts, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_option").
-			Joins("LEFT JOIN poll_templates pt ON pt.id = epp.template_id").
-			Where("epp.event_id = ?", row.EventID).
-			Order("epp.published_at DESC, epp.id DESC").
-			Take(&latest).Error; err == nil {
-			latestPostID = &latest.ID
-			publishedAtLocal := latest.PublishedAt.In(loc)
-			latestPollAt = &publishedAtLocal
-		}
-
-		status := EventHistoryStatusCompleted
-		thresholdNotHeld := nextStart.Add(-time.Duration(normalizeCancelLeadMinutes(row.CancelLeadMinutes)) * time.Minute)
-		if row.MinVotesToHold > 0 && !nowLocal.Before(thresholdNotHeld) && nowLocal.Before(nextStart) {
-			countedVotes := 0
-			if latestPostID != nil {
-				var options []string
-				_ = json.Unmarshal(latest.TemplateOpts, &options)
-				var counted []int
-				_ = json.Unmarshal(latest.CountedOption, &counted)
-				counted = normalizeCountedOptionIndexes(len(options), counted)
-				if len(counted) > 0 {
-					choices := make([]string, 0, len(counted))
-					for _, idx := range counted {
-						choices = append(choices, "option_"+strconv.Itoa(idx))
-					}
-					countedVotes, err = s.CountVotesForPostChoices(ctx, latest.ID, choices)
-					if err != nil {
-						return nil, err
-					}
-				}
-			}
-			if countedVotes < row.MinVotesToHold {
-				status = EventHistoryStatusNotHeld
-			}
-		}
-
-		if status != EventHistoryStatusNotHeld && latestPollAt != nil && latestPollAt.After(cycleStart) && latestPollAt.Before(nextStart) {
+		status := EventHistoryStatus(clampInstanceStatus(row.Status))
+		if status != EventHistoryStatusNotHeld {
 			if nowLocal.Before(distributionStart) {
 				status = EventHistoryStatusInVoting
-			} else if nowLocal.Before(cycleEnd) {
+			} else if nowLocal.Before(endLocal) {
 				status = EventHistoryStatusOnDistribution
+			}
+		}
+
+		var latestPostID *uint64
+		var latestPollAt *time.Time
+		if row.PollPostID != nil {
+			var poll struct {
+				PublishedAt time.Time
+			}
+			if err := s.db.WithContext(ctx).
+				Table("event_poll_posts").
+				Select("published_at").
+				Where("id = ?", *row.PollPostID).
+				Take(&poll).Error; err == nil {
+				latestPostID = row.PollPostID
+				publishedAtLocal := poll.PublishedAt.In(loc)
+				latestPollAt = &publishedAtLocal
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, err
+			} else {
+				latestPostID = row.PollPostID
 			}
 		}
 
 		debtAmount := 0.0
 		var billing struct {
-			SettlementID uint64
-			DebtAmount   float64
-			UnpaidCount  int64
+			DebtAmount  float64
+			UnpaidCount int64
 		}
 		if err := s.db.WithContext(ctx).
 			Table("event_settlements es").
-			Select("es.id AS settlement_id, COALESCE(SUM(CASE WHEN esp.is_paid = FALSE THEN esp.amount_due ELSE 0 END), 0) AS debt_amount, COUNT(CASE WHEN esp.is_paid = FALSE THEN 1 END) AS unpaid_count").
+			Select("COALESCE(SUM(CASE WHEN esp.is_paid = FALSE THEN esp.amount_due ELSE 0 END), 0) AS debt_amount, COUNT(CASE WHEN esp.is_paid = FALSE THEN 1 END) AS unpaid_count").
 			Joins("LEFT JOIN event_settlement_payments esp ON esp.settlement_id = es.id").
-			Where("es.event_id = ? AND es.group_id = ? AND es.local_date = ?", row.EventID, group.ID, cycleStart.Format("2006-01-02")).
-			Group("es.id").
-			Order("es.id DESC").
-			Take(&billing).Error; err == nil {
+			Where("es.group_id = ? AND es.instance_id = ?", group.ID, row.InstanceID).
+			Scan(&billing).Error; err == nil {
 			debtAmount = billing.DebtAmount
-			if nowLocal.After(cycleEnd) && status != EventHistoryStatusNotHeld {
+			if nowLocal.After(endLocal) && status != EventHistoryStatusNotHeld {
 				if billing.UnpaidCount > 0 {
 					status = EventHistoryStatusOnReview
 				} else {
@@ -3504,17 +4656,20 @@ func (s *Store) ListEventHistory(ctx context.Context, chatID int64) ([]EventHist
 		}
 
 		items = append(items, EventHistoryItem{
+			InstanceID:     row.InstanceID,
 			EventID:        row.EventID,
 			Name:           row.Name,
 			EventType:      row.EventType,
+			LocalDate:      row.LocalDate,
 			StartWeekday:   row.StartWeekday,
 			StartTime:      row.StartTime,
 			PollTemplate:   row.PollTemplate,
 			LatestPostID:   latestPostID,
 			LatestPollAt:   latestPollAt,
-			NextStartAt:    nextStart,
+			NextStartAt:    startLocal,
+			EndAt:          endLocal,
 			Status:         status,
-			CanDistribute:  status == EventHistoryStatusOnDistribution && status != EventHistoryStatusNotHeld,
+			CanDistribute:  status == EventHistoryStatusOnDistribution && latestPostID != nil,
 			PublishEnabled: row.PublishEnabled,
 			DebtAmount:     debtAmount,
 		})

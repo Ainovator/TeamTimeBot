@@ -71,6 +71,35 @@ export type EventPollHistoryItem = {
   teamsConfigured: boolean
 }
 
+export type GroupPollItem = {
+  postID: number
+  instanceID?: number
+  eventID?: number
+  eventName: string
+  eventLocalDate?: string
+  templateName: string
+  question: string
+  telegramMessageID: number
+  telegramPollID: string
+  status: string
+  publishedAt: string
+  countedVotes: number
+  totalVotes: number
+}
+
+export type GroupPollVoteItem = {
+  userID: number
+  username: string
+  firstName: string
+  lastName: string
+  choice: string
+  choiceIndex?: number
+  choiceLabel: string
+  counted: boolean
+  source: string
+  votedAt: string
+}
+
 export type TeamSplitPlayer = {
   userID: number
   username: string
@@ -99,15 +128,18 @@ export type EventTeamSplitState = {
 }
 
 export type EventHistoryItem = {
+  instanceID: number
   eventID: number
   name: string
   eventType: 'training' | 'activity'
+  localDate: string
   startWeekday: number
   startTime: string
   pollTemplate: string
   latestPostID?: number
   latestPollAt?: string
   nextStartAt: string
+  endAt: string
   status: 'completed' | 'in_voting' | 'on_distribution' | 'on_review' | 'not_held'
   canDistribute: boolean
   publishEnabled: boolean

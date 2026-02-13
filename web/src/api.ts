@@ -2,6 +2,8 @@ import type {
   ApiError,
   EventHistoryItem,
   EventPollHistoryItem,
+  GroupPollItem,
+  GroupPollVoteItem,
   EventTeamSplitState,
   EventActivitySummary,
   EventView,
@@ -180,6 +182,15 @@ export async function createEvent(
   return parseResponse<EventView>(res)
 }
 
+export async function createEventInstance(chatID: number, eventID: number, payload?: { localDate?: string }) {
+  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/instances`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload ?? {}),
+  })
+  return parseResponse<{ instanceID: number }>(res)
+}
+
 export async function updateEventDetails(
   chatID: number,
   eventID: number,
@@ -301,6 +312,21 @@ export async function fetchEventPollHistory(chatID: number, eventID: number): Pr
   return parseResponse<EventPollHistoryItem[]>(res)
 }
 
+export async function fetchEventPollHistoryForInstance(chatID: number, instanceID: number): Promise<EventPollHistoryItem[]> {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/polls`)
+  return parseResponse<EventPollHistoryItem[]>(res)
+}
+
+export async function fetchGroupPolls(chatID: number): Promise<GroupPollItem[]> {
+  const res = await fetch(`/api/groups/${chatID}/polls`)
+  return parseResponse<GroupPollItem[]>(res)
+}
+
+export async function fetchGroupPollVotes(chatID: number, postID: number): Promise<GroupPollVoteItem[]> {
+  const res = await fetch(`/api/groups/${chatID}/polls/${postID}/votes`)
+  return parseResponse<GroupPollVoteItem[]>(res)
+}
+
 export async function fetchEventHistory(chatID: number): Promise<EventHistoryItem[]> {
   const res = await fetch(`/api/groups/${chatID}/events/history`)
   return parseResponse<EventHistoryItem[]>(res)
@@ -316,12 +342,37 @@ export async function fetchEventBilling(chatID: number, eventID: number): Promis
   return parseResponse<EventBilling | null>(res)
 }
 
+export async function fetchEventBillingForInstance(chatID: number, instanceID: number): Promise<EventBilling | null> {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`)
+  return parseResponse<EventBilling | null>(res)
+}
+
+export async function generateEventBillingForInstance(chatID: number, instanceID: number): Promise<EventBilling | null> {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`, {
+    method: 'POST',
+  })
+  return parseResponse<EventBilling | null>(res)
+}
+
 export async function saveEventBilling(
   chatID: number,
   eventID: number,
   statuses: Array<{ userID: number; paid: boolean }>,
 ) {
   const res = await fetch(`/api/groups/${chatID}/events/${eventID}/billing`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ statuses }),
+  })
+  await parseResponse<{ status: string }>(res)
+}
+
+export async function saveEventBillingForInstance(
+  chatID: number,
+  instanceID: number,
+  statuses: Array<{ userID: number; paid: boolean }>,
+) {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ statuses }),

@@ -51,9 +51,19 @@ export const sections: SectionItem[] = [
     ),
   },
   {
-    id: 'events',
+    id: 'polls',
+    title: 'Голосования',
+    subtitle: 'Все опубликованные',
+    icon: (
+      <Icon>
+        <path d="M4 4h16a2 2 0 0 1 2 2v4H2V6a2 2 0 0 1 2-2Zm-2 8h9v8H4a2 2 0 0 1-2-2v-6Zm11 0h9v6a2 2 0 0 1-2 2h-7v-8Z" fill="currentColor" />
+      </Icon>
+    ),
+  },
+  {
+    id: 'event_templates',
     title: 'Шаблоны событий',
-    subtitle: 'Тренировки и стоимость',
+    subtitle: 'Настройки и расписание',
     icon: (
       <Icon>
         <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Zm0 2.2L18.8 8 12 11.8 5.2 8 12 4.2Zm-7 5.5 6 3.3v6.6l-6-3.3V9.7Zm8 9.9V13l6-3.3v6.6l-6 3.3Z" fill="currentColor" />
@@ -61,12 +71,12 @@ export const sections: SectionItem[] = [
     ),
   },
   {
-    id: 'history',
-    title: 'История событий',
-    subtitle: 'Статусы и распределение',
+    id: 'events',
+    title: 'События',
+    subtitle: 'Конкретные занятия',
     icon: (
       <Icon>
-        <path d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2Zm1 5h-2v6l5 3 1-1.7-4-2.3V7Z" fill="currentColor" />
+        <path d="M6 2v2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H8V2H6Zm14 8H4v10h16V10Z" fill="currentColor" />
       </Icon>
     ),
   },

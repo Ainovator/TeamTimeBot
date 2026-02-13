@@ -126,6 +126,7 @@ type EventPollPost struct {
 	ID                uint64    `gorm:"primaryKey"`
 	GroupID           uint64    `gorm:"not null;index"`
 	EventID           *uint64   `gorm:"index"`
+	InstanceID        *uint64   `gorm:"index"`
 	TemplateID        uint64    `gorm:"not null;index"`
 	TelegramMessageID int64     `gorm:"not null"`
 	TelegramPollID    string    `gorm:"index"`
@@ -137,6 +138,48 @@ type EventPollPost struct {
 
 func (EventPollPost) TableName() string {
 	return "event_poll_posts"
+}
+
+type EventInstance struct {
+	ID             uint64    `gorm:"primaryKey"`
+	GroupID        uint64    `gorm:"not null;index"`
+	EventID        uint64    `gorm:"not null;index"`
+	PollPostID     *uint64   `gorm:"index"`
+	LocalDate      time.Time `gorm:"not null"`
+	PlannedStartAt time.Time `gorm:"not null"`
+	PlannedEndAt   time.Time `gorm:"not null"`
+	Status         string    `gorm:"not null;default:in_voting"`
+	EventName      string    `gorm:"not null;default:''"`
+	EventType      string    `gorm:"not null;default:training"`
+	StartWeekday   int16     `gorm:"not null;default:1"`
+	StartTime      string    `gorm:"not null;default:''"`
+	EndTime        string    `gorm:"not null;default:''"`
+	PublishEnabled bool      `gorm:"not null;default:true"`
+	CostAmount     *float64
+	MinVotesToHold int32  `gorm:"not null;default:0"`
+	CancelLead     int32  `gorm:"not null;default:180"`
+	CancelNotify   bool   `gorm:"not null;default:false"`
+	SettlementOn   bool   `gorm:"not null;default:true"`
+	SettleBefore   bool   `gorm:"not null;default:false"`
+	SettleAfter    bool   `gorm:"not null;default:true"`
+	AnnounceText   string `gorm:"not null;default:''"`
+	AnnounceOn     bool   `gorm:"not null;default:false"`
+	AnnounceLead   int16  `gorm:"not null;default:60"`
+	TeamsAutoSplit bool   `gorm:"not null;default:false"`
+	TeamsPublish   bool   `gorm:"not null;default:false"`
+	TeamSize       int16  `gorm:"not null;default:6"`
+	PollTemplateID *uint64
+	PollTemplate   string         `gorm:"not null;default:''"`
+	PollQuestion   string         `gorm:"not null;default:''"`
+	PollOptions    datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'"`
+	PollCounted    datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'"`
+	IsActive       bool           `gorm:"not null;default:true"`
+	CreatedAt      time.Time      `gorm:"not null;default:now()"`
+	UpdatedAt      time.Time      `gorm:"not null;default:now()"`
+}
+
+func (EventInstance) TableName() string {
+	return "event_instances"
 }
 
 type EventPollVote struct {

@@ -4,14 +4,18 @@ import {
   archiveEvent,
   bindEvent,
   createEvent,
+  createEventInstance,
   createTemplate,
   deactivateEventPublications,
   deleteTemplate,
   fetchArchivedEvents,
   fetchEventActivity,
-  fetchEventBilling,
+  fetchEventBillingForInstance,
   fetchEventHistory,
-  fetchEventPollHistory,
+  fetchGroupPolls,
+  fetchGroupPollVotes,
+  generateEventBillingForInstance,
+  fetchEventPollHistoryForInstance,
   fetchEventTeamSplit,
   fetchGroupDebtSummary,
   fetchGroupDetails,
@@ -22,12 +26,10 @@ import {
   fetchSkillsCatalog,
   fetchTemplate,
   autoSplitEventTeams,
-  publishEventAnnouncement,
-  publishEventPoll,
   publishEventSettlement,
   publishEventTeamSplit,
   saveEventTeamSplit,
-  saveEventBilling,
+  saveEventBillingForInstance,
   unarchiveEvent,
   updateMemberProfile,
   updateMemberSkills,
@@ -71,6 +73,8 @@ import type {
   Group,
   GroupDebtSummary,
   GroupDetails,
+  GroupPollItem,
+  GroupPollVoteItem,
   GroupMember,
   MemberSkillProfile,
   PlayerRelation,
@@ -85,6 +89,7 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<Section>(initialRoute.section)
   const [activeMemberID, setActiveMemberID] = useState<number | null>(initialRoute.memberID ?? null)
   const [activeHistoryEventID, setActiveHistoryEventID] = useState<number | null>(initialRoute.historyEventID ?? null)
+  const [activePollPostID, setActivePollPostID] = useState<number | null>(initialRoute.pollPostID ?? null)
   const [activeTemplateView, setActiveTemplateView] = useState<'list' | 'create' | 'edit'>(initialRoute.templateView)
   const [activeTemplateName, setActiveTemplateName] = useState<string | null>(initialRoute.templateName)
   const [activeEventView, setActiveEventView] = useState<'list' | 'create' | 'edit'>(initialRoute.eventView)
@@ -182,13 +187,22 @@ export default function App() {
   const [showEventActivity, setShowEventActivity] = useState(false)
   const [eventHistory, setEventHistory] = useState<EventHistoryItem[]>([])
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'on_review' | 'completed' | 'not_held'>('')
-  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'billing'>('distribution')
+  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing'>('distribution')
   const [eventHistoryLoading, setEventHistoryLoading] = useState(false)
   const [eventHistoryError, setEventHistoryError] = useState('')
   const [eventPollHistory, setEventPollHistory] = useState<EventPollHistoryItem[]>([])
+  const [groupPolls, setGroupPolls] = useState<GroupPollItem[]>([])
+  const [groupPollsLoading, setGroupPollsLoading] = useState(false)
+  const [groupPollsError, setGroupPollsError] = useState('')
+  const [groupPollVotes, setGroupPollVotes] = useState<GroupPollVoteItem[]>([])
+  const [groupPollVotesLoading, setGroupPollVotesLoading] = useState(false)
+  const [groupPollVotesError, setGroupPollVotesError] = useState('')
   const [eventPollHistoryLoading, setEventPollHistoryLoading] = useState(false)
   const [eventPollHistoryError, setEventPollHistoryError] = useState('')
   const [selectedHistoryPostID, setSelectedHistoryPostID] = useState<number | null>(null)
+  const [historyPollVotes, setHistoryPollVotes] = useState<GroupPollVoteItem[]>([])
+  const [historyPollVotesLoading, setHistoryPollVotesLoading] = useState(false)
+  const [historyPollVotesError, setHistoryPollVotesError] = useState('')
   const [teamSplit, setTeamSplit] = useState<EventTeamSplitState | null>(null)
   const [teamSplitLoading, setTeamSplitLoading] = useState(false)
   const [teamSplitError, setTeamSplitError] = useState('')
@@ -213,6 +227,10 @@ export default function App() {
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === activeEventID) ?? null,
     [events, activeEventID],
+  )
+  const selectedGroupPoll = useMemo(
+    () => groupPolls.find((poll) => poll.postID === activePollPostID) ?? null,
+    [groupPolls, activePollPostID],
   )
   const displayedEvents = useMemo(() => {
     const source = eventsMode === 'active' ? events : ensureList(archivedEvents)
@@ -245,7 +263,7 @@ export default function App() {
     })
   }, [memberSkillProfiles, members, membersSearch, membersTypeFilter])
   const selectedHistoryEvent = useMemo(
-    () => eventHistory.find((event) => event.eventID === activeHistoryEventID) ?? null,
+    () => eventHistory.find((event) => event.instanceID === activeHistoryEventID) ?? null,
     [eventHistory, activeHistoryEventID],
   )
   const availableRelationMembers = useMemo(() => {
@@ -257,7 +275,7 @@ export default function App() {
       .sort((a, b) => fullName(a).localeCompare(fullName(b), 'ru'))
   }, [members, selectedMemberSkills])
   const eventEditorDirty = useMemo(() => {
-    if (!selectedEvent || activeSection !== 'events' || activeEventView !== 'edit') {
+    if (!selectedEvent || activeSection !== 'event_templates' || activeEventView !== 'edit') {
       return false
     }
 
@@ -314,11 +332,12 @@ export default function App() {
     setActiveOrgKey(resolvedOrgKey ?? null)
     setActiveSection(route.section)
     setActiveMemberID(route.section === 'members' ? route.memberID ?? null : null)
-    setActiveHistoryEventID(route.section === 'history' ? route.historyEventID ?? null : null)
+    setActiveHistoryEventID(route.section === 'events' ? route.historyEventID ?? null : null)
+    setActivePollPostID(route.section === 'polls' ? route.pollPostID ?? null : null)
     setActiveTemplateView(route.section === 'templates' ? route.templateView : 'list')
     setActiveTemplateName(route.section === 'templates' ? route.templateName : null)
-    setActiveEventView(route.section === 'events' ? route.eventView : 'list')
-    setActiveEventID(route.section === 'events' ? route.eventID : null)
+    setActiveEventView(route.section === 'event_templates' ? route.eventView : 'list')
+    setActiveEventID(route.section === 'event_templates' ? route.eventID : null)
 
     const nextPath = buildRoutePath({ ...route, orgKey: resolvedOrgKey })
     const stateOp = replace ? window.history.replaceState : window.history.pushState
@@ -332,7 +351,8 @@ export default function App() {
       setActiveOrgKey(route.orgKey ?? null)
       setActiveSection(route.section)
       setActiveMemberID(route.section === 'members' ? route.memberID ?? null : null)
-      setActiveHistoryEventID(route.section === 'history' ? route.historyEventID ?? null : null)
+      setActiveHistoryEventID(route.section === 'events' ? route.historyEventID ?? null : null)
+      setActivePollPostID(route.section === 'polls' ? route.pollPostID ?? null : null)
       setActiveTemplateView(route.templateView)
       setActiveTemplateName(route.templateName)
       setActiveEventView(route.eventView)
@@ -394,9 +414,12 @@ export default function App() {
       setMemberSkillProfiles({})
       setSelectedMemberSkills(null)
       setEventHistory([])
+      setGroupPolls([])
+      setGroupPollVotes([])
       setEventBilling(null)
       setGroupDebtSummary(null)
       setActiveHistoryEventID(null)
+      setActivePollPostID(null)
       setArchivedEvents([])
       return
     }
@@ -406,9 +429,12 @@ export default function App() {
       setMemberSkillProfiles({})
       setSelectedMemberSkills(null)
       setEventHistory([])
+      setGroupPolls([])
+      setGroupPollVotes([])
       setEventBilling(null)
       setGroupDebtSummary(null)
       setActiveHistoryEventID(null)
+      setActivePollPostID(null)
       setArchivedEvents([])
       return
     }
@@ -416,13 +442,13 @@ export default function App() {
   }, [activeChatID, groups])
 
   useEffect(() => {
-    if (activeSection !== 'events') {
+    if (activeSection !== 'event_templates') {
       setEventsMode('active')
     }
   }, [activeSection])
 
   useEffect(() => {
-    if (activeSection !== 'history' || activeChatID === null) {
+    if (activeSection !== 'events' || activeChatID === null) {
       return
     }
     let cancelled = false
@@ -438,8 +464,8 @@ export default function App() {
           setActiveHistoryEventID(null)
           return
         }
-        if (activeHistoryEventID !== null && !items.some((item) => item.eventID === activeHistoryEventID)) {
-          setActiveHistoryEventID(items[0].eventID)
+        if (activeHistoryEventID !== null && !items.some((item) => item.instanceID === activeHistoryEventID)) {
+          setActiveHistoryEventID(items[0].instanceID)
         }
       })
       .catch((err) => {
@@ -500,7 +526,7 @@ export default function App() {
   }, [activeChatID, activeSection, activeTemplateView, activeTemplateName])
 
   useEffect(() => {
-    if (activeSection !== 'events' || activeEventView !== 'edit' || !selectedEvent) {
+    if (activeSection !== 'event_templates' || activeEventView !== 'edit' || !selectedEvent) {
       setEventEditor({
         name: '',
         eventType: 'training',
@@ -561,7 +587,7 @@ export default function App() {
   }, [activeSection, activeEventView, selectedEvent])
 
   useEffect(() => {
-    if (activeSection !== 'events' || activeEventView !== 'edit') {
+    if (activeSection !== 'event_templates' || activeEventView !== 'edit') {
       return
     }
     if (activeChatID === null || activeEventID === null) {
@@ -576,7 +602,7 @@ export default function App() {
     navigateTo(
       {
         chatID: activeChatID,
-        section: 'events',
+        section: 'event_templates',
         templateView: 'list',
         templateName: null,
         eventView: 'list',
@@ -587,13 +613,13 @@ export default function App() {
   }, [activeSection, activeEventView, activeChatID, activeEventID, details, selectedEvent])
 
   useEffect(() => {
-    if (activeSection !== 'history' || activeChatID === null || activeHistoryEventID === null) {
+    if (activeSection !== 'events' || activeChatID === null || activeHistoryEventID === null) {
       return
     }
     let cancelled = false
     setEventPollHistoryLoading(true)
     setEventPollHistoryError('')
-    void fetchEventPollHistory(activeChatID, activeHistoryEventID)
+    void fetchEventPollHistoryForInstance(activeChatID, activeHistoryEventID)
       .then((items) => {
         if (cancelled) {
           return
@@ -624,7 +650,75 @@ export default function App() {
   }, [activeSection, activeChatID, activeHistoryEventID, success])
 
   useEffect(() => {
-    if (activeSection !== 'history' || activeChatID === null || activeHistoryEventID === null) {
+    if (activeSection !== 'polls' || activeChatID === null) {
+      return
+    }
+    let cancelled = false
+    setGroupPollsLoading(true)
+    setGroupPollsError('')
+    void fetchGroupPolls(activeChatID)
+      .then((items) => {
+        if (cancelled) {
+          return
+        }
+        setGroupPolls(items)
+        if (activePollPostID !== null && !items.some((item) => item.postID === activePollPostID)) {
+          setActivePollPostID(null)
+        }
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+        setGroupPolls([])
+        setGroupPollsError((err as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setGroupPollsLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, activePollPostID, success])
+
+  useEffect(() => {
+    if (activeSection !== 'polls' || activeChatID === null || activePollPostID === null) {
+      setGroupPollVotes([])
+      setGroupPollVotesError('')
+      setGroupPollVotesLoading(false)
+      return
+    }
+    let cancelled = false
+    setGroupPollVotesLoading(true)
+    setGroupPollVotesError('')
+    void fetchGroupPollVotes(activeChatID, activePollPostID)
+      .then((items) => {
+        if (cancelled) {
+          return
+        }
+        setGroupPollVotes(items)
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+        setGroupPollVotes([])
+        setGroupPollVotesError((err as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setGroupPollVotesLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, activePollPostID, success])
+
+  useEffect(() => {
+    if (activeSection !== 'events' || activeChatID === null || activeHistoryEventID === null) {
       setEventBilling(null)
       setEventBillingDraft({})
       return
@@ -632,7 +726,7 @@ export default function App() {
     let cancelled = false
     setEventBillingLoading(true)
     setEventBillingError('')
-    void fetchEventBilling(activeChatID, activeHistoryEventID)
+    void fetchEventBillingForInstance(activeChatID, activeHistoryEventID)
       .then((billing) => {
         if (cancelled) {
           return
@@ -670,13 +764,53 @@ export default function App() {
   }, [activeHistoryEventID])
 
   useEffect(() => {
-    if (activeSection !== 'history' || activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null) {
+    if (activeSection !== 'events' || activeChatID === null || selectedHistoryPostID === null) {
+      setHistoryPollVotes([])
+      setHistoryPollVotesError('')
+      setHistoryPollVotesLoading(false)
+      return
+    }
+    let cancelled = false
+    setHistoryPollVotesLoading(true)
+    setHistoryPollVotesError('')
+    void fetchGroupPollVotes(activeChatID, selectedHistoryPostID)
+      .then((items) => {
+        if (cancelled) {
+          return
+        }
+        setHistoryPollVotes(items)
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+        setHistoryPollVotes([])
+        setHistoryPollVotesError((err as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHistoryPollVotesLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, selectedHistoryPostID, success])
+
+  useEffect(() => {
+    if (
+      activeSection !== 'events' ||
+      activeChatID === null ||
+      activeHistoryEventID === null ||
+      selectedHistoryPostID === null ||
+      !selectedHistoryEvent
+    ) {
       return
     }
     let cancelled = false
     setTeamSplitLoading(true)
     setTeamSplitError('')
-    void fetchEventTeamSplit(activeChatID, activeHistoryEventID, selectedHistoryPostID)
+    void fetchEventTeamSplit(activeChatID, selectedHistoryEvent.eventID, selectedHistoryPostID)
       .then((state) => {
         if (!cancelled) {
           setTeamSplit(state)
@@ -697,7 +831,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [activeSection, activeChatID, activeHistoryEventID, selectedHistoryPostID])
+  }, [activeSection, activeChatID, activeHistoryEventID, selectedHistoryPostID, selectedHistoryEvent])
 
   useEffect(() => {
     if (activeSection !== 'members' || activeMemberID === null || activeChatID === null) {
@@ -1132,7 +1266,7 @@ export default function App() {
       navigateTo(
         {
           chatID: activeChatID,
-          section: 'events',
+          section: 'event_templates',
           templateView: 'list',
           templateName: null,
           eventView: 'edit',
@@ -1288,25 +1422,20 @@ export default function App() {
     )
   }
 
-  async function onManualPublishAnnouncement() {
-    if (activeChatID === null || activeEventID === null) {
+  async function onPublishSettlementForEvent(eventID: number) {
+    if (activeChatID === null || eventID === 0) {
       return
     }
-    await runAction(() => publishEventAnnouncement(activeChatID, activeEventID), 'Анонс опубликован')
+    await runAction(() => publishEventSettlement(activeChatID, eventID), 'Расчёт опубликован')
   }
 
-  async function onManualPublishPoll() {
-    if (activeChatID === null || activeEventID === null) {
+  async function onGenerateBillingForInstance(instanceID: number) {
+    if (activeChatID === null || instanceID === 0) {
       return
     }
-    await runAction(() => publishEventPoll(activeChatID, activeEventID), 'Опрос опубликован')
-  }
-
-  async function onManualPublishSettlement() {
-    if (activeChatID === null || activeEventID === null) {
-      return
-    }
-    await runAction(() => publishEventSettlement(activeChatID, activeEventID), 'Расчёт опубликован')
+    await runAction(async () => {
+      await generateEventBillingForInstance(activeChatID, instanceID)
+    }, 'Расчёт сформирован')
   }
 
   async function onArchiveEvent(eventID: number) {
@@ -1318,7 +1447,7 @@ export default function App() {
       navigateTo(
         {
           chatID: activeChatID,
-          section: 'events',
+          section: 'event_templates',
           templateView: 'list',
           templateName: null,
           eventView: 'list',
@@ -1442,13 +1571,13 @@ export default function App() {
   }
 
   async function onSaveTeamSplit() {
-    if (activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null || !teamSplit) {
+    if (activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null || !teamSplit || !selectedHistoryEvent) {
       return
     }
     try {
       const saved = await saveEventTeamSplit(
         activeChatID,
-        activeHistoryEventID,
+        selectedHistoryEvent.eventID,
         selectedHistoryPostID,
         teamSplit.players.map((player, idx) => ({
           userID: player.userID,
@@ -1465,11 +1594,11 @@ export default function App() {
   }
 
   async function onAutoSplitTeam() {
-    if (activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null) {
+    if (activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null || !selectedHistoryEvent) {
       return
     }
     try {
-      const next = await autoSplitEventTeams(activeChatID, activeHistoryEventID, selectedHistoryPostID)
+      const next = await autoSplitEventTeams(activeChatID, selectedHistoryEvent.eventID, selectedHistoryPostID)
       setTeamSplit(next)
       setTeamCEnabled(next.players.some((player) => player.team === 'C'))
       setSuccess('Автораспределение выполнено')
@@ -1480,13 +1609,35 @@ export default function App() {
   }
 
   async function onPublishTeamSplit() {
-    if (activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null) {
+    if (activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null || !selectedHistoryEvent) {
       return
     }
     await runAction(
-      () => publishEventTeamSplit(activeChatID, activeHistoryEventID, selectedHistoryPostID),
+      () => publishEventTeamSplit(activeChatID, selectedHistoryEvent.eventID, selectedHistoryPostID),
       'Состав команд опубликован',
     )
+  }
+
+  async function onCreateFromTemplate(eventID: number) {
+    if (activeChatID === null) {
+      return
+    }
+    try {
+      const created = await createEventInstance(activeChatID, eventID)
+      await reloadActiveOrganization(activeChatID, { silent: true })
+      setSuccess('Событие создано')
+      navigateTo({
+        chatID: activeChatID,
+        section: 'events',
+        historyEventID: created.instanceID,
+        templateView: 'list',
+        templateName: null,
+        eventView: 'list',
+        eventID: null,
+      })
+    } catch (err) {
+      setError((err as Error).message)
+    }
   }
 
   async function onSaveBilling() {
@@ -1498,10 +1649,10 @@ export default function App() {
         userID: player.userID,
         paid: Boolean(eventBillingDraft[player.userID]),
       }))
-      await saveEventBilling(activeChatID, activeHistoryEventID, statuses)
+      await saveEventBillingForInstance(activeChatID, activeHistoryEventID, statuses)
       setSuccess('Оплаты сохранены')
       await reloadActiveOrganization(activeChatID, { silent: true })
-      const refreshed = await fetchEventBilling(activeChatID, activeHistoryEventID)
+      const refreshed = await fetchEventBillingForInstance(activeChatID, activeHistoryEventID)
       setEventBilling(refreshed)
       const draft: Record<number, boolean> = {}
       if (refreshed?.players) {
@@ -2220,7 +2371,7 @@ export default function App() {
             onClick={() =>
               navigateTo({
                 chatID: activeChatID,
-                section: 'events',
+                section: 'event_templates',
                 templateView: 'list',
                 templateName: null,
                 eventView: 'list',
@@ -2487,7 +2638,7 @@ export default function App() {
               onClick={() =>
                 navigateTo({
                   chatID: activeChatID,
-                  section: 'events',
+                  section: 'event_templates',
                   templateView: 'list',
                   templateName: null,
                   eventView: 'list',
@@ -2511,7 +2662,7 @@ export default function App() {
             onClick={() =>
               navigateTo({
                 chatID: activeChatID,
-                section: 'events',
+                section: 'event_templates',
                 templateView: 'list',
                 templateName: null,
                 eventView: 'list',
@@ -2525,6 +2676,9 @@ export default function App() {
             Редактирование события #{selectedEvent.id}
           </h3>
           <div className="list-actions">
+            <button type="button" className="btn-secondary" onClick={() => void onCreateFromTemplate(selectedEvent.id)}>
+              Создать
+            </button>
             <button type="button" className="btn-secondary" onClick={() => void onToggleEventActivity()}>
               Статистика
             </button>
@@ -2840,39 +2994,6 @@ export default function App() {
             </section>
           ) : null}
 
-          <section className="settings-card settings-card-manual">
-            <h4>Ручное управление</h4>
-            <div className="manual-controls">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => void onManualPublishAnnouncement()}
-                disabled={(selectedEvent.announcementText || '').trim() === ''}
-              >
-                Опубликовать анонс
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => void onManualPublishPoll()}
-                disabled={(selectedEvent.pollTemplate || '').trim() === ''}
-              >
-                Опубликовать опрос
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => void onManualPublishSettlement()}
-                disabled={
-                  (selectedEvent.pollTemplate || '').trim() === '' ||
-                  (templateCountedMap.get(selectedEvent.pollTemplate || '') ?? 0) === 0
-                }
-              >
-                Опубликовать расчёт
-              </button>
-            </div>
-          </section>
-
           <button type="submit" disabled={!eventEditorDirty}>
             Сохранить
           </button>
@@ -2902,7 +3023,7 @@ export default function App() {
               onClick={() =>
                 navigateTo({
                   chatID: activeChatID,
-                  section: 'events',
+                  section: 'event_templates',
                   templateView: 'list',
                   templateName: null,
                   eventView: 'create',
@@ -2959,7 +3080,7 @@ export default function App() {
                           ? () =>
                               navigateTo({
                                 chatID: activeChatID,
-                                section: 'events',
+                                section: 'event_templates',
                                 templateView: 'list',
                                 templateName: null,
                                 eventView: 'edit',
@@ -3002,17 +3123,28 @@ export default function App() {
                       <td>{formatMoney(event.costAmount)}</td>
                       <td>
                         {eventsMode === 'active' ? (
-                          <button
-                            className="btn-danger btn-icon"
-                            title="В архив"
-                            aria-label="В архив"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void onArchiveEvent(event.id)
-                            }}
-                          >
-                            <span aria-hidden>🗃</span>
-                          </button>
+                          <div className="list-actions">
+                            <button
+                              className="btn-secondary"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void onCreateFromTemplate(event.id)
+                              }}
+                            >
+                              Создать
+                            </button>
+                            <button
+                              className="btn-danger btn-icon"
+                              title="В архив"
+                              aria-label="В архив"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void onArchiveEvent(event.id)
+                              }}
+                            >
+                              <span aria-hidden>🗃</span>
+                            </button>
+                          </div>
                         ) : (
                           <button className="btn-secondary" onClick={() => void onUnarchiveEvent(event.id)}>
                             Восстановить
@@ -3041,7 +3173,7 @@ export default function App() {
       return (
         <section className="content-card">
           <div className="template-head">
-            <h3>История событий</h3>
+            <h3>События</h3>
           </div>
           <div className="form-grid form-grid-3 members-filters">
             <label className="field">
@@ -3081,22 +3213,22 @@ export default function App() {
                     <th>ID / Название</th>
                     <th>Тип</th>
                     <th>Статус</th>
-                    <th>Следующий старт</th>
-                    <th>Опрос</th>
-                    <th>Последняя публикация</th>
+                    <th>Дата начала</th>
+                    <th>Дата окончания</th>
+                    <th>ID голосования</th>
                     <th>Долг</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredEventHistory.map((item) => (
                     <tr
-                      key={item.eventID}
+                      key={item.instanceID}
                       className="member-row"
                       onClick={() =>
                         navigateTo({
                           chatID: activeChatID,
-                          section: 'history',
-                          historyEventID: item.eventID,
+                          section: 'events',
+                          historyEventID: item.instanceID,
                           templateView: 'list',
                           templateName: null,
                           eventView: 'list',
@@ -3106,15 +3238,15 @@ export default function App() {
                     >
                       <td>
                         <div className="person-cell">
-                          <strong>#{item.eventID} · {item.name}</strong>
+                          <strong>#{item.instanceID} · {item.name}</strong>
                           <span>{item.publishEnabled ? 'Публикации активны' : 'Публикации отключены'}</span>
                         </div>
                       </td>
                       <td>{item.eventType === 'training' ? 'Тренировка' : 'Мероприятие'}</td>
                       <td>{historyStatusLabel(item.status)}</td>
                       <td>{formatDateTime(item.nextStartAt)}</td>
-                      <td>{item.pollTemplate || 'не привязан'}</td>
-                      <td>{item.latestPollAt ? formatDateTime(item.latestPollAt) : 'нет'}</td>
+                      <td>{formatDateTime(item.endAt)}</td>
+                      <td>{item.latestPostID ? `#${item.latestPostID}` : 'не создано'}</td>
                       <td>{formatMoney(item.debtAmount ?? 0)}</td>
                     </tr>
                   ))}
@@ -3137,7 +3269,7 @@ export default function App() {
             onClick={() =>
               navigateTo({
                 chatID: activeChatID,
-                section: 'history',
+                section: 'events',
                 historyEventID: null,
                 templateView: 'list',
                 templateName: null,
@@ -3176,6 +3308,15 @@ export default function App() {
               </button>
               <button
                 type="button"
+                className={historyDetailTab === 'votes' ? 'history-tab active' : 'history-tab'}
+                onClick={() => setHistoryDetailTab('votes')}
+                disabled={selectedHistoryPostID === null}
+                title={selectedHistoryPostID === null ? 'Сначала выбери опрос' : undefined}
+              >
+                Голоса
+              </button>
+              <button
+                type="button"
                 className={historyDetailTab === 'billing' ? 'history-tab active' : 'history-tab'}
                 onClick={() => setHistoryDetailTab('billing')}
               >
@@ -3198,7 +3339,10 @@ export default function App() {
                         key={item.postID}
                         type="button"
                         className={selectedHistoryPostID === item.postID ? 'history-poll-btn active' : 'history-poll-btn'}
-                        onClick={() => setSelectedHistoryPostID(item.postID)}
+                        onClick={() => {
+                          setSelectedHistoryPostID(item.postID)
+                          setHistoryDetailTab('votes')
+                        }}
                       >
                         <span>#{item.postID} · {formatDateTime(item.publishedAt)}</span>
                         <span>Учет: {item.countedVotes} / Всего: {item.totalVotes}</span>
@@ -3220,8 +3364,9 @@ export default function App() {
                         activeTeams.includes(pair.left) && activeTeams.includes(pair.right),
                       )
                       const renderTeamColumn = (teamCode: ActiveTeamCode) => (
-                          <div
-                            className={`team-column ${draggedPlayerID !== null ? 'team-column-drop' : ''}`}
+                            <div
+                              className={`team-column ${draggedPlayerID !== null ? 'team-column-drop' : ''}`}
+                              data-team={teamCode}
                           onDragOver={(e) => {
                             e.preventDefault()
                           }}
@@ -3374,6 +3519,70 @@ export default function App() {
               </>
             ) : null}
 
+            {historyDetailTab === 'votes' ? (
+              <section className="content-card">
+                <div className="template-head">
+                  <h4>Голоса</h4>
+                </div>
+                {selectedHistoryPostID === null ? <p className="muted">Выбери опрос в списке выше.</p> : null}
+                {historyPollVotesLoading ? <p className="muted">Загрузка голосов...</p> : null}
+                {historyPollVotesError ? <p className="muted">Ошибка: {historyPollVotesError}</p> : null}
+                {!historyPollVotesLoading && !historyPollVotesError && selectedHistoryPostID !== null && historyPollVotes.length === 0 ? (
+                  <p className="muted">По этому опросу пока нет голосов.</p>
+                ) : null}
+                {!historyPollVotesLoading && !historyPollVotesError && historyPollVotes.length > 0 ? (
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Игрок</th>
+                          <th>Выбор</th>
+                          <th>Учет</th>
+                          <th>Источник</th>
+                          <th>Время</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {historyPollVotes.map((vote) => (
+                          <tr key={vote.userID}>
+                            <td>
+                              {`${vote.firstName || ''} ${vote.lastName || ''}`.trim() ||
+                                (vote.username ? `@${vote.username}` : `ID ${vote.userID}`)}
+                            </td>
+                            <td>{vote.choiceLabel || vote.choice}</td>
+                            <td>{vote.counted ? 'да' : 'нет'}</td>
+                            <td>{vote.source || '-'}</td>
+                            <td>{formatDateTime(vote.votedAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+                {selectedHistoryPostID !== null ? (
+                  <div className="manual-controls">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() =>
+                        navigateTo({
+                          chatID: activeChatID,
+                          section: 'polls',
+                          pollPostID: selectedHistoryPostID,
+                          templateView: 'list',
+                          templateName: null,
+                          eventView: 'list',
+                          eventID: null,
+                        })
+                      }
+                    >
+                      Открыть голосование
+                    </button>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
             {historyDetailTab === 'billing' ? (
               <section className="content-card">
                 <div className="template-head">
@@ -3382,7 +3591,16 @@ export default function App() {
                 {eventBillingLoading ? <p className="muted">Загружаю оплаты...</p> : null}
                 {eventBillingError ? <p className="muted">Ошибка: {eventBillingError}</p> : null}
                 {!eventBillingLoading && !eventBillingError && !eventBilling ? (
-                  <p className="muted">Расчет по событию пока не создан.</p>
+                  <>
+                    <p className="muted">Расчет по событию пока не создан.</p>
+                    {selectedHistoryEvent ? (
+                      <div className="manual-controls">
+                        <button type="button" className="btn-secondary" onClick={() => void onGenerateBillingForInstance(selectedHistoryEvent.instanceID)}>
+                          Сформировать расчет
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
                 {eventBilling ? (
                   <>
@@ -3412,13 +3630,13 @@ export default function App() {
                         <strong>{formatMoney(eventBilling.debtAmount)}</strong>
                       </div>
                     </div>
-                    <div className="table-wrap">
+                    <div className="table-wrap table-wrap-spaced">
                       <table className="table">
                         <thead>
                           <tr>
                             <th>Игрок</th>
                             <th>Сумма</th>
-                            <th>Оплатил</th>
+                            <th className="col-center">Оплатил</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -3426,22 +3644,18 @@ export default function App() {
                             <tr key={player.userID}>
                               <td>{`${player.firstName ?? ''} ${player.lastName ?? ''}`.trim() || (player.username ? `@${player.username}` : `ID ${player.userID}`)}</td>
                               <td>{formatMoney(player.amountDue)}</td>
-                              <td>
-                                <label className="toggle-field">
-                                  <span className="toggle-label-spacer" aria-hidden="true">.</span>
-                                  <span className="toggle-checkbox">
-                                    <input
-                                      type="checkbox"
-                                      checked={Boolean(eventBillingDraft[player.userID])}
-                                      onChange={(e) =>
-                                        setEventBillingDraft((prev) => ({
-                                          ...prev,
-                                          [player.userID]: e.target.checked,
-                                        }))
-                                      }
-                                    />
-                                    <span aria-hidden>✓</span>
-                                  </span>
+                              <td className="col-center">
+                                <label className="toggle-field toggle-field-only">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(eventBillingDraft[player.userID])}
+                                    onChange={(e) =>
+                                      setEventBillingDraft((prev) => ({
+                                        ...prev,
+                                        [player.userID]: e.target.checked,
+                                      }))
+                                    }
+                                  />
                                 </label>
                               </td>
                             </tr>
@@ -3450,6 +3664,24 @@ export default function App() {
                       </table>
                     </div>
                     <div className="manual-controls">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => void onPublishSettlementForEvent(selectedHistoryEvent.eventID)}
+                        disabled={
+                          (selectedHistoryEvent.pollTemplate || '').trim() === '' ||
+                          (templateCountedMap.get(selectedHistoryEvent.pollTemplate || '') ?? 0) === 0
+                        }
+                      >
+                        Опубликовать расчёт
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => void onGenerateBillingForInstance(selectedHistoryEvent.instanceID)}
+                      >
+                        Сформировать расчет
+                      </button>
                       <button type="button" onClick={() => void onSaveBilling()}>
                         Сохранить оплаты
                       </button>
@@ -3459,6 +3691,163 @@ export default function App() {
               </section>
             ) : null}
           </section>
+        ) : null}
+      </section>
+    )
+  }
+
+  function renderPolls() {
+    if (activeChatID === null) {
+      return <section className="content-card">Выбери организацию</section>
+    }
+
+    if (activePollPostID !== null) {
+      return (
+        <section className="content-card">
+          <div className="template-head">
+            <button
+              className="btn-secondary"
+              onClick={() =>
+                navigateTo({
+                  chatID: activeChatID,
+                  section: 'polls',
+                  pollPostID: null,
+                  templateView: 'list',
+                  templateName: null,
+                  eventView: 'list',
+                  eventID: null,
+                })
+              }
+            >
+              ← К списку голосований
+            </button>
+            <h3>Голосование #{activePollPostID}</h3>
+          </div>
+
+          {selectedGroupPoll ? (
+            <div className="detail-grid">
+              <div>
+                <span>Событие</span>
+                <strong>{selectedGroupPoll.eventName || 'Без события'}</strong>
+              </div>
+              <div>
+                <span>Шаблон</span>
+                <strong>{selectedGroupPoll.templateName || '-'}</strong>
+              </div>
+              <div>
+                <span>Статус</span>
+                <strong>{selectedGroupPoll.status || '-'}</strong>
+              </div>
+              <div>
+                <span>Опубликовано</span>
+                <strong>{formatDateTime(selectedGroupPoll.publishedAt)}</strong>
+              </div>
+              <div>
+                <span>Учет/Всего</span>
+                <strong>
+                  {selectedGroupPoll.countedVotes} / {selectedGroupPoll.totalVotes}
+                </strong>
+              </div>
+              <div>
+                <span>Вопрос</span>
+                <strong>{selectedGroupPoll.question || '-'}</strong>
+              </div>
+            </div>
+          ) : (
+            <p className="muted">Карточка голосования не найдена в текущем списке.</p>
+          )}
+
+          {groupPollVotesLoading ? <p className="muted">Загрузка голосов...</p> : null}
+          {groupPollVotesError ? <p className="muted">Ошибка: {groupPollVotesError}</p> : null}
+          {!groupPollVotesLoading && !groupPollVotesError && groupPollVotes.length === 0 ? <p className="muted">По этому опросу пока нет голосов</p> : null}
+          {!groupPollVotesLoading && groupPollVotes.length > 0 ? (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Игрок</th>
+                    <th>Выбор</th>
+                    <th>Учет</th>
+                    <th>Источник</th>
+                    <th>Время</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupPollVotes.map((vote) => (
+                    <tr key={vote.userID}>
+                      <td>
+                        {`${vote.firstName || ''} ${vote.lastName || ''}`.trim() || (vote.username ? `@${vote.username}` : `ID ${vote.userID}`)}
+                      </td>
+                      <td>{vote.choiceLabel || vote.choice}</td>
+                      <td>{vote.counted ? 'да' : 'нет'}</td>
+                      <td>{vote.source || '-'}</td>
+                      <td>{formatDateTime(vote.votedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
+      )
+    }
+
+    return (
+      <section className="content-card">
+        <div className="template-head">
+          <h3>Голосования</h3>
+        </div>
+        {groupPollsLoading ? <p className="muted">Загрузка голосований...</p> : null}
+        {groupPollsError ? <p className="muted">Ошибка: {groupPollsError}</p> : null}
+        {!groupPollsLoading && !groupPollsError && groupPolls.length === 0 ? <p className="muted">Голосований пока нет</p> : null}
+        {!groupPollsLoading && groupPolls.length > 0 ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Событие</th>
+                  <th>Шаблон</th>
+                  <th>Вопрос</th>
+                  <th>Статус</th>
+                  <th>Учет/Всего</th>
+                  <th>Опубликовано</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupPolls.map((poll) => (
+                  <tr
+                    key={poll.postID}
+                    className="member-row"
+                    onClick={() =>
+                      navigateTo({
+                        chatID: activeChatID,
+                        section: 'polls',
+                        pollPostID: poll.postID,
+                        templateView: 'list',
+                        templateName: null,
+                        eventView: 'list',
+                        eventID: null,
+                      })
+                    }
+                  >
+                    <td>#{poll.postID}</td>
+                    <td>
+                      {poll.eventName || 'Без события'}
+                      {poll.instanceID ? ` · instance #${poll.instanceID}` : ''}
+                    </td>
+                    <td>{poll.templateName || '-'}</td>
+                    <td>{poll.question || '-'}</td>
+                    <td>{poll.status || '-'}</td>
+                    <td>
+                      {poll.countedVotes} / {poll.totalVotes}
+                    </td>
+                    <td>{formatDateTime(poll.publishedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : null}
       </section>
     )
@@ -3484,10 +3873,12 @@ export default function App() {
         return renderMembers()
       case 'templates':
         return renderTemplates()
+      case 'polls':
+        return renderPolls()
       case 'events':
-        return renderEvents()
-      case 'history':
         return renderHistory()
+      case 'event_templates':
+        return renderEvents()
       default:
         return null
     }

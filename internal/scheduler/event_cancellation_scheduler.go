@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -39,43 +40,31 @@ func (s *EventCancellationScheduler) Start(ctx context.Context) {
 }
 
 func (s *EventCancellationScheduler) tick(ctx context.Context) {
-	events, err := s.store.ListActiveEventsWithGroups(ctx)
+	instances, err := s.store.ListEventInstancesForCancellation(ctx, time.Now().UTC())
 	if err != nil {
-		log.Printf("event_cancellation: list active events failed: %v", err)
+		log.Printf("event_cancellation: list instances failed: %v", err)
 		return
 	}
 
 	nowUTC := time.Now().UTC()
-	for _, event := range events {
-		if event.MinVotesToHold <= 0 || !event.CancelNotifyEnabled {
-			continue
-		}
-
-		loc, err := time.LoadLocation(event.Timezone)
-		if err != nil {
-			continue
-		}
-
-		startHour, startMinute, err := parseClockHourMinute(event.StartTime)
+	for _, inst := range instances {
+		loc, err := time.LoadLocation(inst.Timezone)
 		if err != nil {
 			continue
 		}
 
 		nowLocal := nowUTC.In(loc)
-		eventStartLocal := nextEventStartLocal(nowLocal, event.StartWeekday, startHour, startMinute)
-		if eventStartLocal.IsZero() {
-			continue
-		}
-		cancelLead := normalizeCancelLeadMinutes(event.CancelLeadMinutes)
+		eventStartLocal := inst.PlannedStartAt.In(loc)
+		cancelLead := normalizeCancelLeadMinutes(inst.CancelLeadMinutes)
 		cancelAt := eventStartLocal.Add(-time.Duration(cancelLead) * time.Minute)
 		if nowLocal.Before(cancelAt) || !nowLocal.Before(eventStartLocal) {
 			continue
 		}
 
 		eventDate := time.Date(eventStartLocal.Year(), eventStartLocal.Month(), eventStartLocal.Day(), 0, 0, 0, 0, loc)
-		exists, err := s.store.HasEventCancellation(ctx, event.EventID, eventDate)
+		exists, err := s.store.HasEventCancellation(ctx, inst.EventID, eventDate)
 		if err != nil {
-			log.Printf("event_cancellation: check existence failed for event %d: %v", event.EventID, err)
+			log.Printf("event_cancellation: check existence failed for event %d: %v", inst.EventID, err)
 			continue
 		}
 		if exists {
@@ -83,50 +72,44 @@ func (s *EventCancellationScheduler) tick(ctx context.Context) {
 		}
 
 		countedVotes := 0
-		cycleStart := eventStartLocal.AddDate(0, 0, -7)
-		post, err := s.store.GetLatestEventPollPostForRange(ctx, event.EventID, cycleStart.UTC(), eventStartLocal.UTC())
-		if err != nil {
-			log.Printf("event_cancellation: load latest poll post failed for event %d: %v", event.EventID, err)
-			continue
-		}
-		if post != nil {
-			countedOptions, err := s.store.GetEventTemplateCountedOptions(ctx, event.EventID)
-			if err != nil {
-				log.Printf("event_cancellation: load counted options failed for event %d: %v", event.EventID, err)
-				continue
-			}
+		if inst.PollPostID != nil {
+			var countedOptions []int
+			_ = json.Unmarshal(inst.PollCountedOptions, &countedOptions)
 			if len(countedOptions) > 0 {
 				choices := make([]string, 0, len(countedOptions))
 				for _, idx := range countedOptions {
 					choices = append(choices, fmt.Sprintf("option_%d", idx))
 				}
-				countedVotes, err = s.store.CountVotesForPostChoices(ctx, post.ID, choices)
+				countedVotes, err = s.store.CountVotesForPostChoices(ctx, *inst.PollPostID, choices)
 				if err != nil {
-					log.Printf("event_cancellation: count votes failed for event %d: %v", event.EventID, err)
+					log.Printf("event_cancellation: count votes failed for event %d: %v", inst.EventID, err)
 					continue
 				}
 			}
 		}
 
-		if countedVotes >= event.MinVotesToHold {
+		if countedVotes >= inst.MinVotesToHold {
 			continue
 		}
 
 		message := fmt.Sprintf(
 			"Событие \"%s\" отменено.\nНедостаточно подтверждений: %d из %d.\nПлановое начало: %s (%s)",
-			event.Name,
+			inst.EventName,
 			countedVotes,
-			event.MinVotesToHold,
+			inst.MinVotesToHold,
 			eventStartLocal.Format("02.01.2006 15:04"),
-			event.Timezone,
+			inst.Timezone,
 		)
-		chat := tele.Chat{ID: event.ChatID, Type: tele.ChatGroup}
+		chat := tele.Chat{ID: inst.ChatID, Type: tele.ChatGroup}
 		if err := s.bot.SendMessage(chat, message, nil); err != nil {
-			log.Printf("event_cancellation: send message failed for event %d chat %d: %v", event.EventID, event.ChatID, err)
+			log.Printf("event_cancellation: send message failed for event %d chat %d: %v", inst.EventID, inst.ChatID, err)
 			continue
 		}
-		if err := s.store.CreateEventCancellation(ctx, event.GroupID, event.EventID, eventDate); err != nil {
-			log.Printf("event_cancellation: save sent flag failed for event %d: %v", event.EventID, err)
+		if err := s.store.CreateEventCancellation(ctx, inst.GroupID, inst.EventID, eventDate); err != nil {
+			log.Printf("event_cancellation: save sent flag failed for event %d: %v", inst.EventID, err)
+		}
+		if err := s.store.SetEventInstanceStatusByEventDate(ctx, inst.GroupID, inst.EventID, eventDate, string(postgres.EventHistoryStatusNotHeld)); err != nil {
+			log.Printf("event_cancellation: set instance status failed for event %d: %v", inst.EventID, err)
 		}
 	}
 }

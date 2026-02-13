@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -103,6 +104,8 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleMemberRoutes(w, r, chatID, parts[2:])
 	case "templates":
 		s.handleTemplateRoutes(w, r, chatID, parts[2:])
+	case "polls":
+		s.handlePollRoutes(w, r, chatID, parts[2:])
 	case "schedules":
 		s.handleScheduleRoutes(w, r, chatID, parts[2:])
 	case "events":
@@ -112,6 +115,39 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (s *Server) handlePollRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if len(parts) == 0 && r.Method == http.MethodGet {
+		items, err := s.store.ListGroupPollsByChatID(r.Context(), chatID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if items == nil {
+			items = make([]postgres.GroupPollItem, 0)
+		}
+		writeJSON(w, http.StatusOK, items)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "votes" && r.Method == http.MethodGet {
+		postID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid post id")
+			return
+		}
+		votes, err := s.store.ListGroupPollVotesByPostID(r.Context(), chatID, postID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if votes == nil {
+			votes = make([]postgres.GroupPollVoteItem, 0)
+		}
+		writeJSON(w, http.StatusOK, votes)
+		return
+	}
+	writeMethodNotAllowed(w)
 }
 
 func (s *Server) handleBillingRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
@@ -620,6 +656,79 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		return
 	}
 
+	if len(parts) == 3 && parts[0] == "history" && parts[2] == "polls" && r.Method == http.MethodGet {
+		instanceID, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid instance id")
+			return
+		}
+		history, err := s.store.ListEventPollHistoryByInstance(r.Context(), chatID, instanceID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if history == nil {
+			history = make([]postgres.EventPollHistoryItem, 0)
+		}
+		writeJSON(w, http.StatusOK, history)
+		return
+	}
+
+	if len(parts) == 3 && parts[0] == "history" && parts[2] == "billing" {
+		instanceID, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid instance id")
+			return
+		}
+		if r.Method == http.MethodGet {
+			billing, err := s.store.GetEventBillingByInstance(r.Context(), chatID, instanceID)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if billing == nil {
+				writeJSON(w, http.StatusOK, nil)
+				return
+			}
+			writeJSON(w, http.StatusOK, billing)
+			return
+		}
+		if r.Method == http.MethodPost {
+			billing, err := s.store.EnsureEventBillingByInstance(r.Context(), chatID, instanceID)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, billing)
+			return
+		}
+		if r.Method == http.MethodPut {
+			var req struct {
+				Statuses []struct {
+					UserID int64 `json:"userID"`
+					Paid   bool  `json:"paid"`
+				} `json:"statuses"`
+			}
+			if err := decodeJSON(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			statuses := make(map[int64]bool, len(req.Statuses))
+			for _, item := range req.Statuses {
+				if item.UserID == 0 {
+					continue
+				}
+				statuses[item.UserID] = item.Paid
+			}
+			if err := s.store.SaveEventBillingPaymentsByInstance(r.Context(), chatID, instanceID, statuses); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			return
+		}
+	}
+
 	if len(parts) == 1 {
 		eventID, err := strconv.ParseUint(parts[0], 10, 64)
 		if err != nil {
@@ -785,6 +894,36 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "instances" && r.Method == http.MethodPost {
+		eventID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid event id")
+			return
+		}
+		var req struct {
+			LocalDate string `json:"localDate"`
+		}
+		if err := decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		instance, err := s.store.CreateEventInstanceFromTemplate(r.Context(), chatID, eventID, req.LocalDate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if s.bot == nil {
+			writeErrorMessage(w, http.StatusBadRequest, "bot is not configured")
+			return
+		}
+		if err := s.publishEventPollForInstanceNow(r.Context(), chatID, eventID, instance.ID); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]uint64{"instanceID": instance.ID})
 		return
 	}
 
@@ -1142,6 +1281,29 @@ func (s *Server) publishEventPollNow(ctx context.Context, chatID int64, eventID 
 		if _, err := s.store.CreateEventPollPost(ctx, chatID, &eid, template.TemplateName, sent.MessageID, sent.PollID); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (s *Server) publishEventPollForInstanceNow(ctx context.Context, chatID int64, eventID, instanceID uint64) error {
+	template, err := s.store.GetEventTemplateDetails(ctx, chatID, eventID)
+	if err != nil {
+		return err
+	}
+	if len(template.TemplateOptions) < 2 {
+		return errors.New("template requires at least 2 options")
+	}
+
+	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
+	sent, err := s.bot.SendPollWithMeta(chat, template.TemplateQuestion, template.TemplateOptions, nil)
+	if err != nil {
+		return err
+	}
+	if sent == nil {
+		return errors.New("telegram did not return poll metadata")
+	}
+	if _, err := s.store.CreateEventPollPostForInstance(ctx, chatID, eventID, instanceID, template.TemplateName, sent.MessageID, sent.PollID); err != nil {
+		return err
 	}
 	return nil
 }

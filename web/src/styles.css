@@ -619,6 +619,58 @@ h4 {
   line-height: 1.1;
 }
 
+.toggle-field-only {
+  justify-content: center;
+  padding: 0;
+  min-height: auto;
+  border: none;
+  background: transparent;
+}
+
+.table th.col-center,
+.table td.col-center {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.toggle-field-only input[type='checkbox'] {
+  cursor: pointer;
+}
+
+.team-column[data-team='A'] {
+  border-color: rgba(233, 92, 122, 0.55);
+  box-shadow: 0 0 0 1px rgba(233, 92, 122, 0.08) inset;
+}
+
+.team-column[data-team='A'] .team-column-head {
+  border-bottom: 1px solid rgba(233, 92, 122, 0.25);
+  padding-bottom: 8px;
+}
+
+.team-column[data-team='B'] {
+  border-color: rgba(90, 144, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(90, 144, 255, 0.08) inset;
+}
+
+.team-column[data-team='B'] .team-column-head {
+  border-bottom: 1px solid rgba(90, 144, 255, 0.25);
+  padding-bottom: 8px;
+}
+
+.team-column[data-team='C'] {
+  border-color: rgba(76, 196, 173, 0.55);
+  box-shadow: 0 0 0 1px rgba(76, 196, 173, 0.08) inset;
+}
+
+.team-column[data-team='C'] .team-column-head {
+  border-bottom: 1px solid rgba(76, 196, 173, 0.25);
+  padding-bottom: 8px;
+}
+
+.team-column[data-team] .team-column-head h5 {
+  color: #e7f0ff;
+}
+
 .settings-card {
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -810,26 +862,29 @@ h4 {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
-  min-height: 26px;
+  min-height: 24px;
 }
 
 .team-column-head h5 {
   margin: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .team-remove-btn {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   border: 1px solid rgba(216, 95, 122, 0.7);
   background: rgba(167, 56, 86, 0.45);
   color: #ffd9e3;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
 }
 
 .team-layout {
@@ -1120,6 +1175,10 @@ button:disabled {
 
 .table-wrap {
   overflow: auto;
+}
+
+.table-wrap-spaced {
+  margin-top: 18px;
 }
 
 .table {
