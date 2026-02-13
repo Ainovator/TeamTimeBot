@@ -31,7 +31,7 @@ import {
 } from './api'
 import { announcementLeadLabel, announcementLeadOptions, ensureList, formatMoney, toHourMinute, weekdayLabel, weekdayOptions } from './app/constants'
 import { sections } from './app/navigation'
-import { buildRoutePath, parseRoute, type RouteState, type Section } from './app/router'
+import { buildRoutePath, makeOrgKey, parseRoute, type RouteState, type Section } from './app/router'
 import {
   activeTeamCodes,
   formatDateTime,
@@ -70,6 +70,7 @@ const initialRoute = parseRoute(window.location.pathname)
 export default function App() {
   const [groups, setGroups] = useState<Group[]>([])
   const [activeChatID, setActiveChatID] = useState<number | null>(initialRoute.chatID)
+  const [activeOrgKey, setActiveOrgKey] = useState<string | null>(initialRoute.orgKey ?? null)
   const [activeSection, setActiveSection] = useState<Section>(initialRoute.section)
   const [activeMemberID, setActiveMemberID] = useState<number | null>(initialRoute.memberID ?? null)
   const [activeHistoryEventID, setActiveHistoryEventID] = useState<number | null>(initialRoute.historyEventID ?? null)
@@ -268,7 +269,12 @@ export default function App() {
   const eventEditorHasTemplate = useMemo(() => eventEditor.templateName.trim() !== '', [eventEditor.templateName])
 
   function navigateTo(route: RouteState, replace = false) {
+    const resolvedOrgKey =
+      route.orgKey ??
+      (route.chatID !== null ? makeOrgKey(groups.find((group) => group.chatID === route.chatID)?.title || '', route.chatID) : activeOrgKey)
+
     setActiveChatID(route.chatID)
+    setActiveOrgKey(resolvedOrgKey ?? null)
     setActiveSection(route.section)
     setActiveMemberID(route.section === 'members' ? route.memberID ?? null : null)
     setActiveHistoryEventID(route.section === 'history' ? route.historyEventID ?? null : null)
@@ -277,7 +283,7 @@ export default function App() {
     setActiveEventView(route.section === 'events' ? route.eventView : 'list')
     setActiveEventID(route.section === 'events' ? route.eventID : null)
 
-    const nextPath = buildRoutePath(route)
+    const nextPath = buildRoutePath({ ...route, orgKey: resolvedOrgKey })
     const stateOp = replace ? window.history.replaceState : window.history.pushState
     stateOp.call(window.history, {}, '', nextPath)
   }
@@ -286,6 +292,7 @@ export default function App() {
     const onPopState = () => {
       const route = parseRoute(window.location.pathname)
       setActiveChatID(route.chatID)
+      setActiveOrgKey(route.orgKey ?? null)
       setActiveSection(route.section)
       setActiveMemberID(route.section === 'members' ? route.memberID ?? null : null)
       setActiveHistoryEventID(route.section === 'history' ? route.historyEventID ?? null : null)
@@ -311,11 +318,22 @@ export default function App() {
           return
         }
 
-        const hasActive = activeChatID !== null && loadedGroups.some((group) => group.chatID === activeChatID)
+        let resolvedChatID = activeChatID
+        if (resolvedChatID === null && activeOrgKey) {
+          const byKey = loadedGroups.find((group) => makeOrgKey(group.title, group.chatID) === activeOrgKey)
+          if (byKey) {
+            resolvedChatID = byKey.chatID
+            setActiveChatID(byKey.chatID)
+            setActiveOrgKey(makeOrgKey(byKey.title, byKey.chatID))
+          }
+        }
+
+        const hasActive = resolvedChatID !== null && loadedGroups.some((group) => group.chatID === resolvedChatID)
         if (!hasActive) {
           navigateTo(
             {
               chatID: loadedGroups[0].chatID,
+              orgKey: makeOrgKey(loadedGroups[0].title, loadedGroups[0].chatID),
               section: 'overview',
               templateView: 'list',
               templateName: null,
@@ -330,7 +348,7 @@ export default function App() {
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [activeChatID, activeOrgKey])
 
   useEffect(() => {
     if (activeChatID === null) {

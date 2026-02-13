@@ -2,6 +2,7 @@ export type Section = 'overview' | 'members' | 'templates' | 'events' | 'history
 
 export type RouteState = {
   chatID: number | null
+  orgKey?: string | null
   section: Section
   memberID?: number | null
   historyEventID?: number | null
@@ -11,9 +12,20 @@ export type RouteState = {
   eventID: number | null
 }
 
+export function makeOrgKey(title: string, chatID: number): string {
+  const normalized = (title || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+  const prefix = normalized || 'org'
+  return `${prefix}--${Math.abs(chatID)}`
+}
+
 export function parseRoute(pathname: string): RouteState {
   const route: RouteState = {
     chatID: null,
+    orgKey: null,
     section: 'overview',
     memberID: null,
     historyEventID: null,
@@ -28,11 +40,12 @@ export function parseRoute(pathname: string): RouteState {
     return route
   }
 
-  const chatID = Number(segments[1])
-  if (Number.isNaN(chatID)) {
-    return route
+  const orgSegment = decodeURIComponent(segments[1])
+  route.orgKey = orgSegment
+  const chatID = Number(orgSegment)
+  if (!Number.isNaN(chatID)) {
+    route.chatID = chatID
   }
-  route.chatID = chatID
 
   if (segments.length >= 3) {
     const section = segments[2]
@@ -88,47 +101,48 @@ export function parseRoute(pathname: string): RouteState {
 }
 
 export function buildRoutePath(route: RouteState): string {
-  if (!route.chatID) {
+  const orgSegment = route.orgKey || (route.chatID ? String(route.chatID) : '')
+  if (!orgSegment) {
     return '/'
   }
 
   if (route.section === 'overview') {
-    return `/org/${route.chatID}`
+    return `/org/${encodeURIComponent(orgSegment)}`
   }
 
   if (route.section === 'templates') {
     if (route.templateView === 'create') {
-      return `/org/${route.chatID}/templates/new`
+      return `/org/${encodeURIComponent(orgSegment)}/templates/new`
     }
     if (route.templateView === 'edit' && route.templateName) {
-      return `/org/${route.chatID}/templates/${encodeURIComponent(route.templateName)}`
+      return `/org/${encodeURIComponent(orgSegment)}/templates/${encodeURIComponent(route.templateName)}`
     }
-    return `/org/${route.chatID}/templates`
+    return `/org/${encodeURIComponent(orgSegment)}/templates`
   }
 
   if (route.section === 'members') {
     if (route.memberID) {
-      return `/org/${route.chatID}/members/${route.memberID}`
+      return `/org/${encodeURIComponent(orgSegment)}/members/${route.memberID}`
     }
-    return `/org/${route.chatID}/members`
+    return `/org/${encodeURIComponent(orgSegment)}/members`
   }
 
   if (route.section === 'history') {
     if (route.historyEventID) {
-      return `/org/${route.chatID}/history/${route.historyEventID}`
+      return `/org/${encodeURIComponent(orgSegment)}/history/${route.historyEventID}`
     }
-    return `/org/${route.chatID}/history`
+    return `/org/${encodeURIComponent(orgSegment)}/history`
   }
 
   if (route.section === 'events') {
     if (route.eventView === 'create') {
-      return `/org/${route.chatID}/events/new`
+      return `/org/${encodeURIComponent(orgSegment)}/events/new`
     }
     if (route.eventView === 'edit' && route.eventID) {
-      return `/org/${route.chatID}/events/${route.eventID}`
+      return `/org/${encodeURIComponent(orgSegment)}/events/${route.eventID}`
     }
-    return `/org/${route.chatID}/events`
+    return `/org/${encodeURIComponent(orgSegment)}/events`
   }
 
-  return `/org/${route.chatID}/${route.section}`
+  return `/org/${encodeURIComponent(orgSegment)}/${route.section}`
 }
