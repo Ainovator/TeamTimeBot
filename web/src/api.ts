@@ -9,6 +9,7 @@ import type {
   GroupDetails,
   GroupMember,
   MemberSkillProfile,
+  PlayerRelation,
   SkillCatalogItem,
   TemplateDetails,
 } from './types'
@@ -73,6 +74,37 @@ export async function updateMemberProfile(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+  await parseResponse<{ status: string }>(res)
+}
+
+export async function fetchMemberRelations(chatID: number, userTelegramID: number): Promise<PlayerRelation[]> {
+  const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/relations`)
+  return parseResponse<PlayerRelation[]>(res)
+}
+
+export async function upsertMemberRelation(
+  chatID: number,
+  userTelegramID: number,
+  payload: { otherUserID: number; relationType: 'prefer_together' | 'avoid_together'; weight: number },
+) {
+  const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/relations`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  await parseResponse<{ status: string }>(res)
+}
+
+export async function deleteMemberRelation(
+  chatID: number,
+  userTelegramID: number,
+  otherUserID: number,
+  relationType: 'prefer_together' | 'avoid_together',
+) {
+  const res = await fetch(
+    `/api/groups/${chatID}/members/${userTelegramID}/relations/${otherUserID}/${encodeURIComponent(relationType)}`,
+    { method: 'DELETE' },
+  )
   await parseResponse<{ status: string }>(res)
 }
 
@@ -287,6 +319,20 @@ export async function saveEventTeamSplit(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ assignments }),
+  })
+  return parseResponse<EventTeamSplitState>(res)
+}
+
+export async function publishEventTeamSplit(chatID: number, eventID: number, postID: number) {
+  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams/publish`, {
+    method: 'POST',
+  })
+  await parseResponse<{ status: string }>(res)
+}
+
+export async function autoSplitEventTeams(chatID: number, eventID: number, postID: number): Promise<EventTeamSplitState> {
+  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams/autosplit`, {
+    method: 'POST',
   })
   return parseResponse<EventTeamSplitState>(res)
 }

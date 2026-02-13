@@ -16,15 +16,20 @@ import {
   fetchGroupMembers,
   fetchGroups,
   fetchMemberSkills,
+  fetchMemberRelations,
   fetchSkillsCatalog,
   fetchTemplate,
+  autoSplitEventTeams,
   publishEventAnnouncement,
   publishEventPoll,
   publishEventSettlement,
+  publishEventTeamSplit,
   saveEventTeamSplit,
   unarchiveEvent,
   updateMemberProfile,
   updateMemberSkills,
+  upsertMemberRelation,
+  deleteMemberRelation,
   updateEventCost,
   updateEventDetails,
   updateTemplate,
@@ -63,6 +68,7 @@ import type {
   GroupDetails,
   GroupMember,
   MemberSkillProfile,
+  PlayerRelation,
   SkillCatalogItem,
 } from './types'
 
@@ -87,6 +93,12 @@ export default function App() {
   const [selectedMemberSkills, setSelectedMemberSkills] = useState<MemberSkillProfile | null>(null)
   const [memberSkillDraft, setMemberSkillDraft] = useState<Record<string, string>>({})
   const [memberPlayerTypeDraft, setMemberPlayerTypeDraft] = useState<'' | 'attacker' | 'setter' | 'libero'>('')
+  const [memberRelations, setMemberRelations] = useState<PlayerRelation[]>([])
+  const [memberRelationDraft, setMemberRelationDraft] = useState({
+    otherUserID: '',
+    relationType: 'prefer_together' as 'prefer_together' | 'avoid_together',
+    weight: '5',
+  })
   const [membersSearch, setMembersSearch] = useState('')
   const [membersTypeFilter, setMembersTypeFilter] = useState<'' | 'attacker' | 'setter' | 'libero'>('')
   const [memberSkillLoading, setMemberSkillLoading] = useState(false)
@@ -225,6 +237,14 @@ export default function App() {
     () => eventHistory.find((event) => event.eventID === activeHistoryEventID) ?? null,
     [eventHistory, activeHistoryEventID],
   )
+  const availableRelationMembers = useMemo(() => {
+    if (!selectedMemberSkills) {
+      return []
+    }
+    return members
+      .filter((member) => member.userTelegramID !== selectedMemberSkills.userTelegramID)
+      .sort((a, b) => fullName(a).localeCompare(fullName(b), 'ru'))
+  }, [members, selectedMemberSkills])
   const eventEditorDirty = useMemo(() => {
     if (!selectedEvent || activeSection !== 'events' || activeEventView !== 'edit') {
       return false
@@ -1377,6 +1397,31 @@ export default function App() {
     }
   }
 
+  async function onAutoSplitTeam() {
+    if (activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null) {
+      return
+    }
+    try {
+      const next = await autoSplitEventTeams(activeChatID, activeHistoryEventID, selectedHistoryPostID)
+      setTeamSplit(next)
+      setTeamCEnabled(next.players.some((player) => player.team === 'C'))
+      setSuccess('Автораспределение выполнено')
+      setTeamSplitError('')
+    } catch (err) {
+      setTeamSplitError((err as Error).message)
+    }
+  }
+
+  async function onPublishTeamSplit() {
+    if (activeChatID === null || activeHistoryEventID === null || selectedHistoryPostID === null) {
+      return
+    }
+    await runAction(
+      () => publishEventTeamSplit(activeChatID, activeHistoryEventID, selectedHistoryPostID),
+      'Состав команд опубликован',
+    )
+  }
+
   async function loadMemberProfile(userTelegramID: number) {
     if (activeChatID === null) {
       return
@@ -1384,8 +1429,12 @@ export default function App() {
     setMemberSkillLoading(true)
     setMemberSkillError('')
     setSelectedMemberSkills(null)
+    setMemberRelations([])
     try {
-      const profile = await fetchMemberSkills(activeChatID, userTelegramID)
+      const [profile, relations] = await Promise.all([
+        fetchMemberSkills(activeChatID, userTelegramID),
+        fetchMemberRelations(activeChatID, userTelegramID),
+      ])
       const draft: Record<string, string> = {}
       for (const skill of profileSkills(profile, skillsCatalog)) {
         draft[skill.skillCode] = String(normalizedSkillScore(skill.score))
@@ -1393,6 +1442,12 @@ export default function App() {
       setMemberSkillDraft(draft)
       setMemberPlayerTypeDraft(profile.playerType || '')
       setSelectedMemberSkills(profile)
+      setMemberRelations(relations)
+      setMemberRelationDraft({
+        otherUserID: '',
+        relationType: 'prefer_together',
+        weight: '5',
+      })
       setMemberSkillProfiles((prev) => ({ ...prev, [profile.userTelegramID]: profile }))
     } catch (err) {
       setMemberSkillError((err as Error).message)
@@ -1445,6 +1500,71 @@ export default function App() {
       setSelectedMemberSkills(refreshed)
       setMemberSkillProfiles((prev) => ({ ...prev, [refreshed.userTelegramID]: refreshed }))
       setSuccess('Профиль игрока сохранен')
+    } catch (err) {
+      setMemberSkillError((err as Error).message)
+    }
+  }
+
+  function relationTypeLabel(type: 'prefer_together' | 'avoid_together') {
+    return type === 'prefer_together' ? 'Играть вместе' : 'Не в одну команду'
+  }
+
+  function relationUserName(relation: PlayerRelation) {
+    const full = `${relation.relatedFirstName ?? ''} ${relation.relatedLastName ?? ''}`.trim()
+    if (full) {
+      return full
+    }
+    if (relation.relatedUsername) {
+      return `@${relation.relatedUsername}`
+    }
+    return `ID ${relation.relatedUserID}`
+  }
+
+  async function onAddMemberRelation() {
+    if (activeChatID === null || !selectedMemberSkills) {
+      return
+    }
+    const otherUserID = Number(memberRelationDraft.otherUserID)
+    const weight = Number(memberRelationDraft.weight)
+    if (Number.isNaN(otherUserID) || otherUserID <= 0) {
+      setMemberSkillError('Выбери второго игрока для связи')
+      return
+    }
+    if (Number.isNaN(weight) || weight < 1 || weight > 10) {
+      setMemberSkillError('Вес связи должен быть от 1 до 10')
+      return
+    }
+    setMemberSkillError('')
+    try {
+      await upsertMemberRelation(activeChatID, selectedMemberSkills.userTelegramID, {
+        otherUserID,
+        relationType: memberRelationDraft.relationType,
+        weight,
+      })
+      const next = await fetchMemberRelations(activeChatID, selectedMemberSkills.userTelegramID)
+      setMemberRelations(next)
+      setMemberRelationDraft((prev) => ({ ...prev, otherUserID: '', weight: '5' }))
+      setSuccess('Связь сохранена')
+    } catch (err) {
+      setMemberSkillError((err as Error).message)
+    }
+  }
+
+  async function onDeleteMemberRelation(relation: PlayerRelation) {
+    if (activeChatID === null || !selectedMemberSkills) {
+      return
+    }
+    setMemberSkillError('')
+    try {
+      await deleteMemberRelation(
+        activeChatID,
+        selectedMemberSkills.userTelegramID,
+        relation.relatedUserID,
+        relation.relationType,
+      )
+      const next = await fetchMemberRelations(activeChatID, selectedMemberSkills.userTelegramID)
+      setMemberRelations(next)
+      setSuccess('Связь удалена')
     } catch (err) {
       setMemberSkillError((err as Error).message)
     }
@@ -1583,6 +1703,86 @@ export default function App() {
                   </label>
                 ))}
               </div>
+              <section className="content-card relation-block">
+                <h4>Связи игрока</h4>
+                <div className="form-grid form-grid-3">
+                  <label className="field">
+                    <span>Игрок</span>
+                    <select
+                      className="ui-select"
+                      value={memberRelationDraft.otherUserID}
+                      onChange={(e) => setMemberRelationDraft((prev) => ({ ...prev, otherUserID: e.target.value }))}
+                    >
+                      <option value="">Выбери игрока</option>
+                      {availableRelationMembers.map((member) => (
+                        <option key={member.userTelegramID} value={member.userTelegramID}>
+                          {fullName(member)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Тип связи</span>
+                    <select
+                      className="ui-select"
+                      value={memberRelationDraft.relationType}
+                      onChange={(e) =>
+                        setMemberRelationDraft((prev) => ({
+                          ...prev,
+                          relationType: e.target.value as 'prefer_together' | 'avoid_together',
+                        }))
+                      }
+                    >
+                      <option value="prefer_together">Играть вместе</option>
+                      <option value="avoid_together">Не в одну команду</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Вес (1-10)</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={memberRelationDraft.weight}
+                      onChange={(e) => setMemberRelationDraft((prev) => ({ ...prev, weight: e.target.value }))}
+                    />
+                  </label>
+                </div>
+                <div className="manual-controls">
+                  <button type="button" className="btn-secondary" onClick={() => void onAddMemberRelation()}>
+                    Добавить связь
+                  </button>
+                </div>
+                {memberRelations.length === 0 ? (
+                  <p className="muted">Связей пока нет</p>
+                ) : (
+                  <div className="list-block relation-list">
+                    {memberRelations.map((relation) => (
+                      <div
+                        className="list-row relation-row"
+                        key={`${relation.relatedUserID}-${relation.relationType}`}
+                      >
+                        <div>
+                          <strong>{relationUserName(relation)}</strong>
+                          <p>
+                            {relationTypeLabel(relation.relationType)} · вес {relation.weight}
+                          </p>
+                        </div>
+                        <div className="list-actions">
+                          <button
+                            type="button"
+                            className="btn-danger"
+                            onClick={() => void onDeleteMemberRelation(relation)}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
               <div className="manual-controls">
                 <button type="button" onClick={() => void onSaveMemberSkills()}>
                   Сохранить
@@ -3035,8 +3235,14 @@ export default function App() {
                       )
                     })()}
                     <div className="manual-controls team-save-controls">
+                      <button type="button" className="btn-secondary" onClick={() => void onAutoSplitTeam()}>
+                        Автораспределить
+                      </button>
                       <button type="button" onClick={() => void onSaveTeamSplit()}>
                         Сохранить
+                      </button>
+                      <button type="button" className="btn-secondary" onClick={() => void onPublishTeamSplit()}>
+                        Опубликовать состав
                       </button>
                     </div>
                   </>

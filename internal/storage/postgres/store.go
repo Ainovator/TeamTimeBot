@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -197,6 +198,17 @@ type MemberSkillProfile struct {
 	Skills         []MemberSkillValue `json:"skills"`
 }
 
+type PlayerRelationView struct {
+	UserAID          int64  `json:"userAID"`
+	UserBID          int64  `json:"userBID"`
+	RelationType     string `json:"relationType"`
+	Weight           int    `json:"weight"`
+	RelatedUserID    int64  `json:"relatedUserID"`
+	RelatedUsername  string `json:"relatedUsername"`
+	RelatedFirstName string `json:"relatedFirstName"`
+	RelatedLastName  string `json:"relatedLastName"`
+}
+
 type EventPollPostView struct {
 	ID                uint64
 	GroupID           uint64
@@ -289,6 +301,17 @@ func normalizePlayerType(value string) (string, bool) {
 		return "setter", true
 	case "libero":
 		return "libero", true
+	default:
+		return "", false
+	}
+}
+
+func normalizeRelationType(value string) (string, bool) {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "prefer_together":
+		return "prefer_together", true
+	case "avoid_together":
+		return "avoid_together", true
 	default:
 		return "", false
 	}
@@ -1651,6 +1674,149 @@ func (s *Store) UpdateMemberPlayerType(ctx context.Context, chatID int64, userTe
 	return nil
 }
 
+func (s *Store) ListPlayerRelationsByUser(ctx context.Context, chatID int64, userTelegramID int64) ([]PlayerRelationView, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	type row struct {
+		UserAID          int64
+		UserBID          int64
+		RelationType     string
+		Weight           int
+		RelatedUserID    int64
+		RelatedUsername  string
+		RelatedFirstName string
+		RelatedLastName  string
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("player_relations pr").
+		Select(`
+			pr.user_a_id AS user_a_id,
+			pr.user_b_id AS user_b_id,
+			pr.relation_type,
+			pr.weight,
+			CASE WHEN pr.user_a_id = @uid THEN pr.user_b_id ELSE pr.user_a_id END AS related_user_id,
+			COALESCE(tu.username, '') AS related_username,
+			COALESCE(tu.first_name, '') AS related_first_name,
+			COALESCE(tu.last_name, '') AS related_last_name
+		`, map[string]interface{}{"uid": userTelegramID}).
+		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = CASE WHEN pr.user_a_id = @uid THEN pr.user_b_id ELSE pr.user_a_id END", map[string]interface{}{"uid": userTelegramID}).
+		Where("pr.group_id = ? AND pr.is_active = TRUE AND (pr.user_a_id = ? OR pr.user_b_id = ?)", group.ID, userTelegramID, userTelegramID).
+		Order("pr.relation_type ASC, pr.weight DESC, related_first_name ASC, related_username ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]PlayerRelationView, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, PlayerRelationView{
+			UserAID:          r.UserAID,
+			UserBID:          r.UserBID,
+			RelationType:     r.RelationType,
+			Weight:           r.Weight,
+			RelatedUserID:    r.RelatedUserID,
+			RelatedUsername:  r.RelatedUsername,
+			RelatedFirstName: r.RelatedFirstName,
+			RelatedLastName:  r.RelatedLastName,
+		})
+	}
+	return out, nil
+}
+
+func (s *Store) UpsertPlayerRelation(
+	ctx context.Context,
+	chatID int64,
+	userAID int64,
+	userBID int64,
+	relationType string,
+	weight int,
+) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if userAID == 0 || userBID == 0 || userAID == userBID {
+		return errors.New("invalid user pair")
+	}
+	relationType, ok := normalizeRelationType(relationType)
+	if !ok {
+		return errors.New("invalid relation type")
+	}
+	if weight < 1 || weight > 10 {
+		return errors.New("weight must be between 1 and 10")
+	}
+	if userAID > userBID {
+		userAID, userBID = userBID, userAID
+	}
+
+	record := map[string]interface{}{
+		"group_id":      group.ID,
+		"user_a_id":     userAID,
+		"user_b_id":     userBID,
+		"relation_type": relationType,
+		"weight":        weight,
+		"is_active":     true,
+		"updated_at":    gorm.Expr("NOW()"),
+	}
+	return s.db.WithContext(ctx).
+		Table("player_relations").
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "group_id"},
+				{Name: "user_a_id"},
+				{Name: "user_b_id"},
+				{Name: "relation_type"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"weight":     weight,
+				"is_active":  true,
+				"updated_at": gorm.Expr("NOW()"),
+			}),
+		}).
+		Create(record).Error
+}
+
+func (s *Store) DeletePlayerRelation(
+	ctx context.Context,
+	chatID int64,
+	userAID int64,
+	userBID int64,
+	relationType string,
+) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if userAID == 0 || userBID == 0 || userAID == userBID {
+		return errors.New("invalid user pair")
+	}
+	relationType, ok := normalizeRelationType(relationType)
+	if !ok {
+		return errors.New("invalid relation type")
+	}
+	if userAID > userBID {
+		userAID, userBID = userBID, userAID
+	}
+
+	result := s.db.WithContext(ctx).
+		Table("player_relations").
+		Where("group_id = ? AND user_a_id = ? AND user_b_id = ? AND relation_type = ? AND is_active = TRUE", group.ID, userAID, userBID, relationType).
+		Updates(map[string]interface{}{
+			"is_active":  false,
+			"updated_at": gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("relation not found")
+	}
+	return nil
+}
+
 func (s *Store) UpsertMemberSkills(ctx context.Context, chatID int64, userTelegramID int64, scores map[string]int) error {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
@@ -2698,6 +2864,213 @@ func (s *Store) SaveEventTeamSplit(ctx context.Context, chatID int64, eventID, p
 		}
 		return tx.Table("event_team_assignments").Where("session_id = ? AND user_id NOT IN ?", session.ID, userIDs).Delete(nil).Error
 	})
+}
+
+func (s *Store) AutoSplitEventTeams(ctx context.Context, chatID int64, eventID, postID uint64) (*EventTeamSplitState, error) {
+	state, err := s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil || len(state.Players) == 0 {
+		return state, nil
+	}
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	userIDs := make([]int64, 0, len(state.Players))
+	for _, p := range state.Players {
+		userIDs = append(userIDs, p.UserID)
+	}
+	type roleRow struct {
+		UserID     int64
+		PlayerType string
+	}
+	var roleRows []roleRow
+	if err := s.db.WithContext(ctx).
+		Table("group_members").
+		Select("user_telegram_id AS user_id, COALESCE(player_type, '') AS player_type").
+		Where("group_id = ? AND user_telegram_id IN ? AND is_active = TRUE", group.ID, userIDs).
+		Scan(&roleRows).Error; err != nil {
+		return nil, err
+	}
+	roleByUser := make(map[int64]string, len(roleRows))
+	for _, row := range roleRows {
+		roleByUser[row.UserID] = strings.TrimSpace(strings.ToLower(row.PlayerType))
+	}
+
+	type relationRow struct {
+		UserAID      int64
+		UserBID      int64
+		RelationType string
+		Weight       int
+	}
+	var relationRows []relationRow
+	if err := s.db.WithContext(ctx).
+		Table("player_relations").
+		Select("user_a_id AS user_a_id, user_b_id AS user_b_id, relation_type, weight").
+		Where("group_id = ? AND is_active = TRUE AND user_a_id IN ? AND user_b_id IN ?", group.ID, userIDs, userIDs).
+		Scan(&relationRows).Error; err != nil {
+		return nil, err
+	}
+	type relEdge struct {
+		Other  int64
+		Type   string
+		Weight int
+	}
+	relations := make(map[int64][]relEdge, len(userIDs))
+	for _, rel := range relationRows {
+		relations[rel.UserAID] = append(relations[rel.UserAID], relEdge{
+			Other:  rel.UserBID,
+			Type:   rel.RelationType,
+			Weight: rel.Weight,
+		})
+		relations[rel.UserBID] = append(relations[rel.UserBID], relEdge{
+			Other:  rel.UserAID,
+			Type:   rel.RelationType,
+			Weight: rel.Weight,
+		})
+	}
+
+	teamCodes := []string{"A", "B"}
+	hasTeamC := false
+	for _, p := range state.Players {
+		if p.Team == "C" {
+			hasTeamC = true
+			break
+		}
+	}
+	if hasTeamC || len(state.Players) > 14 {
+		teamCodes = append(teamCodes, "C")
+	}
+
+	capacity := make(map[string]int, len(teamCodes))
+	base := len(state.Players) / len(teamCodes)
+	rest := len(state.Players) % len(teamCodes)
+	for idx, code := range teamCodes {
+		capacity[code] = base
+		if idx < rest {
+			capacity[code]++
+		}
+	}
+
+	type bucket struct {
+		Code    string
+		Players []TeamSplitPlayer
+		Score   float64
+		Setters int
+		Liberos int
+	}
+	buckets := make([]*bucket, 0, len(teamCodes))
+	byCode := make(map[string]*bucket, len(teamCodes))
+	for _, code := range teamCodes {
+		b := &bucket{Code: code}
+		buckets = append(buckets, b)
+		byCode[code] = b
+	}
+	assignedTeam := make(map[int64]string, len(state.Players))
+
+	assignToBest := func(player TeamSplitPlayer, role string, preferRole bool) {
+		var chosen *bucket
+		best := math.MaxFloat64
+		for _, b := range buckets {
+			if len(b.Players) >= capacity[b.Code] {
+				continue
+			}
+			rolePenalty := 0.0
+			if preferRole {
+				if role == "setter" {
+					rolePenalty = float64(b.Setters) * 3
+				} else if role == "libero" {
+					rolePenalty = float64(b.Liberos) * 3
+				}
+			}
+			relationPenalty := 0.0
+			for _, edge := range relations[player.UserID] {
+				otherTeam, ok := assignedTeam[edge.Other]
+				if !ok {
+					continue
+				}
+				switch edge.Type {
+				case "prefer_together":
+					if otherTeam != b.Code {
+						relationPenalty += float64(edge.Weight) * 4
+					} else {
+						relationPenalty -= float64(edge.Weight) * 0.75
+					}
+				case "avoid_together":
+					if otherTeam == b.Code {
+						relationPenalty += float64(edge.Weight) * 6
+					}
+				}
+			}
+			metric := b.Score + rolePenalty + relationPenalty + float64(len(b.Players))*0.25
+			if chosen == nil || metric < best {
+				chosen = b
+				best = metric
+			}
+		}
+		if chosen == nil {
+			chosen = buckets[0]
+		}
+		chosen.Players = append(chosen.Players, player)
+		chosen.Score += player.Rating
+		assignedTeam[player.UserID] = chosen.Code
+		if role == "setter" {
+			chosen.Setters++
+		}
+		if role == "libero" {
+			chosen.Liberos++
+		}
+	}
+
+	setters := make([]TeamSplitPlayer, 0)
+	liberos := make([]TeamSplitPlayer, 0)
+	restPlayers := make([]TeamSplitPlayer, 0)
+	for _, p := range state.Players {
+		switch roleByUser[p.UserID] {
+		case "setter":
+			setters = append(setters, p)
+		case "libero":
+			liberos = append(liberos, p)
+		default:
+			restPlayers = append(restPlayers, p)
+		}
+	}
+	sort.SliceStable(setters, func(i, j int) bool { return setters[i].Rating > setters[j].Rating })
+	sort.SliceStable(liberos, func(i, j int) bool { return liberos[i].Rating > liberos[j].Rating })
+	sort.SliceStable(restPlayers, func(i, j int) bool { return restPlayers[i].Rating > restPlayers[j].Rating })
+
+	for _, p := range setters {
+		assignToBest(p, "setter", true)
+	}
+	for _, p := range liberos {
+		assignToBest(p, "libero", true)
+	}
+	for _, p := range restPlayers {
+		assignToBest(p, "", false)
+	}
+
+	assignments := make([]TeamSplitAssignmentInput, 0, len(state.Players))
+	for _, code := range teamCodes {
+		list := byCode[code].Players
+		sort.SliceStable(list, func(i, j int) bool {
+			return list[i].Rating > list[j].Rating
+		})
+		for pos, p := range list {
+			assignments = append(assignments, TeamSplitAssignmentInput{
+				UserID:   p.UserID,
+				Team:     code,
+				Position: pos,
+			})
+		}
+	}
+
+	if err := s.SaveEventTeamSplit(ctx, chatID, eventID, postID, assignments); err != nil {
+		return nil, err
+	}
+	return s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
 }
 
 func keysOfMap(m map[string]struct{}) []string {

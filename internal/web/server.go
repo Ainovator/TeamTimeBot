@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -236,6 +237,69 @@ func (s *Server) handleMemberRoutes(w http.ResponseWriter, r *http.Request, chat
 			return
 		}
 		if err := s.store.UpdateMemberPlayerType(r.Context(), chatID, userTelegramID, req.PlayerType); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "relations" {
+		userTelegramID, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+
+		if r.Method == http.MethodGet {
+			relations, err := s.store.ListPlayerRelationsByUser(r.Context(), chatID, userTelegramID)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if relations == nil {
+				relations = make([]postgres.PlayerRelationView, 0)
+			}
+			writeJSON(w, http.StatusOK, relations)
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			var req struct {
+				OtherUserID  int64  `json:"otherUserID"`
+				RelationType string `json:"relationType"`
+				Weight       int    `json:"weight"`
+			}
+			if err := decodeJSON(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if err := s.store.UpsertPlayerRelation(r.Context(), chatID, userTelegramID, req.OtherUserID, req.RelationType, req.Weight); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			return
+		}
+	}
+
+	if len(parts) == 4 && parts[1] == "relations" && r.Method == http.MethodDelete {
+		userTelegramID, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		otherUserID, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid related user id")
+			return
+		}
+		relationType, err := urlPathUnescape(parts[3])
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid relation type")
+			return
+		}
+		if err := s.store.DeletePlayerRelation(r.Context(), chatID, userTelegramID, otherUserID, relationType); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
@@ -814,6 +878,49 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		}
 	}
 
+	if len(parts) == 5 && parts[1] == "polls" && parts[3] == "teams" && parts[4] == "publish" && r.Method == http.MethodPost {
+		eventID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid event id")
+			return
+		}
+		postID, err := strconv.ParseUint(parts[2], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid post id")
+			return
+		}
+		if s.bot == nil {
+			writeErrorMessage(w, http.StatusBadRequest, "manual controls are unavailable: bot is not configured")
+			return
+		}
+		if err := s.publishEventTeamSplitNow(r.Context(), chatID, eventID, postID); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	if len(parts) == 5 && parts[1] == "polls" && parts[3] == "teams" && parts[4] == "autosplit" && r.Method == http.MethodPost {
+		eventID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid event id")
+			return
+		}
+		postID, err := strconv.ParseUint(parts[2], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid post id")
+			return
+		}
+		state, err := s.store.AutoSplitEventTeams(r.Context(), chatID, eventID, postID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+		return
+	}
+
 	if len(parts) == 2 && parts[1] == "activate" && r.Method == http.MethodPost {
 		eventID, err := strconv.ParseUint(parts[0], 10, 64)
 		if err != nil {
@@ -1038,6 +1145,155 @@ func (s *Server) publishSettlementNow(ctx context.Context, chatID int64, eventID
 		return err
 	}
 	return nil
+}
+
+func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eventID, postID uint64) error {
+	event, err := s.store.GetEventByID(ctx, chatID, eventID)
+	if err != nil {
+		return err
+	}
+	state, err := s.store.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+	if err != nil {
+		return err
+	}
+	if state == nil || len(state.Players) == 0 {
+		return errors.New("no players to publish")
+	}
+
+	teams := map[string][]postgres.TeamSplitPlayer{
+		"A":          {},
+		"B":          {},
+		"C":          {},
+		"unassigned": {},
+	}
+	for _, player := range state.Players {
+		key := strings.ToUpper(strings.TrimSpace(player.Team))
+		if key == "" {
+			key = "unassigned"
+		}
+		if key != "A" && key != "B" && key != "C" {
+			key = "unassigned"
+		}
+		teams[key] = append(teams[key], player)
+	}
+	for key := range teams {
+		sort.SliceStable(teams[key], func(i, j int) bool {
+			return teams[key][i].Position < teams[key][j].Position
+		})
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Состав команд: %q\n", event.Name)
+	fmt.Fprintf(&b, "Опрос #%d\n\n", postID)
+
+	writeTeamBlock := func(code string) {
+		list := teams[code]
+		if len(list) == 0 {
+			return
+		}
+		fmt.Fprintf(&b, "Команда %s (%d):\n", code, len(list))
+		for idx, p := range list {
+			fmt.Fprintf(&b, "%d. %s\n", idx+1, teamPlayerDisplayName(p))
+		}
+		b.WriteString("\n")
+	}
+
+	writeTeamBlock("A")
+	writeTeamBlock("B")
+	writeTeamBlock("C")
+
+	if reserve := teams["unassigned"]; len(reserve) > 0 {
+		fmt.Fprintf(&b, "Резерв (%d):\n", len(reserve))
+		for idx, p := range reserve {
+			fmt.Fprintf(&b, "%d. %s\n", idx+1, teamPlayerDisplayName(p))
+		}
+	}
+
+	pairs := buildTeamForecastPairs(teams)
+	if len(pairs) > 0 {
+		b.WriteString("\n\nПрогноз:\n")
+		for _, pair := range pairs {
+			fmt.Fprintf(&b, "Команда %s %d%% / %d%% Команда %s\n", pair.Left, pair.LeftPercent, pair.RightPercent, pair.Right)
+		}
+	}
+
+	message := strings.TrimSpace(b.String())
+	if message == "" {
+		return errors.New("nothing to publish")
+	}
+
+	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
+	return s.bot.SendMessage(chat, message, nil)
+}
+
+func teamPlayerDisplayName(p postgres.TeamSplitPlayer) string {
+	full := strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
+	if full != "" {
+		return full
+	}
+	if strings.TrimSpace(p.Username) != "" {
+		return "@" + strings.TrimSpace(p.Username)
+	}
+	return strconv.FormatInt(p.UserID, 10)
+}
+
+type teamForecastPair struct {
+	Left         string
+	Right        string
+	LeftPercent  int
+	RightPercent int
+}
+
+func buildTeamForecastPairs(teams map[string][]postgres.TeamSplitPlayer) []teamForecastPair {
+	active := make([]string, 0, 3)
+	for _, code := range []string{"A", "B", "C"} {
+		if len(teams[code]) > 0 {
+			active = append(active, code)
+		}
+	}
+	if len(active) < 2 {
+		return nil
+	}
+
+	scores := map[string]float64{"A": 0, "B": 0, "C": 0}
+	for code, players := range teams {
+		for _, p := range players {
+			scores[code] += p.Rating
+		}
+	}
+
+	makePair := func(left, right string) teamForecastPair {
+		leftScore := scores[left]
+		rightScore := scores[right]
+		total := leftScore + rightScore
+		leftProb := 0.5
+		if total > 0 {
+			leftProb = leftScore / total
+		}
+		leftPercent := int(leftProb * 100)
+		if leftPercent < 0 {
+			leftPercent = 0
+		}
+		if leftPercent > 100 {
+			leftPercent = 100
+		}
+		return teamForecastPair{
+			Left:         left,
+			Right:        right,
+			LeftPercent:  leftPercent,
+			RightPercent: 100 - leftPercent,
+		}
+	}
+
+	if len(active) == 2 {
+		return []teamForecastPair{makePair(active[0], active[1])}
+	}
+
+	return []teamForecastPair{
+		makePair("A", "B"),
+		makePair("C", "A"),
+		makePair("B", "C"),
+	}
 }
 
 func parseHourMinute(value string) (int, int, error) {

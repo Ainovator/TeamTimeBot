@@ -152,6 +152,17 @@ export type MemberSkillProfile = {
   skills: MemberSkillValue[]
 }
 
+export type PlayerRelation = {
+  userAID: number
+  userBID: number
+  relationType: 'prefer_together' | 'avoid_together'
+  weight: number
+  relatedUserID: number
+  relatedUsername: string
+  relatedFirstName: string
+  relatedLastName: string
+}
+
 export type ApiError = {
   error: string
 }

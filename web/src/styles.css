@@ -1379,6 +1379,26 @@ button:disabled {
   cursor: pointer;
 }
 
+.relation-block {
+  margin-top: 12px;
+  border-color: rgba(95, 136, 214, 0.32);
+  background: linear-gradient(160deg, rgba(15, 25, 43, 0.78) 0%, rgba(10, 18, 32, 0.84) 100%);
+}
+
+.relation-list {
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.relation-row {
+  align-items: center;
+}
+
+.relation-row strong {
+  font-size: 14px;
+  color: #dbeaff;
+}
+
 .badge {
   display: inline-block;
   background: rgba(83, 129, 214, 0.3);
