@@ -1887,75 +1887,96 @@ export default function App() {
           <h3>Создать событие</h3>
         </div>
 
-        <form className="form-grid form-grid-3" onSubmit={onCreateEvent}>
-          <h4>Название</h4>
-          <input
-            placeholder="Название события"
-            value={eventForm.name}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, name: e.target.value }))}
-            required
-          />
-          <h4>Тип события</h4>
-          <select className="ui-select" value={eventForm.eventType} onChange={(e) => setEventForm((prev) => ({ ...prev, eventType: e.target.value as 'training' | 'activity' }))}>
-            <option value="training">Тренировка</option>
-            <option value="activity">Мероприятие</option>
-          </select>
-          <h4>День недели</h4>
-          <select
-            className="ui-select"
-            value={eventForm.weekday}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, weekday: e.target.value }))}
-            required
-          >
-            {weekdayOptions.map((day) => (
-              <option key={day.value} value={day.value}>
-                {day.short} · {day.full}
-              </option>
-            ))}
-          </select>
-          <h4>День публикации опроса</h4>
-          <select
-            className="ui-select"
-            value={eventForm.publishWeekday}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, publishWeekday: e.target.value }))}
-            required
-          >
-            {weekdayOptions.map((day) => (
-              <option key={day.value} value={day.value}>
-                {day.short} · {day.full}
-              </option>
-            ))}
-          </select>
-          <h4>Публикация опроса</h4>
-          <input
-            type="time"
-            value={eventForm.publishAt}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, publishAt: e.target.value }))}
-            required
-          />
-          <h4>Начало</h4>
-          <input
-            type="time"
-            value={eventForm.startAt}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, startAt: e.target.value }))}
-            required
-          />
-          <h4>Конец</h4>
-          <input
-            type="time"
-            value={eventForm.endAt}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, endAt: e.target.value }))}
-            required
-          />
-          <h4>Стоимость (опционально)</h4>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="Например: 4000"
-            value={eventForm.costAmount}
-            onChange={(e) => setEventForm((prev) => ({ ...prev, costAmount: e.target.value }))}
-          />
+        <form className="event-editor-form" onSubmit={onCreateEvent}>
+          <div className="event-editor-row event-editor-row-main">
+            <label className="field">
+              <span>Название</span>
+              <input
+                placeholder="Название события"
+                value={eventForm.name}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, name: e.target.value }))}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Тип события</span>
+              <select className="ui-select" value={eventForm.eventType} onChange={(e) => setEventForm((prev) => ({ ...prev, eventType: e.target.value as 'training' | 'activity' }))}>
+                <option value="training">Тренировка</option>
+                <option value="activity">Мероприятие</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>День недели</span>
+              <select
+                className="ui-select"
+                value={eventForm.weekday}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, weekday: e.target.value }))}
+                required
+              >
+                {weekdayOptions.map((day) => (
+                  <option key={day.value} value={day.value}>
+                    {day.short} · {day.full}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Начало</span>
+              <input
+                type="time"
+                value={eventForm.startAt}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, startAt: e.target.value }))}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Конец</span>
+              <input
+                type="time"
+                value={eventForm.endAt}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, endAt: e.target.value }))}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Стоимость</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Например: 4000"
+                value={eventForm.costAmount}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, costAmount: e.target.value }))}
+              />
+            </label>
+          </div>
+          <div className="event-editor-row event-editor-row-poll">
+            <label className="field">
+              <span>День публикации опроса</span>
+              <select
+                className="ui-select"
+                value={eventForm.publishWeekday}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, publishWeekday: e.target.value }))}
+                required
+              >
+                {weekdayOptions.map((day) => (
+                  <option key={day.value} value={day.value}>
+                    {day.short} · {day.full}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Публикация опроса</span>
+              <input
+                type="time"
+                value={eventForm.publishAt}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, publishAt: e.target.value }))}
+                required
+              />
+            </label>
+            <span />
+          </div>
           <div className="event-editor-row event-editor-row-announcement-full">
             <label className="field announcement-text">
               <span>Анонс</span>

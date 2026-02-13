@@ -45,8 +45,11 @@ services:
     restart: unless-stopped
     entrypoint: ["/web"]
     environment:
+      BOT_TOKEN: ${BOT_TOKEN}
       WEB_ADDR: ${WEB_ADDR:-:8080}
       WEB_STATIC_DIR: ${WEB_STATIC_DIR:-/web-static}
+      WEB_TELEGRAM_LOGIN_BOT: ${WEB_TELEGRAM_LOGIN_BOT:-}
+      WEB_SESSION_SECRET: ${WEB_SESSION_SECRET:-}
       DATABASE_URL: ${DATABASE_URL:-}
       POSTGRES_HOST: ${POSTGRES_HOST:-db}
       POSTGRES_DB: ${POSTGRES_DB:-teamtimebot}
