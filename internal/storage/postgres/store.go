@@ -915,6 +915,20 @@ func (s *Store) ListActiveGroups(ctx context.Context) ([]GroupView, error) {
 	return groups, nil
 }
 
+func (s *Store) ListActiveGroupsForAdmin(ctx context.Context, userTelegramID int64) ([]GroupView, error) {
+	var groups []GroupView
+	if err := s.db.WithContext(ctx).
+		Table("telegram_groups g").
+		Select("g.chat_id, g.title, g.timezone").
+		Joins("JOIN group_members gm ON gm.group_id = g.id").
+		Where("g.is_active = TRUE AND gm.is_active = TRUE AND gm.user_telegram_id = ? AND gm.role = 'admin'", userTelegramID).
+		Order("g.title ASC, g.chat_id ASC").
+		Scan(&groups).Error; err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
 func ParsePollSpec(payload string) (name, question string, options []string, err error) {
 	parts := strings.Split(payload, "|")
 	if len(parts) != 3 {

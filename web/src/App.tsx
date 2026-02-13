@@ -8,6 +8,8 @@ import {
   createTemplate,
   deactivateEventPublications,
   deleteTemplate,
+  fetchAuthConfig,
+  fetchAuthMe,
   fetchArchivedEvents,
   fetchEventActivity,
   fetchEventBillingForInstance,
@@ -31,6 +33,7 @@ import {
   publishEventTeamSplit,
   saveEventTeamSplit,
   saveEventBillingForInstance,
+  telegramAuthLogin,
   unarchiveEvent,
   updateMemberProfile,
   updateMemberSkills,
@@ -39,6 +42,7 @@ import {
   updateEventCost,
   updateEventDetails,
   updateTemplate,
+  logoutAuth,
 } from './api'
 import { announcementLeadLabel, announcementLeadOptions, ensureList, formatMoney, toHourMinute, weekdayLabel, weekdayOptions } from './app/constants'
 import { sections } from './app/navigation'
@@ -80,10 +84,29 @@ import type {
   MemberSkillProfile,
   PlayerRelation,
   SkillCatalogItem,
+  AuthConfig,
+  AuthUser,
 } from './types'
 
 const initialRoute = parseRoute(window.location.pathname)
+declare global {
+  interface Window {
+    onTelegramAuth?: (payload: {
+      id: number
+      first_name: string
+      last_name?: string
+      username?: string
+      photo_url?: string
+      auth_date: number
+      hash: string
+    }) => void
+  }
+}
+
 export default function App() {
+  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null)
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [groups, setGroups] = useState<Group[]>([])
   const [activeChatID, setActiveChatID] = useState<number | null>(initialRoute.chatID)
   const [activeOrgKey, setActiveOrgKey] = useState<string | null>(initialRoute.orgKey ?? null)
@@ -368,6 +391,41 @@ export default function App() {
 
   useEffect(() => {
     void (async () => {
+      setAuthLoading(true)
+      try {
+        const cfg = await fetchAuthConfig()
+        setAuthConfig(cfg)
+        if (cfg.enabled) {
+          try {
+            const me = await fetchAuthMe()
+            setAuthUser(me.user)
+          } catch {
+            setAuthUser(null)
+          }
+        } else {
+          setAuthUser({
+            id: 0,
+            username: '',
+            firstName: 'Local',
+            lastName: '',
+            authDate: Math.floor(Date.now() / 1000),
+          })
+        }
+      } catch (err) {
+        setError((err as Error).message)
+      } finally {
+        setAuthLoading(false)
+      }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (authLoading || !authUser) {
+      setGroups([])
+      return
+    }
+    void (async () => {
       try {
         const loadedGroups = await fetchGroups()
         setGroups(loadedGroups)
@@ -410,7 +468,46 @@ export default function App() {
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeChatID, activeOrgKey])
+  }, [activeChatID, activeOrgKey, authLoading, authUser])
+
+  useEffect(() => {
+    if (!authConfig?.enabled || !authConfig.telegramLoginBot || authUser) {
+      return
+    }
+
+    const container = document.getElementById('telegram-login-widget')
+    if (!container) {
+      return
+    }
+    container.innerHTML = ''
+
+    window.onTelegramAuth = (payload) => {
+      void (async () => {
+        try {
+          setError('')
+          const result = await telegramAuthLogin(payload)
+          setAuthUser(result.user)
+        } catch (err) {
+          setError((err as Error).message)
+        }
+      })()
+    }
+
+    const script = document.createElement('script')
+    script.src = 'https://telegram.org/js/telegram-widget.js?22'
+    script.async = true
+    script.setAttribute('data-telegram-login', authConfig.telegramLoginBot)
+    script.setAttribute('data-size', 'large')
+    script.setAttribute('data-userpic', 'false')
+    script.setAttribute('data-request-access', 'write')
+    script.setAttribute('data-onauth', 'onTelegramAuth(user)')
+    container.appendChild(script)
+
+    return () => {
+      delete window.onTelegramAuth
+      container.innerHTML = ''
+    }
+  }, [authConfig, authUser])
 
   useEffect(() => {
     if (activeChatID === null) {
@@ -3984,6 +4081,21 @@ export default function App() {
         <button className="refresh-btn" onClick={() => activeChatID !== null && reloadActiveOrganization(activeChatID)}>
           Обновить данные
         </button>
+        {authConfig?.enabled && authUser ? (
+          <button
+            className="refresh-btn"
+            onClick={() =>
+              void (async () => {
+                await logoutAuth()
+                setAuthUser(null)
+                setDetails(null)
+                setGroups([])
+              })()
+            }
+          >
+            Выйти
+          </button>
+        ) : null}
       </aside>
 
       <main className="console-main">
@@ -4000,7 +4112,17 @@ export default function App() {
         {error ? <section className="content-card alert error">{error}</section> : null}
         {success ? <section className={`toast toast-success ${successVisible ? 'show' : 'hide'}`}>{success}</section> : null}
 
-        {renderContent()}
+        {authLoading ? (
+          <section className="content-card">Проверка авторизации...</section>
+        ) : authConfig?.enabled && !authUser ? (
+          <section className="content-card">
+            <h3>Вход через Telegram</h3>
+            <p className="muted">Авторизуйся через Telegram, чтобы видеть только свои админские группы.</p>
+            <div id="telegram-login-widget" />
+          </section>
+        ) : (
+          renderContent()
+        )}
       </main>
     </div>
   )

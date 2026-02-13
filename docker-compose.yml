@@ -45,6 +45,8 @@ services:
     environment:
       WEB_ADDR: ${WEB_ADDR:-:8080}
       WEB_STATIC_DIR: ${WEB_STATIC_DIR:-}
+      WEB_TELEGRAM_LOGIN_BOT: ${WEB_TELEGRAM_LOGIN_BOT:-}
+      WEB_SESSION_SECRET: ${WEB_SESSION_SECRET:-}
       POSTGRES_HOST: db
     ports:
       - "${WEB_PORT:-8080}:8080"

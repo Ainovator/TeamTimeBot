@@ -16,6 +16,8 @@ import type {
   PlayerRelation,
   SkillCatalogItem,
   TemplateDetails,
+  AuthConfig,
+  AuthUser,
 } from './types'
 
 async function parseResponse<T>(res: Response): Promise<T> {
@@ -37,6 +39,38 @@ async function parseResponse<T>(res: Response): Promise<T> {
 export async function fetchGroups(): Promise<Group[]> {
   const res = await fetch('/api/groups')
   return parseResponse<Group[]>(res)
+}
+
+export async function fetchAuthConfig(): Promise<AuthConfig> {
+  const res = await fetch('/api/auth/config')
+  return parseResponse<AuthConfig>(res)
+}
+
+export async function fetchAuthMe(): Promise<{ enabled: boolean; user: AuthUser | null }> {
+  const res = await fetch('/api/auth/me')
+  return parseResponse<{ enabled: boolean; user: AuthUser | null }>(res)
+}
+
+export async function telegramAuthLogin(payload: {
+  id: number
+  first_name: string
+  last_name?: string
+  username?: string
+  photo_url?: string
+  auth_date: number
+  hash: string
+}): Promise<{ status: string; user: AuthUser }> {
+  const res = await fetch('/api/auth/telegram', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return parseResponse<{ status: string; user: AuthUser }>(res)
+}
+
+export async function logoutAuth(): Promise<void> {
+  const res = await fetch('/api/auth/logout', { method: 'POST' })
+  await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchGroupDetails(chatID: number): Promise<GroupDetails> {
