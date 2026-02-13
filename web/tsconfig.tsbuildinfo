@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/types.ts","./src/app/constants.ts","./src/app/navigation.tsx","./src/app/router.ts","./src/features/history/historyUtils.ts","./src/features/members/memberUtils.ts","./src/features/templates/templateUtils.ts"],"version":"5.9.3"}

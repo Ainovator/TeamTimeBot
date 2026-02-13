@@ -39,6 +39,7 @@ func main() {
 	log.Println("TeamTimeBot started")
 	go scheduler.NewPollScheduler(bot, store).Start(context.Background())
 	go scheduler.NewEventPollScheduler(bot, store).Start(context.Background())
+	go scheduler.NewEventAnnouncementScheduler(bot, store).Start(context.Background())
 	go scheduler.NewEventSettlementScheduler(bot, store).Start(context.Background())
 
 	callbacks := make(chan tele.Callback, 100)

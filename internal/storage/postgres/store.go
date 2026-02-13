@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,15 +30,22 @@ type DueSchedule struct {
 }
 
 type TemplateView struct {
-	Name     string
-	Question string
+	Name                string `json:"name"`
+	Question            string `json:"question"`
+	CountedOptionsCount int    `json:"countedOptionsCount"`
+}
+
+type GroupView struct {
+	ChatID   int64  `json:"chatID"`
+	Title    string `json:"title"`
+	Timezone string `json:"timezone"`
 }
 
 type ScheduleView struct {
-	ID           uint64
-	TemplateName string
-	SendAt       string
-	IsActive     bool
+	ID           uint64 `json:"id"`
+	TemplateName string `json:"templateName"`
+	SendAt       string `json:"sendAt"`
+	IsActive     bool   `json:"isActive"`
 }
 
 type AdminMember struct {
@@ -53,21 +62,136 @@ type AdminGroup struct {
 }
 
 type TemplateDetails struct {
-	Name     string
-	Question string
-	Options  []string
+	Name           string   `json:"name"`
+	Question       string   `json:"question"`
+	Options        []string `json:"options"`
+	CountedOptions []int    `json:"countedOptions"`
 }
 
 type EventView struct {
-	ID              uint64
-	Name            string
-	StartWeekday    int
-	PollPublishTime string
-	StartTime       string
-	EndTime         string
-	CostAmount      *float64
-	IsActive        bool
-	PollTemplate    string
+	ID                      uint64   `json:"id"`
+	Name                    string   `json:"name"`
+	EventType               string   `json:"eventType"`
+	StartWeekday            int      `json:"startWeekday"`
+	PollPublishWeekday      int      `json:"pollPublishWeekday"`
+	PollPublishTime         string   `json:"pollPublishTime"`
+	StartTime               string   `json:"startTime"`
+	EndTime                 string   `json:"endTime"`
+	AnnouncementText        string   `json:"announcementText"`
+	AnnouncementEnabled     bool     `json:"announcementEnabled"`
+	AnnouncementLeadMinutes int      `json:"announcementLeadMinutes"`
+	PublishEnabled          bool     `json:"publishEnabled"`
+	TeamsAutoSplit          bool     `json:"teamsAutoSplit"`
+	TeamsPublishList        bool     `json:"teamsPublishList"`
+	TeamSize                int      `json:"teamSize"`
+	MinVotesToHold          int      `json:"minVotesToHold"`
+	SettlementEnabled       bool     `json:"settlementEnabled"`
+	SettlementPublishBefore bool     `json:"settlementPublishBefore"`
+	SettlementPublishAfter  bool     `json:"settlementPublishAfter"`
+	CostAmount              *float64 `json:"costAmount"`
+	IsActive                bool     `json:"isActive"`
+	PollTemplate            string   `json:"pollTemplate"`
+}
+
+type EventActivitySummary struct {
+	EventID            uint64 `json:"eventID"`
+	PollsTotal         int64  `json:"pollsTotal"`
+	VotesTotal         int64  `json:"votesTotal"`
+	SettlementsTotal   int64  `json:"settlementsTotal"`
+	AnnouncementsTotal int64  `json:"announcementsTotal"`
+}
+
+type EventHistoryStatus string
+
+const (
+	EventHistoryStatusCompleted      EventHistoryStatus = "completed"
+	EventHistoryStatusInVoting       EventHistoryStatus = "in_voting"
+	EventHistoryStatusOnDistribution EventHistoryStatus = "on_distribution"
+)
+
+type EventHistoryItem struct {
+	EventID        uint64             `json:"eventID"`
+	Name           string             `json:"name"`
+	EventType      string             `json:"eventType"`
+	StartWeekday   int                `json:"startWeekday"`
+	StartTime      string             `json:"startTime"`
+	PollTemplate   string             `json:"pollTemplate"`
+	LatestPostID   *uint64            `json:"latestPostID"`
+	LatestPollAt   *time.Time         `json:"latestPollAt"`
+	NextStartAt    time.Time          `json:"nextStartAt"`
+	Status         EventHistoryStatus `json:"status"`
+	CanDistribute  bool               `json:"canDistribute"`
+	PublishEnabled bool               `json:"publishEnabled"`
+}
+
+type EventPollHistoryItem struct {
+	PostID            uint64    `json:"postID"`
+	TelegramMessageID int64     `json:"telegramMessageID"`
+	TelegramPollID    string    `json:"telegramPollID"`
+	Status            string    `json:"status"`
+	PublishedAt       time.Time `json:"publishedAt"`
+	Question          string    `json:"question"`
+	CountedVotes      int       `json:"countedVotes"`
+	TotalVotes        int       `json:"totalVotes"`
+	TeamsConfigured   bool      `json:"teamsConfigured"`
+}
+
+type TeamSplitPlayer struct {
+	UserID      int64   `json:"userID"`
+	Username    string  `json:"username"`
+	FirstName   string  `json:"firstName"`
+	LastName    string  `json:"lastName"`
+	Choice      string  `json:"choice"`
+	ChoiceIndex int     `json:"choiceIndex"`
+	ChoiceLabel string  `json:"choiceLabel"`
+	Rating      float64 `json:"rating"`
+	Team        string  `json:"team"`
+	Position    int     `json:"position"`
+}
+
+type TeamWinChance struct {
+	TeamAScore float64 `json:"teamAScore"`
+	TeamBScore float64 `json:"teamBScore"`
+	TeamAProb  float64 `json:"teamAProb"`
+	TeamBProb  float64 `json:"teamBProb"`
+}
+
+type EventTeamSplitState struct {
+	EventID uint64            `json:"eventID"`
+	PostID  uint64            `json:"postID"`
+	Players []TeamSplitPlayer `json:"players"`
+	Chance  TeamWinChance     `json:"chance"`
+}
+
+type GroupMemberView struct {
+	UserTelegramID int64     `json:"userTelegramID"`
+	Username       string    `json:"username"`
+	FirstName      string    `json:"firstName"`
+	LastName       string    `json:"lastName"`
+	PlayerType     string    `json:"playerType"`
+	Role           string    `json:"role"`
+	Status         string    `json:"status"`
+	LastSeenAt     time.Time `json:"lastSeenAt"`
+}
+
+type SkillCatalogItem struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type MemberSkillValue struct {
+	SkillCode string `json:"skillCode"`
+	SkillName string `json:"skillName"`
+	Score     *int   `json:"score"`
+}
+
+type MemberSkillProfile struct {
+	UserTelegramID int64              `json:"userTelegramID"`
+	Username       string             `json:"username"`
+	FirstName      string             `json:"firstName"`
+	LastName       string             `json:"lastName"`
+	PlayerType     string             `json:"playerType"`
+	Skills         []MemberSkillValue `json:"skills"`
 }
 
 type EventPollPostView struct {
@@ -95,17 +219,129 @@ type EventPollVoteView struct {
 }
 
 type EventWithGroupView struct {
-	EventID         uint64
-	GroupID         uint64
-	ChatID          int64
-	Timezone        string
-	Name            string
-	StartWeekday    int
-	PollPublishTime string
-	StartTime       string
-	EndTime         string
-	CostAmount      *float64
-	PollTemplate    string
+	EventID                 uint64
+	GroupID                 uint64
+	ChatID                  int64
+	Timezone                string
+	Name                    string
+	EventType               string
+	StartWeekday            int
+	PollPublishWeekday      int
+	PollPublishTime         string
+	StartTime               string
+	EndTime                 string
+	AnnouncementText        string
+	AnnouncementEnabled     bool
+	AnnouncementLeadMinutes int
+	PublishEnabled          bool
+	TeamsAutoSplit          bool
+	TeamsPublishList        bool
+	TeamSize                int
+	MinVotesToHold          int
+	SettlementEnabled       bool
+	SettlementPublishBefore bool
+	SettlementPublishAfter  bool
+	CostAmount              *float64
+	PollTemplate            string
+}
+
+func normalizeAnnouncementLeadMinutes(value int) int {
+	switch value {
+	case 60, 120, 1440:
+		return value
+	case 0:
+		return 60
+	default:
+		return -1
+	}
+}
+
+func normalizeEventType(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", "training":
+		return "training"
+	case "activity":
+		return "activity"
+	default:
+		return ""
+	}
+}
+
+func normalizePlayerType(value string) (string, bool) {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", "none":
+		return "", true
+	case "attacker":
+		return "attacker", true
+	case "setter":
+		return "setter", true
+	case "libero":
+		return "libero", true
+	default:
+		return "", false
+	}
+}
+
+func normalizeCountedOptionIndexes(optionCount int, indexes []int) []int {
+	if optionCount <= 0 {
+		return []int{}
+	}
+	unique := make(map[int]struct{}, len(indexes))
+	for _, idx := range indexes {
+		if idx < 0 || idx >= optionCount {
+			continue
+		}
+		unique[idx] = struct{}{}
+	}
+	result := make([]int, 0, len(unique))
+	for idx := range unique {
+		result = append(result, idx)
+	}
+	sort.Ints(result)
+	return result
+}
+
+func parsePollOptionChoice(choice string) (int, bool) {
+	choice = strings.TrimSpace(choice)
+	if !strings.HasPrefix(choice, "option_") {
+		return 0, false
+	}
+	idx, err := strconv.Atoi(strings.TrimPrefix(choice, "option_"))
+	if err != nil || idx < 0 {
+		return 0, false
+	}
+	return idx, true
+}
+
+func parseClockTime(value string) (int, int, error) {
+	layouts := []string{"15:04:05", "15:04"}
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, strings.TrimSpace(value))
+		if err == nil {
+			return parsed.Hour(), parsed.Minute(), nil
+		}
+	}
+	return 0, 0, errors.New("invalid time format")
+}
+
+func nextWeekdayTime(now time.Time, weekday int, hour int, minute int) time.Time {
+	if weekday < 1 || weekday > 7 {
+		return now
+	}
+	currentWeekday := int(now.Weekday())
+	if currentWeekday == 0 {
+		currentWeekday = 7
+	}
+	delta := weekday - currentWeekday
+	if delta < 0 {
+		delta += 7
+	}
+	candidateDate := now.AddDate(0, 0, delta)
+	candidate := time.Date(candidateDate.Year(), candidateDate.Month(), candidateDate.Day(), hour, minute, 0, 0, now.Location())
+	if !candidate.After(now) {
+		candidate = candidate.AddDate(0, 0, 7)
+	}
+	return candidate
 }
 
 type EventTemplateDetails struct {
@@ -160,22 +396,63 @@ func (s *Store) UpsertPollTemplate(
 	name, question string,
 	options []string,
 ) (*PollTemplate, error) {
+	defaultCounted := []int{}
+	if len(options) > 0 {
+		defaultCounted = []int{0}
+	}
+	return s.UpsertPollTemplateWithCounted(ctx, chatID, name, question, options, defaultCounted)
+}
+
+func (s *Store) UpsertPollTemplateWithCounted(
+	ctx context.Context,
+	chatID int64,
+	name, question string,
+	options []string,
+	countedOptions []int,
+) (*PollTemplate, error) {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
 		return nil, err
 	}
 
-	payload, err := json.Marshal(options)
+	sanitizedOptions := make([]string, 0, len(options))
+	for _, option := range options {
+		option = strings.TrimSpace(option)
+		if option != "" {
+			sanitizedOptions = append(sanitizedOptions, option)
+		}
+	}
+	if len(sanitizedOptions) < 2 {
+		return nil, errors.New("at least 2 options are required")
+	}
+
+	name = strings.TrimSpace(name)
+	question = strings.TrimSpace(question)
+	if name == "" {
+		return nil, errors.New("template name is required")
+	}
+	if question == "" {
+		return nil, errors.New("question is required")
+	}
+
+	payload, err := json.Marshal(sanitizedOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedCounted := normalizeCountedOptionIndexes(len(sanitizedOptions), countedOptions)
+	countedPayload, err := json.Marshal(normalizedCounted)
 	if err != nil {
 		return nil, err
 	}
 
 	template := PollTemplate{
-		GroupID:  group.ID,
-		Name:     name,
-		Question: question,
-		Options:  datatypes.JSON(payload),
-		IsActive: true,
+		GroupID:        group.ID,
+		Name:           name,
+		Question:       question,
+		Options:        datatypes.JSON(payload),
+		CountedOptions: datatypes.JSON(countedPayload),
+		IsActive:       true,
 	}
 
 	if err := s.db.WithContext(ctx).
@@ -185,10 +462,11 @@ func (s *Store) UpsertPollTemplate(
 				{Name: "name"},
 			},
 			DoUpdates: clause.Assignments(map[string]interface{}{
-				"question":   question,
-				"options":    datatypes.JSON(payload),
-				"is_active":  true,
-				"updated_at": gorm.Expr("NOW()"),
+				"question":        question,
+				"options":         datatypes.JSON(payload),
+				"counted_options": datatypes.JSON(countedPayload),
+				"is_active":       true,
+				"updated_at":      gorm.Expr("NOW()"),
 			}),
 		}).
 		Create(&template).Error; err != nil {
@@ -315,6 +593,19 @@ func (s *Store) getGroupByChatID(ctx context.Context, chatID int64) (*TelegramGr
 
 func (s *Store) GetGroupByChatID(ctx context.Context, chatID int64) (*TelegramGroup, error) {
 	return s.getGroupByChatID(ctx, chatID)
+}
+
+func (s *Store) ListActiveGroups(ctx context.Context) ([]GroupView, error) {
+	var groups []GroupView
+	if err := s.db.WithContext(ctx).
+		Table("telegram_groups").
+		Select("chat_id, title, timezone").
+		Where("is_active = TRUE").
+		Order("title ASC, chat_id ASC").
+		Scan(&groups).Error; err != nil {
+		return nil, err
+	}
+	return groups, nil
 }
 
 func ParsePollSpec(payload string) (name, question string, options []string, err error) {
@@ -603,7 +894,7 @@ func (s *Store) GetGroupSnapshot(ctx context.Context, chatID int64) ([]TemplateV
 	var templates []TemplateView
 	if err := s.db.WithContext(ctx).
 		Table("poll_templates").
-		Select("name, question").
+		Select("name, question, COALESCE(jsonb_array_length(counted_options), 0) AS counted_options_count").
 		Where("group_id = ? AND is_active = TRUE", group.ID).
 		Order("name ASC").
 		Scan(&templates).Error; err != nil {
@@ -661,13 +952,14 @@ func (s *Store) GetTemplateByName(ctx context.Context, chatID int64, name string
 	}
 
 	var row struct {
-		Name     string
-		Question string
-		Options  datatypes.JSON
+		Name           string
+		Question       string
+		Options        datatypes.JSON
+		CountedOptions datatypes.JSON
 	}
 	if err := s.db.WithContext(ctx).
 		Table("poll_templates").
-		Select("name, question, options").
+		Select("name, question, options, counted_options").
 		Where("group_id = ? AND name = ? AND is_active = TRUE", group.ID, name).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -680,12 +972,149 @@ func (s *Store) GetTemplateByName(ctx context.Context, chatID int64, name string
 	if err := json.Unmarshal(row.Options, &options); err != nil {
 		return nil, err
 	}
+	var countedOptions []int
+	if err := json.Unmarshal(row.CountedOptions, &countedOptions); err != nil {
+		return nil, err
+	}
 
 	return &TemplateDetails{
-		Name:     row.Name,
-		Question: row.Question,
-		Options:  options,
+		Name:           row.Name,
+		Question:       row.Question,
+		Options:        options,
+		CountedOptions: normalizeCountedOptionIndexes(len(options), countedOptions),
 	}, nil
+}
+
+func (s *Store) UpdateTemplateByName(
+	ctx context.Context,
+	chatID int64,
+	currentName, newName, question string,
+	options []string,
+) (*TemplateDetails, error) {
+	defaultCounted := []int{}
+	if len(options) > 0 {
+		defaultCounted = []int{0}
+	}
+	return s.UpdateTemplateByNameWithCounted(ctx, chatID, currentName, newName, question, options, defaultCounted)
+}
+
+func (s *Store) UpdateTemplateByNameWithCounted(
+	ctx context.Context,
+	chatID int64,
+	currentName, newName, question string,
+	options []string,
+	countedOptions []int,
+) (*TemplateDetails, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	currentName = strings.TrimSpace(currentName)
+	newName = strings.TrimSpace(newName)
+	question = strings.TrimSpace(question)
+	if currentName == "" {
+		return nil, errors.New("current template name is required")
+	}
+	if newName == "" {
+		newName = currentName
+	}
+	if question == "" {
+		return nil, errors.New("question is required")
+	}
+
+	sanitizedOptions := make([]string, 0, len(options))
+	for _, option := range options {
+		option = strings.TrimSpace(option)
+		if option != "" {
+			sanitizedOptions = append(sanitizedOptions, option)
+		}
+	}
+	if len(sanitizedOptions) < 2 {
+		return nil, errors.New("at least 2 options are required")
+	}
+
+	payload, err := json.Marshal(sanitizedOptions)
+	if err != nil {
+		return nil, err
+	}
+	normalizedCounted := normalizeCountedOptionIndexes(len(sanitizedOptions), countedOptions)
+	countedPayload, err := json.Marshal(normalizedCounted)
+	if err != nil {
+		return nil, err
+	}
+
+	var result TemplateDetails
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var template PollTemplate
+		if err := tx.
+			Where("group_id = ? AND name = ? AND is_active = TRUE", group.ID, currentName).
+			First(&template).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("template not found")
+			}
+			return err
+		}
+
+		var conflicts int64
+		if err := tx.Model(&PollTemplate{}).
+			Where("group_id = ? AND name = ? AND is_active = TRUE AND id <> ?", group.ID, newName, template.ID).
+			Count(&conflicts).Error; err != nil {
+			return err
+		}
+		if conflicts > 0 {
+			return errors.New("template name already exists")
+		}
+
+		if err := tx.Model(&PollTemplate{}).
+			Where("id = ?", template.ID).
+			Updates(map[string]interface{}{
+				"name":            newName,
+				"question":        question,
+				"options":         datatypes.JSON(payload),
+				"counted_options": datatypes.JSON(countedPayload),
+				"is_active":       true,
+				"updated_at":      gorm.Expr("NOW()"),
+			}).Error; err != nil {
+			return err
+		}
+
+		var row struct {
+			Name           string
+			Question       string
+			Options        datatypes.JSON
+			CountedOptions datatypes.JSON
+		}
+		if err := tx.
+			Table("poll_templates").
+			Select("name, question, options, counted_options").
+			Where("id = ?", template.ID).
+			First(&row).Error; err != nil {
+			return err
+		}
+
+		var parsedOptions []string
+		if err := json.Unmarshal(row.Options, &parsedOptions); err != nil {
+			return err
+		}
+		var parsedCounted []int
+		if err := json.Unmarshal(row.CountedOptions, &parsedCounted); err != nil {
+			return err
+		}
+
+		result = TemplateDetails{
+			Name:           row.Name,
+			Question:       row.Question,
+			Options:        parsedOptions,
+			CountedOptions: normalizeCountedOptionIndexes(len(parsedOptions), parsedCounted),
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 func (s *Store) SyncGroupAdmins(ctx context.Context, chatID int64, admins []AdminMember) error {
@@ -769,7 +1198,26 @@ func (s *Store) ListGroupsForAdmin(ctx context.Context, userID int64) ([]AdminGr
 	return groups, nil
 }
 
-func (s *Store) CreateEvent(ctx context.Context, chatID int64, name string, startWeekday int, pollPublishTime, startTime, endTime string, costAmount *float64) (*GroupEvent, error) {
+func (s *Store) CreateEvent(
+	ctx context.Context,
+	chatID int64,
+	name string,
+	eventType string,
+	startWeekday int,
+	pollPublishWeekday int,
+	pollPublishTime, startTime, endTime string,
+	announcementText string,
+	announcementEnabled bool,
+	announcementLeadMinutes int,
+	teamsAutoSplit bool,
+	teamsPublishList bool,
+	teamSize int,
+	minVotesToHold int,
+	settlementEnabled bool,
+	settlementPublishBefore bool,
+	settlementPublishAfter bool,
+	costAmount *float64,
+) (*GroupEvent, error) {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
 		return nil, err
@@ -777,8 +1225,18 @@ func (s *Store) CreateEvent(ctx context.Context, chatID int64, name string, star
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("event name is required")
 	}
+	eventType = normalizeEventType(eventType)
+	if eventType == "" {
+		return nil, errors.New("event type must be training or activity")
+	}
 	if startWeekday < 1 || startWeekday > 7 {
 		return nil, errors.New("weekday must be between 1 and 7")
+	}
+	if pollPublishWeekday == 0 {
+		pollPublishWeekday = startWeekday
+	}
+	if pollPublishWeekday < 1 || pollPublishWeekday > 7 {
+		return nil, errors.New("publish weekday must be between 1 and 7")
 	}
 	if _, err := time.Parse("15:04", startTime); err != nil {
 		return nil, errors.New("invalid start time format, use HH:MM")
@@ -789,19 +1247,49 @@ func (s *Store) CreateEvent(ctx context.Context, chatID int64, name string, star
 	if _, err := time.Parse("15:04", pollPublishTime); err != nil {
 		return nil, errors.New("invalid publish time format, use HH:MM")
 	}
+	announcementText = strings.TrimSpace(announcementText)
+	announcementLeadMinutes = normalizeAnnouncementLeadMinutes(announcementLeadMinutes)
+	if announcementLeadMinutes == -1 {
+		return nil, errors.New("announcement lead must be 60, 120 or 1440 minutes")
+	}
+	if announcementEnabled && announcementText == "" {
+		return nil, errors.New("announcement text is required when announcement publishing is enabled")
+	}
+	if teamSize < 2 {
+		return nil, errors.New("team size must be >= 2")
+	}
+	if minVotesToHold < 0 {
+		return nil, errors.New("min votes must be >= 0")
+	}
+	if settlementEnabled && !settlementPublishBefore && !settlementPublishAfter {
+		return nil, errors.New("choose at least one settlement publish mode: before or after")
+	}
 	if costAmount != nil && *costAmount < 0 {
 		return nil, errors.New("cost amount must be >= 0")
 	}
 
 	event := GroupEvent{
-		GroupID:         group.ID,
-		Name:            strings.TrimSpace(name),
-		StartWeekday:    int16(startWeekday),
-		PollPublishTime: pollPublishTime,
-		StartTime:       startTime,
-		EndTime:         endTime,
-		CostAmount:      costAmount,
-		IsActive:        true,
+		GroupID:                 group.ID,
+		Name:                    strings.TrimSpace(name),
+		EventType:               eventType,
+		StartWeekday:            int16(startWeekday),
+		PollPublishWeekday:      int16(pollPublishWeekday),
+		PollPublishTime:         pollPublishTime,
+		StartTime:               startTime,
+		EndTime:                 endTime,
+		AnnouncementText:        announcementText,
+		AnnouncementEnabled:     announcementEnabled,
+		AnnouncementLeadMinutes: int16(announcementLeadMinutes),
+		PublishEnabled:          true,
+		TeamsAutoSplit:          teamsAutoSplit,
+		TeamsPublishList:        teamsPublishList,
+		TeamSize:                int16(teamSize),
+		MinVotesToHold:          int32(minVotesToHold),
+		SettlementEnabled:       settlementEnabled,
+		SettlementPublishBefore: settlementPublishBefore,
+		SettlementPublishAfter:  settlementPublishAfter,
+		CostAmount:              costAmount,
+		IsActive:                true,
 	}
 	if err := s.db.WithContext(ctx).Create(&event).Error; err != nil {
 		return nil, err
@@ -818,7 +1306,7 @@ func (s *Store) ListEventsByChatID(ctx context.Context, chatID int64) ([]EventVi
 	var rows []EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, ge.start_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.group_id = ? AND ge.is_active = TRUE", group.ID).
 		Order("id DESC").
@@ -826,6 +1314,389 @@ func (s *Store) ListEventsByChatID(ctx context.Context, chatID int64) ([]EventVi
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (s *Store) ListArchivedEventsByChatID(ctx context.Context, chatID int64) ([]EventView, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []EventView
+	if err := s.db.WithContext(ctx).
+		Table("group_events ge").
+		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
+		Where("ge.group_id = ? AND ge.is_active = FALSE", group.ID).
+		Order("id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *Store) GetEventByID(ctx context.Context, chatID int64, eventID uint64) (*EventView, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var row EventView
+	if err := s.db.WithContext(ctx).
+		Table("group_events ge").
+		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
+		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE", eventID, group.ID).
+		First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("event not found")
+		}
+		return nil, err
+	}
+
+	return &row, nil
+}
+
+func (s *Store) UpdateEventName(ctx context.Context, chatID int64, eventID uint64, name string) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("event name is required")
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&GroupEvent{}).
+		Where("id = ? AND group_id = ? AND is_active = TRUE", eventID, group.ID).
+		Updates(map[string]interface{}{
+			"name":       name,
+			"updated_at": gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("event not found")
+	}
+
+	return nil
+}
+
+func (s *Store) SetEventArchived(ctx context.Context, chatID int64, eventID uint64, archived bool) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&GroupEvent{}).
+		Where("id = ? AND group_id = ?", eventID, group.ID).
+		Updates(map[string]interface{}{
+			"is_active":  !archived,
+			"updated_at": gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("event not found")
+	}
+	return nil
+}
+
+func (s *Store) UpdateEventDetails(
+	ctx context.Context,
+	chatID int64,
+	eventID uint64,
+	name string,
+	eventType string,
+	startWeekday int,
+	pollPublishWeekday int,
+	pollPublishTime, startTime, endTime string,
+	announcementText string,
+	announcementEnabled bool,
+	announcementLeadMinutes int,
+	teamsAutoSplit bool,
+	teamsPublishList bool,
+	teamSize int,
+	minVotesToHold int,
+	settlementEnabled bool,
+	settlementPublishBefore bool,
+	settlementPublishAfter bool,
+) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	name = strings.TrimSpace(name)
+	pollPublishTime = strings.TrimSpace(pollPublishTime)
+	startTime = strings.TrimSpace(startTime)
+	endTime = strings.TrimSpace(endTime)
+	announcementText = strings.TrimSpace(announcementText)
+
+	if name == "" {
+		return errors.New("event name is required")
+	}
+	eventType = normalizeEventType(eventType)
+	if eventType == "" {
+		return errors.New("event type must be training or activity")
+	}
+	if startWeekday < 1 || startWeekday > 7 {
+		return errors.New("weekday must be between 1 and 7")
+	}
+	if pollPublishWeekday < 1 || pollPublishWeekday > 7 {
+		return errors.New("publish weekday must be between 1 and 7")
+	}
+	if _, err := time.Parse("15:04", pollPublishTime); err != nil {
+		return errors.New("invalid publish time format, use HH:MM")
+	}
+	if _, err := time.Parse("15:04", startTime); err != nil {
+		return errors.New("invalid start time format, use HH:MM")
+	}
+	if _, err := time.Parse("15:04", endTime); err != nil {
+		return errors.New("invalid end time format, use HH:MM")
+	}
+	announcementLeadMinutes = normalizeAnnouncementLeadMinutes(announcementLeadMinutes)
+	if announcementLeadMinutes == -1 {
+		return errors.New("announcement lead must be 60, 120 or 1440 minutes")
+	}
+	if announcementEnabled && announcementText == "" {
+		return errors.New("announcement text is required when announcement publishing is enabled")
+	}
+	if teamSize < 2 {
+		return errors.New("team size must be >= 2")
+	}
+	if minVotesToHold < 0 {
+		return errors.New("min votes must be >= 0")
+	}
+	if settlementEnabled && !settlementPublishBefore && !settlementPublishAfter {
+		return errors.New("choose at least one settlement publish mode: before or after")
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&GroupEvent{}).
+		Where("id = ? AND group_id = ? AND is_active = TRUE", eventID, group.ID).
+		Updates(map[string]interface{}{
+			"name":                      name,
+			"event_type":                eventType,
+			"start_weekday":             startWeekday,
+			"poll_publish_weekday":      pollPublishWeekday,
+			"poll_publish_time":         pollPublishTime,
+			"start_time":                startTime,
+			"end_time":                  endTime,
+			"announcement_text":         announcementText,
+			"announcement_enabled":      announcementEnabled,
+			"announcement_lead_minutes": announcementLeadMinutes,
+			"teams_auto_split":          teamsAutoSplit,
+			"teams_publish_list":        teamsPublishList,
+			"team_size":                 teamSize,
+			"min_votes_to_hold":         minVotesToHold,
+			"settlement_enabled":        settlementEnabled,
+			"settlement_publish_before": settlementPublishBefore,
+			"settlement_publish_after":  settlementPublishAfter,
+			"updated_at":                gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("event not found")
+	}
+
+	return nil
+}
+
+func (s *Store) ListGroupMembersByChatID(ctx context.Context, chatID int64) ([]GroupMemberView, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []GroupMemberView
+	if err := s.db.WithContext(ctx).
+		Table("group_members gm").
+		Select("gm.user_telegram_id, COALESCE(tu.username, '') AS username, COALESCE(tu.first_name, '') AS first_name, COALESCE(tu.last_name, '') AS last_name, COALESCE(gm.player_type, '') AS player_type, gm.role, gm.status, gm.last_seen_at").
+		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = gm.user_telegram_id").
+		Where("gm.group_id = ? AND gm.is_active = TRUE", group.ID).
+		Order("gm.role DESC, gm.last_seen_at DESC, gm.user_telegram_id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *Store) ListSkillsCatalog(ctx context.Context) ([]SkillCatalogItem, error) {
+	var rows []SkillCatalogItem
+	if err := s.db.WithContext(ctx).
+		Table("skills_catalog").
+		Select("code, name").
+		Where("is_active = TRUE").
+		Order("id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (s *Store) GetMemberSkillProfile(ctx context.Context, chatID int64, userTelegramID int64) (*MemberSkillProfile, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var member struct {
+		UserTelegramID int64
+		Username       string
+		FirstName      string
+		LastName       string
+		PlayerType     string
+	}
+	if err := s.db.WithContext(ctx).
+		Table("group_members gm").
+		Select("gm.user_telegram_id, COALESCE(tu.username, '') AS username, COALESCE(tu.first_name, '') AS first_name, COALESCE(tu.last_name, '') AS last_name, COALESCE(gm.player_type, '') AS player_type").
+		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = gm.user_telegram_id").
+		Where("gm.group_id = ? AND gm.user_telegram_id = ? AND gm.is_active = TRUE", group.ID, userTelegramID).
+		Take(&member).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("member not found")
+		}
+		return nil, err
+	}
+
+	type row struct {
+		SkillCode string
+		SkillName string
+		Score     *int
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("skills_catalog sc").
+		Select("sc.code AS skill_code, sc.name AS skill_name, gms.score").
+		Joins("LEFT JOIN group_member_skills gms ON gms.skill_id = sc.id AND gms.group_id = ? AND gms.user_telegram_id = ?", group.ID, userTelegramID).
+		Where("sc.is_active = TRUE").
+		Order("sc.id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	skills := make([]MemberSkillValue, 0, len(rows))
+	for _, r := range rows {
+		skills = append(skills, MemberSkillValue{
+			SkillCode: r.SkillCode,
+			SkillName: r.SkillName,
+			Score:     r.Score,
+		})
+	}
+
+	return &MemberSkillProfile{
+		UserTelegramID: member.UserTelegramID,
+		Username:       member.Username,
+		FirstName:      member.FirstName,
+		LastName:       member.LastName,
+		PlayerType:     member.PlayerType,
+		Skills:         skills,
+	}, nil
+}
+
+func (s *Store) UpdateMemberPlayerType(ctx context.Context, chatID int64, userTelegramID int64, playerType string) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	normalized, ok := normalizePlayerType(playerType)
+	if !ok {
+		return errors.New("invalid player type")
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&GroupMember{}).
+		Where("group_id = ? AND user_telegram_id = ? AND is_active = TRUE", group.ID, userTelegramID).
+		Updates(map[string]interface{}{
+			"player_type": normalized,
+			"updated_at":  gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("member not found")
+	}
+	return nil
+}
+
+func (s *Store) UpsertMemberSkills(ctx context.Context, chatID int64, userTelegramID int64, scores map[string]int) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	var memberExists int64
+	if err := s.db.WithContext(ctx).
+		Table("group_members").
+		Where("group_id = ? AND user_telegram_id = ? AND is_active = TRUE", group.ID, userTelegramID).
+		Count(&memberExists).Error; err != nil {
+		return err
+	}
+	if memberExists == 0 {
+		return errors.New("member not found")
+	}
+
+	type skillRow struct {
+		ID   uint64
+		Code string
+	}
+	var skills []skillRow
+	if err := s.db.WithContext(ctx).
+		Table("skills_catalog").
+		Select("id, code").
+		Where("is_active = TRUE").
+		Scan(&skills).Error; err != nil {
+		return err
+	}
+	skillIDByCode := make(map[string]uint64, len(skills))
+	for _, sk := range skills {
+		skillIDByCode[sk.Code] = sk.ID
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for code, score := range scores {
+			skillID, ok := skillIDByCode[strings.TrimSpace(code)]
+			if !ok {
+				return errors.New("unknown skill code: " + code)
+			}
+			if score < 1 || score > 10 {
+				return errors.New("skill score must be between 1 and 10")
+			}
+
+			row := map[string]interface{}{
+				"group_id":         group.ID,
+				"user_telegram_id": userTelegramID,
+				"skill_id":         skillID,
+				"score":            score,
+			}
+			if err := tx.Table("group_member_skills").
+				Clauses(clause.OnConflict{
+					Columns: []clause.Column{
+						{Name: "group_id"},
+						{Name: "user_telegram_id"},
+						{Name: "skill_id"},
+					},
+					DoUpdates: clause.Assignments(map[string]interface{}{
+						"score":      score,
+						"updated_at": gorm.Expr("NOW()"),
+					}),
+				}).
+				Create(row).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) BindEventToTemplate(ctx context.Context, chatID int64, eventID uint64, templateName string) error {
@@ -1045,7 +1916,7 @@ func (s *Store) FindBoundEventIDByTemplateAndWeekday(ctx context.Context, chatID
 		Table("group_events ge").
 		Select("ge.id").
 		Joins("JOIN poll_templates pt ON pt.id = ge.poll_template_id").
-		Where("ge.group_id = ? AND ge.is_active = TRUE AND ge.start_weekday = ? AND pt.name = ? AND pt.is_active = TRUE", group.ID, weekday, strings.TrimSpace(templateName)).
+		Where("ge.group_id = ? AND ge.is_active = TRUE AND ge.poll_publish_weekday = ? AND pt.name = ? AND pt.is_active = TRUE", group.ID, weekday, strings.TrimSpace(templateName)).
 		Order("ge.id DESC").
 		Limit(1).
 		Scan(&rows).Error; err != nil {
@@ -1062,15 +1933,37 @@ func (s *Store) ListActiveEventsWithGroups(ctx context.Context) ([]EventWithGrou
 	var rows []EventWithGroupView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id AS event_id, ge.group_id, g.chat_id, g.timezone, ge.name, ge.start_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, ge.cost_amount, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id AS event_id, ge.group_id, g.chat_id, g.timezone, ge.name, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, COALESCE(pt.name, '') AS poll_template").
 		Joins("JOIN telegram_groups g ON g.id = ge.group_id").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
-		Where("ge.is_active = TRUE AND g.is_active = TRUE").
+		Where("ge.is_active = TRUE AND ge.publish_enabled = TRUE AND g.is_active = TRUE").
 		Order("ge.id ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (s *Store) SetEventPublishEnabled(ctx context.Context, chatID int64, eventID uint64, enabled bool) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&GroupEvent{}).
+		Where("id = ? AND group_id = ? AND is_active = TRUE", eventID, group.ID).
+		Updates(map[string]interface{}{
+			"publish_enabled": enabled,
+			"updated_at":      gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("event not found")
+	}
+	return nil
 }
 
 func (s *Store) HasEventSettlement(ctx context.Context, eventID uint64, localDate time.Time) (bool, error) {
@@ -1082,6 +1975,53 @@ func (s *Store) HasEventSettlement(ctx context.Context, eventID uint64, localDat
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (s *Store) HasEventAnnouncement(ctx context.Context, eventID uint64, eventDate time.Time) (bool, error) {
+	var count int64
+	if err := s.db.WithContext(ctx).
+		Table("event_announcements").
+		Where("event_id = ? AND event_date = ?", eventID, eventDate.Format("2006-01-02")).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *Store) CreateEventAnnouncement(ctx context.Context, groupID uint64, eventID uint64, eventDate time.Time) error {
+	record := map[string]interface{}{
+		"group_id":   groupID,
+		"event_id":   eventID,
+		"event_date": eventDate.Format("2006-01-02"),
+		"sent_at":    gorm.Expr("NOW()"),
+		"created_at": gorm.Expr("NOW()"),
+		"updated_at": gorm.Expr("NOW()"),
+	}
+	return s.db.WithContext(ctx).Table("event_announcements").Create(record).Error
+}
+
+func (s *Store) HasEventSettlementNotice(ctx context.Context, eventID uint64, localDate time.Time, noticeType string) (bool, error) {
+	var count int64
+	if err := s.db.WithContext(ctx).
+		Table("event_settlement_notices").
+		Where("event_id = ? AND local_date = ? AND notice_type = ?", eventID, localDate.Format("2006-01-02"), strings.TrimSpace(noticeType)).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *Store) CreateEventSettlementNotice(ctx context.Context, groupID uint64, eventID uint64, localDate time.Time, noticeType string) error {
+	record := map[string]interface{}{
+		"group_id":    groupID,
+		"event_id":    eventID,
+		"local_date":  localDate.Format("2006-01-02"),
+		"notice_type": strings.TrimSpace(noticeType),
+		"sent_at":     gorm.Expr("NOW()"),
+		"created_at":  gorm.Expr("NOW()"),
+		"updated_at":  gorm.Expr("NOW()"),
+	}
+	return s.db.WithContext(ctx).Table("event_settlement_notices").Create(record).Error
 }
 
 func (s *Store) GetLatestEventPollPostForRange(ctx context.Context, eventID uint64, fromUTC, toUTC time.Time) (*EventPollPostView, error) {
@@ -1169,7 +2109,7 @@ func (s *Store) GetEventTemplateDetails(ctx context.Context, chatID int64, event
 		Select("ge.id AS event_id, ge.name AS event_name, pt.name AS template_name, pt.question AS template_question, pt.options AS template_options").
 		Joins("JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE AND pt.is_active = TRUE", eventID, group.ID).
-		First(&row).Error; err != nil {
+		Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("event or bound template not found")
 		}
@@ -1186,6 +2126,34 @@ func (s *Store) GetEventTemplateDetails(ctx context.Context, chatID int64, event
 		TemplateQuestion: row.TemplateQuestion,
 		TemplateOptions:  options,
 	}, nil
+}
+
+func (s *Store) GetEventTemplateCountedOptions(ctx context.Context, eventID uint64) ([]int, error) {
+	var row struct {
+		TemplateOptions datatypes.JSON
+		CountedOptions  datatypes.JSON
+	}
+	if err := s.db.WithContext(ctx).
+		Table("group_events ge").
+		Select("pt.options AS template_options, pt.counted_options").
+		Joins("JOIN poll_templates pt ON pt.id = ge.poll_template_id").
+		Where("ge.id = ? AND ge.is_active = TRUE AND pt.is_active = TRUE", eventID).
+		Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []int{}, nil
+		}
+		return nil, err
+	}
+
+	var options []string
+	if err := json.Unmarshal(row.TemplateOptions, &options); err != nil {
+		return nil, err
+	}
+	var counted []int
+	if err := json.Unmarshal(row.CountedOptions, &counted); err != nil {
+		return nil, err
+	}
+	return normalizeCountedOptionIndexes(len(options), counted), nil
 }
 
 func (s *Store) ReplaceEventCountedOptions(ctx context.Context, chatID int64, eventID uint64, optionIndexes []int) error {
@@ -1297,6 +2265,485 @@ func (s *Store) UpdateEventCostAmount(ctx context.Context, chatID int64, eventID
 		return errors.New("event not found")
 	}
 	return nil
+}
+
+func (s *Store) GetEventActivitySummary(ctx context.Context, chatID int64, eventID uint64) (*EventActivitySummary, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var exists int64
+	if err := s.db.WithContext(ctx).
+		Table("group_events").
+		Where("id = ? AND group_id = ?", eventID, group.ID).
+		Count(&exists).Error; err != nil {
+		return nil, err
+	}
+	if exists == 0 {
+		return nil, errors.New("event not found")
+	}
+
+	var pollsTotal int64
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts").
+		Where("event_id = ?", eventID).
+		Count(&pollsTotal).Error; err != nil {
+		return nil, err
+	}
+
+	var votesTotal int64
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_votes ev").
+		Joins("JOIN event_poll_posts ep ON ep.id = ev.post_id").
+		Where("ep.event_id = ?", eventID).
+		Count(&votesTotal).Error; err != nil {
+		return nil, err
+	}
+
+	var settlementsTotal int64
+	if err := s.db.WithContext(ctx).
+		Table("event_settlements").
+		Where("event_id = ?", eventID).
+		Count(&settlementsTotal).Error; err != nil {
+		return nil, err
+	}
+
+	var announcementsTotal int64
+	if err := s.db.WithContext(ctx).
+		Table("event_announcements").
+		Where("event_id = ?", eventID).
+		Count(&announcementsTotal).Error; err != nil {
+		return nil, err
+	}
+
+	return &EventActivitySummary{
+		EventID:            eventID,
+		PollsTotal:         pollsTotal,
+		VotesTotal:         votesTotal,
+		SettlementsTotal:   settlementsTotal,
+		AnnouncementsTotal: announcementsTotal,
+	}, nil
+}
+
+type TeamSplitAssignmentInput struct {
+	UserID   int64  `json:"userID"`
+	Team     string `json:"team"`
+	Position int    `json:"position"`
+}
+
+func normalizeTeamValue(team string) string {
+	switch strings.TrimSpace(strings.ToUpper(team)) {
+	case "A":
+		return "A"
+	case "B":
+		return "B"
+	case "C":
+		return "C"
+	default:
+		return "unassigned"
+	}
+}
+
+func calculateTeamChance(players []TeamSplitPlayer) TeamWinChance {
+	var a float64
+	var b float64
+	for _, player := range players {
+		switch player.Team {
+		case "A":
+			a += player.Rating
+		case "B":
+			b += player.Rating
+		}
+	}
+	total := a + b
+	if total <= 0 {
+		return TeamWinChance{
+			TeamAScore: a,
+			TeamBScore: b,
+			TeamAProb:  0.5,
+			TeamBProb:  0.5,
+		}
+	}
+	return TeamWinChance{
+		TeamAScore: a,
+		TeamBScore: b,
+		TeamAProb:  a / total,
+		TeamBProb:  b / total,
+	}
+}
+
+func (s *Store) ListEventPollHistory(ctx context.Context, chatID int64, eventID uint64) ([]EventPollHistoryItem, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var eventExists int64
+	if err := s.db.WithContext(ctx).
+		Table("group_events").
+		Where("id = ? AND group_id = ? AND is_active = TRUE", eventID, group.ID).
+		Count(&eventExists).Error; err != nil {
+		return nil, err
+	}
+	if eventExists == 0 {
+		return nil, errors.New("event not found")
+	}
+
+	type row struct {
+		PostID            uint64
+		TelegramMessageID int64
+		TelegramPollID    string
+		Status            string
+		PublishedAt       time.Time
+		Question          string
+		TemplateOptions   datatypes.JSON
+		CountedOptions    datatypes.JSON
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts epp").
+		Select("epp.id AS post_id, epp.telegram_message_id, COALESCE(epp.telegram_poll_id, '') AS telegram_poll_id, epp.status, epp.published_at, COALESCE(pt.question, '') AS question, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Where("epp.group_id = ? AND epp.event_id = ?", group.ID, eventID).
+		Order("epp.published_at DESC, epp.id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	items := make([]EventPollHistoryItem, 0, len(rows))
+	for _, r := range rows {
+		var options []string
+		_ = json.Unmarshal(r.TemplateOptions, &options)
+		var counted []int
+		_ = json.Unmarshal(r.CountedOptions, &counted)
+		counted = normalizeCountedOptionIndexes(len(options), counted)
+
+		var totalVotes int64
+		if err := s.db.WithContext(ctx).
+			Table("event_poll_votes").
+			Where("post_id = ?", r.PostID).
+			Count(&totalVotes).Error; err != nil {
+			return nil, err
+		}
+
+		countedVotes := 0
+		if len(counted) > 0 {
+			choices := make([]string, 0, len(counted))
+			for _, idx := range counted {
+				choices = append(choices, "option_"+strconv.Itoa(idx))
+			}
+			countedVotes, err = s.CountVotesForPostChoices(ctx, r.PostID, choices)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		var sessionCount int64
+		if err := s.db.WithContext(ctx).
+			Table("event_team_sessions").
+			Where("post_id = ?", r.PostID).
+			Count(&sessionCount).Error; err != nil {
+			return nil, err
+		}
+
+		items = append(items, EventPollHistoryItem{
+			PostID:            r.PostID,
+			TelegramMessageID: r.TelegramMessageID,
+			TelegramPollID:    r.TelegramPollID,
+			Status:            r.Status,
+			PublishedAt:       r.PublishedAt,
+			Question:          r.Question,
+			CountedVotes:      countedVotes,
+			TotalVotes:        int(totalVotes),
+			TeamsConfigured:   sessionCount > 0,
+		})
+	}
+	return items, nil
+}
+
+func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventID, postID uint64) (*EventTeamSplitState, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	type postRow struct {
+		PostID          uint64
+		TemplateOptions datatypes.JSON
+		CountedOptions  datatypes.JSON
+	}
+	var post postRow
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts epp").
+		Select("epp.id AS post_id, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Where("epp.id = ? AND epp.group_id = ? AND epp.event_id = ?", postID, group.ID, eventID).
+		Take(&post).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("poll post not found")
+		}
+		return nil, err
+	}
+
+	var options []string
+	if err := json.Unmarshal(post.TemplateOptions, &options); err != nil {
+		return nil, err
+	}
+	var counted []int
+	if err := json.Unmarshal(post.CountedOptions, &counted); err != nil {
+		return nil, err
+	}
+	counted = normalizeCountedOptionIndexes(len(options), counted)
+	if len(counted) == 0 {
+		return &EventTeamSplitState{
+			EventID: eventID,
+			PostID:  postID,
+			Players: []TeamSplitPlayer{},
+			Chance:  calculateTeamChance(nil),
+		}, nil
+	}
+	choiceSet := make(map[string]struct{}, len(counted))
+	for _, idx := range counted {
+		choiceSet["option_"+strconv.Itoa(idx)] = struct{}{}
+	}
+
+	type voteRow struct {
+		UserID    int64
+		Username  string
+		FirstName string
+		LastName  string
+		Choice    string
+		Rating    *float64
+		Team      string
+		Position  *int
+	}
+	var rows []voteRow
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_votes ev").
+		Select("ev.user_id, COALESCE(tu.username, ev.username, '') AS username, COALESCE(tu.first_name, ev.first_name, '') AS first_name, COALESCE(tu.last_name, ev.last_name, '') AS last_name, ev.choice, rs.rating, COALESCE(eta.team, 'unassigned') AS team, eta.position").
+		Joins("JOIN event_poll_posts epp ON epp.id = ev.post_id").
+		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = ev.user_id").
+		Joins("LEFT JOIN event_team_sessions ets ON ets.post_id = ev.post_id").
+		Joins("LEFT JOIN event_team_assignments eta ON eta.session_id = ets.id AND eta.user_id = ev.user_id").
+		Joins("LEFT JOIN (SELECT user_telegram_id, AVG(score)::float8 AS rating FROM group_member_skills WHERE group_id = ? GROUP BY user_telegram_id) rs ON rs.user_telegram_id = ev.user_id", group.ID).
+		Where("ev.post_id = ? AND ev.choice IN ?", postID, keysOfMap(choiceSet)).
+		Order("COALESCE(eta.team, 'unassigned') ASC, COALESCE(eta.position, 0) ASC, ev.voted_at ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	players := make([]TeamSplitPlayer, 0, len(rows))
+	for idx, row := range rows {
+		choiceIdx, _ := parsePollOptionChoice(row.Choice)
+		choiceLabel := row.Choice
+		if choiceIdx >= 0 && choiceIdx < len(options) {
+			choiceLabel = options[choiceIdx]
+		}
+		rating := 5.0
+		if row.Rating != nil {
+			rating = *row.Rating
+		}
+		pos := idx
+		if row.Position != nil {
+			pos = *row.Position
+		}
+		players = append(players, TeamSplitPlayer{
+			UserID:      row.UserID,
+			Username:    row.Username,
+			FirstName:   row.FirstName,
+			LastName:    row.LastName,
+			Choice:      row.Choice,
+			ChoiceIndex: choiceIdx,
+			ChoiceLabel: choiceLabel,
+			Rating:      rating,
+			Team:        normalizeTeamValue(row.Team),
+			Position:    pos,
+		})
+	}
+
+	return &EventTeamSplitState{
+		EventID: eventID,
+		PostID:  postID,
+		Players: players,
+		Chance:  calculateTeamChance(players),
+	}, nil
+}
+
+func (s *Store) SaveEventTeamSplit(ctx context.Context, chatID int64, eventID, postID uint64, updates []TeamSplitAssignmentInput) error {
+	state, err := s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+	if err != nil {
+		return err
+	}
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	byUser := make(map[int64]TeamSplitAssignmentInput, len(updates))
+	for _, item := range updates {
+		if item.UserID == 0 {
+			continue
+		}
+		byUser[item.UserID] = TeamSplitAssignmentInput{
+			UserID:   item.UserID,
+			Team:     normalizeTeamValue(item.Team),
+			Position: item.Position,
+		}
+	}
+
+	nextPlayers := make([]TeamSplitPlayer, 0, len(state.Players))
+	for idx, player := range state.Players {
+		if upd, ok := byUser[player.UserID]; ok {
+			player.Team = upd.Team
+			player.Position = upd.Position
+		} else {
+			player.Team = "unassigned"
+			player.Position = idx
+		}
+		nextPlayers = append(nextPlayers, player)
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var session EventTeamSession
+		if err := tx.Where("post_id = ?", postID).First(&session).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+			session = EventTeamSession{
+				GroupID: group.ID,
+				EventID: eventID,
+				PostID:  postID,
+			}
+			if err := tx.Create(&session).Error; err != nil {
+				return err
+			}
+		}
+
+		userIDs := make([]int64, 0, len(nextPlayers))
+		for _, player := range nextPlayers {
+			userIDs = append(userIDs, player.UserID)
+			row := map[string]interface{}{
+				"session_id": session.ID,
+				"user_id":    player.UserID,
+				"team":       normalizeTeamValue(player.Team),
+				"position":   player.Position,
+			}
+			if err := tx.Table("event_team_assignments").
+				Clauses(clause.OnConflict{
+					Columns: []clause.Column{
+						{Name: "session_id"},
+						{Name: "user_id"},
+					},
+					DoUpdates: clause.Assignments(map[string]interface{}{
+						"team":       row["team"],
+						"position":   row["position"],
+						"updated_at": gorm.Expr("NOW()"),
+					}),
+				}).
+				Create(row).Error; err != nil {
+				return err
+			}
+		}
+		if len(userIDs) == 0 {
+			return tx.Table("event_team_assignments").Where("session_id = ?", session.ID).Delete(nil).Error
+		}
+		return tx.Table("event_team_assignments").Where("session_id = ? AND user_id NOT IN ?", session.ID, userIDs).Delete(nil).Error
+	})
+}
+
+func keysOfMap(m map[string]struct{}) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func (s *Store) ListEventHistory(ctx context.Context, chatID int64) ([]EventHistoryItem, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	loc, err := time.LoadLocation(group.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	nowLocal := time.Now().In(loc)
+
+	type eventRow struct {
+		EventID        uint64
+		Name           string
+		EventType      string
+		StartWeekday   int
+		StartTime      string
+		PollTemplate   string
+		PublishEnabled bool
+	}
+	var rows []eventRow
+	if err := s.db.WithContext(ctx).
+		Table("group_events ge").
+		Select("ge.id AS event_id, ge.name, ge.event_type, ge.start_weekday, ge.start_time, COALESCE(pt.name, '') AS poll_template, ge.publish_enabled").
+		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
+		Where("ge.group_id = ? AND ge.is_active = TRUE", group.ID).
+		Order("ge.id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	items := make([]EventHistoryItem, 0, len(rows))
+	for _, row := range rows {
+		hour, minute, err := parseClockTime(row.StartTime)
+		if err != nil {
+			continue
+		}
+		nextStart := nextWeekdayTime(nowLocal, row.StartWeekday, hour, minute)
+		cycleStart := nextStart.AddDate(0, 0, -7)
+		distributionStart := nextStart.Add(-30 * time.Minute)
+
+		var latest struct {
+			ID          uint64
+			PublishedAt time.Time
+		}
+		var latestPostID *uint64
+		var latestPollAt *time.Time
+		if err := s.db.WithContext(ctx).
+			Table("event_poll_posts").
+			Select("id, published_at").
+			Where("event_id = ?", row.EventID).
+			Order("published_at DESC, id DESC").
+			Take(&latest).Error; err == nil {
+			latestPostID = &latest.ID
+			publishedAtLocal := latest.PublishedAt.In(loc)
+			latestPollAt = &publishedAtLocal
+		}
+
+		status := EventHistoryStatusCompleted
+		if latestPollAt != nil && latestPollAt.After(cycleStart) && latestPollAt.Before(nextStart) {
+			if nowLocal.Before(distributionStart) {
+				status = EventHistoryStatusInVoting
+			} else if nowLocal.Before(nextStart) {
+				status = EventHistoryStatusOnDistribution
+			}
+		}
+
+		items = append(items, EventHistoryItem{
+			EventID:        row.EventID,
+			Name:           row.Name,
+			EventType:      row.EventType,
+			StartWeekday:   row.StartWeekday,
+			StartTime:      row.StartTime,
+			PollTemplate:   row.PollTemplate,
+			LatestPostID:   latestPostID,
+			LatestPollAt:   latestPollAt,
+			NextStartAt:    nextStart,
+			Status:         status,
+			CanDistribute:  status == EventHistoryStatusOnDistribution,
+			PublishEnabled: row.PublishEnabled,
+		})
+	}
+	return items, nil
 }
 
 func upsertTelegramUserTx(tx *gorm.DB, telegramID int64, username, firstName, lastName string) error {

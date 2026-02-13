@@ -55,7 +55,11 @@ func (s *EventPollScheduler) tick(ctx context.Context) {
 		}
 
 		nowLocal := nowUTC.In(loc)
-		if isoWeekday(nowLocal.Weekday()) != event.StartWeekday {
+		publishWeekday := event.PollPublishWeekday
+		if publishWeekday == 0 {
+			publishWeekday = event.StartWeekday
+		}
+		if isoWeekday(nowLocal.Weekday()) != publishWeekday {
 			continue
 		}
 

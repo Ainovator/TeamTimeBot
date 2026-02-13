@@ -28,3 +28,7 @@ _testmain.go
 .env.*
 !.env.example
 !.env.prod.example
+
+# Frontend
+web/node_modules/
+web/dist/

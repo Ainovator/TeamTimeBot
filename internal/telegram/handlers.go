@@ -357,7 +357,28 @@ func handleStatefulText(bot *tele.Bot, store *postgres.Store, message tele.Messa
 			cost = &parsed
 		}
 
-		if _, err := store.CreateEvent(context.Background(), targetChatID, state.EventName, state.EventStartDay, state.EventPublishTime, state.EventStartTime, state.EventEndTime, cost); err != nil {
+		if _, err := store.CreateEvent(
+			context.Background(),
+			targetChatID,
+			state.EventName,
+			"training",
+			state.EventStartDay,
+			state.EventStartDay,
+			state.EventPublishTime,
+			state.EventStartTime,
+			state.EventEndTime,
+			"",
+			false,
+			60,
+			false,
+			false,
+			6,
+			0,
+			true,
+			false,
+			true,
+			cost,
+		); err != nil {
 			_ = bot.SendMessage(chat, "Ошибка сохранения события: "+err.Error(), nil)
 			return
 		}
