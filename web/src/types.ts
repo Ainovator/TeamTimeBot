@@ -41,6 +41,8 @@ export type EventView = {
   teamsPublishList: boolean
   teamSize: number
   minVotesToHold: number
+  cancelLeadMinutes: number
+  cancelNotifyEnabled: boolean
   settlementEnabled: boolean
   settlementPublishBefore: boolean
   settlementPublishAfter: boolean
@@ -106,7 +108,7 @@ export type EventHistoryItem = {
   latestPostID?: number
   latestPollAt?: string
   nextStartAt: string
-  status: 'completed' | 'in_voting' | 'on_distribution'
+  status: 'completed' | 'in_voting' | 'on_distribution' | 'not_held'
   canDistribute: boolean
   publishEnabled: boolean
 }

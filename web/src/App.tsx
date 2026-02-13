@@ -117,6 +117,8 @@ export default function App() {
     teamsPublishList: false,
     teamSize: '6',
     minVotesToHold: '0',
+    cancelLeadMinutes: '180',
+    cancelNotifyEnabled: false,
     settlementEnabled: false,
     settlementPublishBefore: false,
     settlementPublishAfter: true,
@@ -146,6 +148,8 @@ export default function App() {
     teamsPublishList: false,
     teamSize: '6',
     minVotesToHold: '0',
+    cancelLeadMinutes: '180',
+    cancelNotifyEnabled: false,
     settlementEnabled: false,
     settlementPublishBefore: false,
     settlementPublishAfter: true,
@@ -160,7 +164,7 @@ export default function App() {
   const [eventActivityError, setEventActivityError] = useState('')
   const [showEventActivity, setShowEventActivity] = useState(false)
   const [eventHistory, setEventHistory] = useState<EventHistoryItem[]>([])
-  const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'completed'>('')
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'completed' | 'not_held'>('')
   const [eventHistoryLoading, setEventHistoryLoading] = useState(false)
   const [eventHistoryError, setEventHistoryError] = useState('')
   const [eventPollHistory, setEventPollHistory] = useState<EventPollHistoryItem[]>([])
@@ -251,6 +255,8 @@ export default function App() {
       eventEditor.teamsPublishList !== selectedEvent.teamsPublishList ||
       Number(eventEditor.teamSize) !== (selectedEvent.teamSize || 6) ||
       Number(eventEditor.minVotesToHold) !== (selectedEvent.minVotesToHold || 0) ||
+      Number(eventEditor.cancelLeadMinutes) !== (selectedEvent.cancelLeadMinutes || 180) ||
+      eventEditor.cancelNotifyEnabled !== (selectedEvent.cancelNotifyEnabled || false) ||
       eventEditor.settlementEnabled !== selectedEvent.settlementEnabled ||
       eventEditor.settlementPublishBefore !== selectedEvent.settlementPublishBefore ||
       eventEditor.settlementPublishAfter !== selectedEvent.settlementPublishAfter ||
@@ -475,6 +481,8 @@ export default function App() {
         teamsPublishList: false,
         teamSize: '6',
         minVotesToHold: '0',
+        cancelLeadMinutes: '180',
+        cancelNotifyEnabled: false,
         settlementEnabled: false,
         settlementPublishBefore: false,
         settlementPublishAfter: true,
@@ -499,6 +507,8 @@ export default function App() {
       teamsPublishList: selectedEvent.teamsPublishList,
       teamSize: String(selectedEvent.teamSize || 6),
       minVotesToHold: String(selectedEvent.minVotesToHold || 0),
+      cancelLeadMinutes: String(selectedEvent.cancelLeadMinutes || 180),
+      cancelNotifyEnabled: selectedEvent.cancelNotifyEnabled || false,
       settlementEnabled: selectedEvent.settlementEnabled,
       settlementPublishBefore: selectedEvent.settlementPublishBefore,
       settlementPublishAfter: selectedEvent.settlementPublishAfter,
@@ -927,6 +937,8 @@ export default function App() {
     const announcementLeadMinutes = Number(eventForm.announcementLeadMinutes)
     const teamSize = Number(eventForm.teamSize)
     const minVotesToHold = Number(eventForm.minVotesToHold)
+    const cancelLeadMinutes = Number(eventForm.cancelLeadMinutes)
+    const cancelNotifyEnabled = eventForm.cancelNotifyEnabled
     const announcementText = eventForm.announcementText.trim()
     const announcementEnabled = eventForm.announcementEnabled
     const teamsAutoSplit = eventForm.teamsAutoSplit
@@ -949,6 +961,10 @@ export default function App() {
     }
     if (Number.isNaN(minVotesToHold) || minVotesToHold < 0) {
       setError('Минимальное количество голосов должно быть >= 0')
+      return
+    }
+    if (Number.isNaN(cancelLeadMinutes) || cancelLeadMinutes <= 0) {
+      setError('Время отмены должно быть больше 0 минут')
       return
     }
     if (announcementEnabled && announcementText === '') {
@@ -987,6 +1003,8 @@ export default function App() {
         teamsPublishList,
         teamSize,
         minVotesToHold,
+        cancelLeadMinutes,
+        cancelNotifyEnabled,
         settlementEnabled,
         settlementPublishBefore,
         settlementPublishAfter,
@@ -1015,6 +1033,8 @@ export default function App() {
       teamsPublishList: false,
       teamSize: '6',
       minVotesToHold: '0',
+      cancelLeadMinutes: '180',
+      cancelNotifyEnabled: false,
       settlementEnabled: false,
       settlementPublishBefore: false,
       settlementPublishAfter: true,
@@ -1048,6 +1068,8 @@ export default function App() {
     const announcementLeadMinutes = Number(eventEditor.announcementLeadMinutes)
     const teamSize = Number(eventEditor.teamSize)
     const minVotesToHold = Number(eventEditor.minVotesToHold)
+    const cancelLeadMinutes = Number(eventEditor.cancelLeadMinutes)
+    const cancelNotifyEnabled = eventEditor.cancelNotifyEnabled
     const announcementText = eventEditor.announcementText.trim()
     const announcementEnabled = eventEditor.announcementEnabled
     const teamsAutoSplit = eventEditor.teamsAutoSplit
@@ -1097,6 +1119,10 @@ export default function App() {
       setError('Минимальное количество голосов должно быть >= 0')
       return
     }
+    if (Number.isNaN(cancelLeadMinutes) || cancelLeadMinutes <= 0) {
+      setError('Время отмены должно быть больше 0 минут')
+      return
+    }
     if (announcementEnabled && announcementText === '') {
       setError('Заполни текст анонса или отключи публикацию')
       return
@@ -1126,6 +1152,8 @@ export default function App() {
       teamsPublishList !== selectedEvent.teamsPublishList ||
       teamSize !== (selectedEvent.teamSize || 6) ||
       minVotesToHold !== (selectedEvent.minVotesToHold || 0) ||
+      cancelLeadMinutes !== (selectedEvent.cancelLeadMinutes || 180) ||
+      cancelNotifyEnabled !== (selectedEvent.cancelNotifyEnabled || false) ||
       settlementEnabled !== selectedEvent.settlementEnabled ||
       settlementPublishBefore !== selectedEvent.settlementPublishBefore ||
       settlementPublishAfter !== selectedEvent.settlementPublishAfter
@@ -1155,6 +1183,8 @@ export default function App() {
             teamsPublishList,
             teamSize,
             minVotesToHold,
+            cancelLeadMinutes,
+            cancelNotifyEnabled,
             settlementEnabled,
             settlementPublishBefore,
             settlementPublishAfter,
@@ -2005,48 +2035,13 @@ export default function App() {
               />
             </label>
           </div>
-          {eventForm.eventType === 'training' ? (
-            <section className="settings-card">
-              <h4>Модуль деления на команды</h4>
-              <div className="settings-grid">
-                <div className="settings-row settings-row-3">
-                  <label className="field toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={eventForm.teamsAutoSplit}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamsAutoSplit: e.target.checked }))}
-                    />
-                    <span>Автоделение на команды</span>
-                  </label>
-                  <label className="field toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={eventForm.teamsPublishList}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamsPublishList: e.target.checked }))}
-                    />
-                    <span>Публиковать список</span>
-                  </label>
-                  <label className="field">
-                    <span>Игроков в команде</span>
-                    <input
-                      type="number"
-                      min="2"
-                      step="1"
-                      value={eventForm.teamSize}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamSize: e.target.value }))}
-                    />
-                  </label>
-                </div>
-              </div>
-            </section>
-          ) : null}
-          <section className="settings-card">
+          <section className="settings-card settings-card-settings">
             <h4>Настройки</h4>
             <div className="settings-grid">
               <div className="settings-group">
                 <p className="settings-group-title">Анонс</p>
                 <div className="settings-row settings-row-2">
-                  <label className="field toggle-field">
+                  <label className="toggle-field toggle-field-inline">
                     <input
                       type="checkbox"
                       checked={eventForm.announcementEnabled}
@@ -2072,8 +2067,8 @@ export default function App() {
               </div>
               <div className="settings-group">
                 <p className="settings-group-title">Расчёт</p>
-                <div className="settings-row settings-row-3">
-                  <label className="field toggle-field">
+                <div className="settings-row settings-row-2">
+                  <label className="toggle-field toggle-field-inline">
                     <input
                       type="checkbox"
                       checked={eventForm.settlementEnabled}
@@ -2082,7 +2077,7 @@ export default function App() {
                     />
                     <span>Публиковать расчёт</span>
                   </label>
-                  <label className="field toggle-field">
+                  <label className="toggle-field toggle-field-inline">
                     <input
                       type="checkbox"
                       checked={eventForm.settlementPublishBefore}
@@ -2090,7 +2085,7 @@ export default function App() {
                     />
                     <span>Перед началом</span>
                   </label>
-                  <label className="field toggle-field">
+                  <label className="toggle-field toggle-field-inline">
                     <input
                       type="checkbox"
                       checked={eventForm.settlementPublishAfter}
@@ -2116,10 +2111,68 @@ export default function App() {
                       onChange={(e) => setEventForm((prev) => ({ ...prev, minVotesToHold: e.target.value }))}
                     />
                   </label>
+                  <label className="field">
+                    <span>Отменять за (минут до начала)</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={eventForm.cancelLeadMinutes}
+                      onChange={(e) => setEventForm((prev) => ({ ...prev, cancelLeadMinutes: e.target.value }))}
+                    />
+                  </label>
+                  <div className="field">
+                    <span className="field-label-placeholder" aria-hidden="true">&nbsp;</span>
+                    <label className="toggle-field toggle-field-inline">
+                      <input
+                        type="checkbox"
+                        checked={eventForm.cancelNotifyEnabled}
+                        onChange={(e) => setEventForm((prev) => ({ ...prev, cancelNotifyEnabled: e.target.checked }))}
+                      />
+                      <span>Уведомлять об отмене</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
           </section>
+          {eventForm.eventType === 'training' ? (
+            <section className="settings-card settings-card-teams">
+              <h4>Модуль деления на команды</h4>
+              <div className="settings-grid">
+                <div className="settings-row settings-row-3">
+                  <label className="field toggle-field">
+                    <input
+                      type="checkbox"
+                      checked={eventForm.teamsAutoSplit}
+                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamsAutoSplit: e.target.checked }))}
+                    />
+                    <span>Автоделение на команды</span>
+                  </label>
+                  <label className="field toggle-field">
+                    <input
+                      type="checkbox"
+                      checked={eventForm.teamsPublishList}
+                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamsPublishList: e.target.checked }))}
+                    />
+                    <span>Публиковать список</span>
+                  </label>
+                  {/*
+                  <label className="field">
+                    <span>Игроков в команде</span>
+                    <input
+                      type="number"
+                      min="2"
+                      step="1"
+                      value={eventForm.teamSize}
+                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamSize: e.target.value }))}
+                    />
+                  </label>
+                  */}
+                </div>
+              </div>
+            </section>
+          ) : null}
           <button type="submit">Создать событие</button>
         </form>
       </section>
@@ -2202,6 +2255,10 @@ export default function App() {
           <p>
             Расчёт: {selectedEvent.settlementEnabled ? 'включен' : 'выключен'} | Перед началом:{' '}
             {selectedEvent.settlementPublishBefore ? 'да' : 'нет'} | После: {selectedEvent.settlementPublishAfter ? 'да' : 'нет'}
+          </p>
+          <p>
+            Отмена: минимум {selectedEvent.minVotesToHold || 0} голосов, проверка за {selectedEvent.cancelLeadMinutes || 180} мин | Уведомление:{' '}
+            {selectedEvent.cancelNotifyEnabled ? 'да' : 'нет'}
           </p>
         </div>
         {showEventActivity ? (
@@ -2291,42 +2348,6 @@ export default function App() {
             </label>
           </div>
 
-          {eventEditor.eventType === 'training' ? (
-            <section className="settings-card">
-              <h4>Модуль деления на команды</h4>
-              <div className="settings-grid">
-                <div className="settings-row settings-row-3">
-                  <label className="field toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={eventEditor.teamsAutoSplit}
-                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamsAutoSplit: e.target.checked }))}
-                    />
-                    <span>Автоделение на команды</span>
-                  </label>
-                  <label className="field toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={eventEditor.teamsPublishList}
-                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamsPublishList: e.target.checked }))}
-                    />
-                    <span>Публиковать список</span>
-                  </label>
-                  <label className="field">
-                    <span>Игроков в команде</span>
-                    <input
-                      type="number"
-                      min="2"
-                      step="1"
-                      value={eventEditor.teamSize}
-                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamSize: e.target.value }))}
-                    />
-                  </label>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
           <div className="event-editor-row event-editor-row-poll">
             <label className="field">
               <span>Шаблон опроса</span>
@@ -2382,7 +2403,7 @@ export default function App() {
             </label>
           </div>
 
-          <section className="settings-card">
+          <section className="settings-card settings-card-settings">
             <h4>Настройки</h4>
             <div className="settings-grid">
               <div className="settings-group">
@@ -2447,7 +2468,7 @@ export default function App() {
               </div>
               <div className="settings-group">
                 <p className="settings-group-title">Порог события</p>
-                <div className="settings-row settings-row-2">
+                <div className="settings-row settings-row-3">
                   <label className="field">
                     <span>Минимальное количество голосов, чтобы событие состоялось</span>
                     <input
@@ -2458,12 +2479,70 @@ export default function App() {
                       onChange={(e) => setEventEditor((prev) => ({ ...prev, minVotesToHold: e.target.value }))}
                     />
                   </label>
+                  <label className="field">
+                    <span>Отменять за (минут до начала)</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={eventEditor.cancelLeadMinutes}
+                      onChange={(e) => setEventEditor((prev) => ({ ...prev, cancelLeadMinutes: e.target.value }))}
+                    />
+                  </label>
+                  <div className="field">
+                    <span className="field-label-placeholder" aria-hidden="true">&nbsp;</span>
+                    <label className="toggle-field toggle-field-inline">
+                      <input
+                        type="checkbox"
+                        checked={eventEditor.cancelNotifyEnabled}
+                        onChange={(e) => setEventEditor((prev) => ({ ...prev, cancelNotifyEnabled: e.target.checked }))}
+                      />
+                      <span>Уведомлять об отмене</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
           </section>
+          {eventEditor.eventType === 'training' ? (
+            <section className="settings-card settings-card-teams">
+              <h4>Модуль деления на команды</h4>
+              <div className="settings-grid">
+                <div className="settings-row settings-row-3">
+                  <label className="field toggle-field">
+                    <input
+                      type="checkbox"
+                      checked={eventEditor.teamsAutoSplit}
+                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamsAutoSplit: e.target.checked }))}
+                    />
+                    <span>Автоделение на команды</span>
+                  </label>
+                  <label className="field toggle-field">
+                    <input
+                      type="checkbox"
+                      checked={eventEditor.teamsPublishList}
+                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamsPublishList: e.target.checked }))}
+                    />
+                    <span>Публиковать список</span>
+                  </label>
+                  {/*
+                  <label className="field">
+                    <span>Игроков в команде</span>
+                    <input
+                      type="number"
+                      min="2"
+                      step="1"
+                      value={eventEditor.teamSize}
+                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamSize: e.target.value }))}
+                    />
+                  </label>
+                  */}
+                </div>
+              </div>
+            </section>
+          ) : null}
 
-          <section className="settings-card">
+          <section className="settings-card settings-card-manual">
             <h4>Ручное управление</h4>
             <div className="manual-controls">
               <button
@@ -2672,12 +2751,13 @@ export default function App() {
               <select
                 value={historyStatusFilter}
                 onChange={(e) =>
-                  setHistoryStatusFilter(e.target.value as '' | 'in_voting' | 'on_distribution' | 'completed')
+                  setHistoryStatusFilter(e.target.value as '' | 'in_voting' | 'on_distribution' | 'completed' | 'not_held')
                 }
               >
                 <option value="">Все статусы</option>
                 <option value="in_voting">В голосовании</option>
                 <option value="on_distribution">На распределении</option>
+                <option value="not_held">Не состоялось</option>
                 <option value="completed">Завершено</option>
               </select>
             </label>

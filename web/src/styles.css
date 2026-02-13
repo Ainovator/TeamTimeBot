@@ -550,6 +550,11 @@ h4 {
   font-size: 12px;
 }
 
+.field-label-placeholder {
+  display: block;
+  min-height: 14px;
+}
+
 .toggle-field {
   display: flex;
   align-items: center;
@@ -601,11 +606,55 @@ h4 {
   font-size: 13px;
 }
 
+.toggle-field-inline {
+  align-self: end;
+  height: 42px;
+  min-height: 42px;
+  padding: 10px 11px;
+  box-sizing: border-box;
+}
+
+.toggle-field-inline span {
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
 .settings-card {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 12px;
   background: rgba(18, 31, 53, 0.65);
+}
+
+.settings-card h4 {
+  margin: 0;
+}
+
+.settings-card-settings {
+  border-color: rgba(95, 136, 214, 0.44);
+  background: linear-gradient(180deg, rgba(23, 39, 66, 0.76), rgba(16, 29, 50, 0.66));
+}
+
+.settings-card-settings h4 {
+  color: #abc4eb;
+}
+
+.settings-card-teams {
+  border-color: rgba(77, 176, 153, 0.48);
+  background: linear-gradient(180deg, rgba(24, 55, 60, 0.68), rgba(16, 40, 46, 0.62));
+}
+
+.settings-card-teams h4 {
+  color: #9fe4d3;
+}
+
+.settings-card-manual {
+  border-color: rgba(221, 146, 88, 0.52);
+  background: linear-gradient(180deg, rgba(63, 42, 25, 0.66), rgba(36, 27, 18, 0.6));
+}
+
+.settings-card-manual h4 {
+  color: #ffc796;
 }
 
 .settings-grid {

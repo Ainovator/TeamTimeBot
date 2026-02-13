@@ -431,6 +431,8 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			TeamsPublishList        *bool    `json:"teamsPublishList"`
 			TeamSize                int      `json:"teamSize"`
 			MinVotesToHold          int      `json:"minVotesToHold"`
+			CancelLeadMinutes       int      `json:"cancelLeadMinutes"`
+			CancelNotifyEnabled     *bool    `json:"cancelNotifyEnabled"`
 			SettlementEnabled       *bool    `json:"settlementEnabled"`
 			SettlementPublishBefore *bool    `json:"settlementPublishBefore"`
 			SettlementPublishAfter  *bool    `json:"settlementPublishAfter"`
@@ -472,6 +474,10 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		if teamSize == 0 {
 			teamSize = 6
 		}
+		cancelNotifyEnabled := false
+		if req.CancelNotifyEnabled != nil {
+			cancelNotifyEnabled = *req.CancelNotifyEnabled
+		}
 		created, err := s.store.CreateEvent(
 			r.Context(),
 			chatID,
@@ -489,6 +495,8 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			teamsPublishList,
 			teamSize,
 			req.MinVotesToHold,
+			req.CancelLeadMinutes,
+			cancelNotifyEnabled,
 			settlementEnabled,
 			settlementPublishBefore,
 			settlementPublishAfter,
@@ -596,6 +604,8 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			TeamsPublishList        *bool  `json:"teamsPublishList"`
 			TeamSize                int    `json:"teamSize"`
 			MinVotesToHold          int    `json:"minVotesToHold"`
+			CancelLeadMinutes       int    `json:"cancelLeadMinutes"`
+			CancelNotifyEnabled     *bool  `json:"cancelNotifyEnabled"`
 			SettlementEnabled       *bool  `json:"settlementEnabled"`
 			SettlementPublishBefore *bool  `json:"settlementPublishBefore"`
 			SettlementPublishAfter  *bool  `json:"settlementPublishAfter"`
@@ -636,6 +646,10 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		if teamSize == 0 {
 			teamSize = 6
 		}
+		cancelNotifyEnabled := false
+		if req.CancelNotifyEnabled != nil {
+			cancelNotifyEnabled = *req.CancelNotifyEnabled
+		}
 
 		if err := s.store.UpdateEventDetails(
 			r.Context(),
@@ -655,6 +669,8 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			teamsPublishList,
 			teamSize,
 			req.MinVotesToHold,
+			req.CancelLeadMinutes,
+			cancelNotifyEnabled,
 			settlementEnabled,
 			settlementPublishBefore,
 			settlementPublishAfter,

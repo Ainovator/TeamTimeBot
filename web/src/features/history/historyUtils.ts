@@ -1,6 +1,9 @@
 import type { EventHistoryItem, TeamSplitPlayer } from '../../types'
 
 export function historyStatusLabel(status: EventHistoryItem['status']): string {
+  if (status === 'not_held') {
+    return 'Не состоялось'
+  }
   if (status === 'in_voting') {
     return 'В голосовании'
   }

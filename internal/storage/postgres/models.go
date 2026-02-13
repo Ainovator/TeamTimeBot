@@ -107,6 +107,8 @@ type GroupEvent struct {
 	TeamsPublishList        bool  `gorm:"not null;default:false"`
 	TeamSize                int16 `gorm:"not null;default:6"`
 	MinVotesToHold          int32 `gorm:"not null;default:0"`
+	CancelLeadMinutes       int32 `gorm:"not null;default:180"`
+	CancelNotifyEnabled     bool  `gorm:"not null;default:false"`
 	SettlementEnabled       bool  `gorm:"not null;default:true"`
 	SettlementPublishBefore bool  `gorm:"not null;default:false"`
 	SettlementPublishAfter  bool  `gorm:"not null;default:true"`

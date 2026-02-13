@@ -374,6 +374,8 @@ func handleStatefulText(bot *tele.Bot, store *postgres.Store, message tele.Messa
 			false,
 			6,
 			0,
+			180,
+			false,
 			true,
 			false,
 			true,

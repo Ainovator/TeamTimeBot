@@ -85,6 +85,8 @@ type EventView struct {
 	TeamsPublishList        bool     `json:"teamsPublishList"`
 	TeamSize                int      `json:"teamSize"`
 	MinVotesToHold          int      `json:"minVotesToHold"`
+	CancelLeadMinutes       int      `json:"cancelLeadMinutes"`
+	CancelNotifyEnabled     bool     `json:"cancelNotifyEnabled"`
 	SettlementEnabled       bool     `json:"settlementEnabled"`
 	SettlementPublishBefore bool     `json:"settlementPublishBefore"`
 	SettlementPublishAfter  bool     `json:"settlementPublishAfter"`
@@ -107,6 +109,7 @@ const (
 	EventHistoryStatusCompleted      EventHistoryStatus = "completed"
 	EventHistoryStatusInVoting       EventHistoryStatus = "in_voting"
 	EventHistoryStatusOnDistribution EventHistoryStatus = "on_distribution"
+	EventHistoryStatusNotHeld        EventHistoryStatus = "not_held"
 )
 
 type EventHistoryItem struct {
@@ -238,6 +241,8 @@ type EventWithGroupView struct {
 	TeamsPublishList        bool
 	TeamSize                int
 	MinVotesToHold          int
+	CancelLeadMinutes       int
+	CancelNotifyEnabled     bool
 	SettlementEnabled       bool
 	SettlementPublishBefore bool
 	SettlementPublishAfter  bool
@@ -254,6 +259,13 @@ func normalizeAnnouncementLeadMinutes(value int) int {
 	default:
 		return -1
 	}
+}
+
+func normalizeCancelLeadMinutes(value int) int {
+	if value <= 0 {
+		return 180
+	}
+	return value
 }
 
 func normalizeEventType(value string) string {
@@ -1213,6 +1225,8 @@ func (s *Store) CreateEvent(
 	teamsPublishList bool,
 	teamSize int,
 	minVotesToHold int,
+	cancelLeadMinutes int,
+	cancelNotifyEnabled bool,
 	settlementEnabled bool,
 	settlementPublishBefore bool,
 	settlementPublishAfter bool,
@@ -1261,6 +1275,7 @@ func (s *Store) CreateEvent(
 	if minVotesToHold < 0 {
 		return nil, errors.New("min votes must be >= 0")
 	}
+	cancelLeadMinutes = normalizeCancelLeadMinutes(cancelLeadMinutes)
 	if settlementEnabled && !settlementPublishBefore && !settlementPublishAfter {
 		return nil, errors.New("choose at least one settlement publish mode: before or after")
 	}
@@ -1285,6 +1300,8 @@ func (s *Store) CreateEvent(
 		TeamsPublishList:        teamsPublishList,
 		TeamSize:                int16(teamSize),
 		MinVotesToHold:          int32(minVotesToHold),
+		CancelLeadMinutes:       int32(cancelLeadMinutes),
+		CancelNotifyEnabled:     cancelNotifyEnabled,
 		SettlementEnabled:       settlementEnabled,
 		SettlementPublishBefore: settlementPublishBefore,
 		SettlementPublishAfter:  settlementPublishAfter,
@@ -1306,7 +1323,7 @@ func (s *Store) ListEventsByChatID(ctx context.Context, chatID int64) ([]EventVi
 	var rows []EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.cancel_notify_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.group_id = ? AND ge.is_active = TRUE", group.ID).
 		Order("id DESC").
@@ -1325,7 +1342,7 @@ func (s *Store) ListArchivedEventsByChatID(ctx context.Context, chatID int64) ([
 	var rows []EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.cancel_notify_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.group_id = ? AND ge.is_active = FALSE", group.ID).
 		Order("id DESC").
@@ -1344,7 +1361,7 @@ func (s *Store) GetEventByID(ctx context.Context, chatID int64, eventID uint64) 
 	var row EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.cancel_notify_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, ge.is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE", eventID, group.ID).
 		First(&row).Error; err != nil {
@@ -1423,6 +1440,8 @@ func (s *Store) UpdateEventDetails(
 	teamsPublishList bool,
 	teamSize int,
 	minVotesToHold int,
+	cancelLeadMinutes int,
+	cancelNotifyEnabled bool,
 	settlementEnabled bool,
 	settlementPublishBefore bool,
 	settlementPublishAfter bool,
@@ -1473,6 +1492,7 @@ func (s *Store) UpdateEventDetails(
 	if minVotesToHold < 0 {
 		return errors.New("min votes must be >= 0")
 	}
+	cancelLeadMinutes = normalizeCancelLeadMinutes(cancelLeadMinutes)
 	if settlementEnabled && !settlementPublishBefore && !settlementPublishAfter {
 		return errors.New("choose at least one settlement publish mode: before or after")
 	}
@@ -1495,6 +1515,8 @@ func (s *Store) UpdateEventDetails(
 			"teams_publish_list":        teamsPublishList,
 			"team_size":                 teamSize,
 			"min_votes_to_hold":         minVotesToHold,
+			"cancel_lead_minutes":       cancelLeadMinutes,
+			"cancel_notify_enabled":     cancelNotifyEnabled,
 			"settlement_enabled":        settlementEnabled,
 			"settlement_publish_before": settlementPublishBefore,
 			"settlement_publish_after":  settlementPublishAfter,
@@ -1936,7 +1958,7 @@ func (s *Store) ListActiveEventsWithGroups(ctx context.Context) ([]EventWithGrou
 	var rows []EventWithGroupView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id AS event_id, ge.group_id, g.chat_id, g.timezone, ge.name, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id AS event_id, ge.group_id, g.chat_id, g.timezone, ge.name, ge.event_type, ge.start_weekday, ge.poll_publish_weekday, ge.poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, ge.announcement_enabled, ge.announcement_lead_minutes, ge.publish_enabled, ge.teams_auto_split, ge.teams_publish_list, ge.team_size, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.cancel_notify_enabled, ge.settlement_enabled, ge.settlement_publish_before, ge.settlement_publish_after, ge.cost_amount, COALESCE(pt.name, '') AS poll_template").
 		Joins("JOIN telegram_groups g ON g.id = ge.group_id").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.is_active = TRUE AND ge.publish_enabled = TRUE AND g.is_active = TRUE").
@@ -2001,6 +2023,29 @@ func (s *Store) CreateEventAnnouncement(ctx context.Context, groupID uint64, eve
 		"updated_at": gorm.Expr("NOW()"),
 	}
 	return s.db.WithContext(ctx).Table("event_announcements").Create(record).Error
+}
+
+func (s *Store) HasEventCancellation(ctx context.Context, eventID uint64, eventDate time.Time) (bool, error) {
+	var count int64
+	if err := s.db.WithContext(ctx).
+		Table("event_cancellations").
+		Where("event_id = ? AND event_date = ?", eventID, eventDate.Format("2006-01-02")).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *Store) CreateEventCancellation(ctx context.Context, groupID uint64, eventID uint64, eventDate time.Time) error {
+	record := map[string]interface{}{
+		"group_id":   groupID,
+		"event_id":   eventID,
+		"event_date": eventDate.Format("2006-01-02"),
+		"sent_at":    gorm.Expr("NOW()"),
+		"created_at": gorm.Expr("NOW()"),
+		"updated_at": gorm.Expr("NOW()"),
+	}
+	return s.db.WithContext(ctx).Table("event_cancellations").Create(record).Error
 }
 
 func (s *Store) HasEventSettlementNotice(ctx context.Context, eventID uint64, localDate time.Time, noticeType string) (bool, error) {
@@ -2676,18 +2721,20 @@ func (s *Store) ListEventHistory(ctx context.Context, chatID int64) ([]EventHist
 	nowLocal := time.Now().In(loc)
 
 	type eventRow struct {
-		EventID        uint64
-		Name           string
-		EventType      string
-		StartWeekday   int
-		StartTime      string
-		PollTemplate   string
-		PublishEnabled bool
+		EventID           uint64
+		Name              string
+		EventType         string
+		StartWeekday      int
+		StartTime         string
+		PollTemplate      string
+		MinVotesToHold    int
+		CancelLeadMinutes int
+		PublishEnabled    bool
 	}
 	var rows []eventRow
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id AS event_id, ge.name, ge.event_type, ge.start_weekday, ge.start_time, COALESCE(pt.name, '') AS poll_template, ge.publish_enabled").
+		Select("ge.id AS event_id, ge.name, ge.event_type, ge.start_weekday, ge.start_time, COALESCE(pt.name, '') AS poll_template, ge.min_votes_to_hold, ge.cancel_lead_minutes, ge.publish_enabled").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.group_id = ? AND ge.is_active = TRUE", group.ID).
 		Order("ge.id DESC").
@@ -2706,16 +2753,19 @@ func (s *Store) ListEventHistory(ctx context.Context, chatID int64) ([]EventHist
 		distributionStart := nextStart.Add(-30 * time.Minute)
 
 		var latest struct {
-			ID          uint64
-			PublishedAt time.Time
+			ID            uint64
+			PublishedAt   time.Time
+			TemplateOpts  datatypes.JSON
+			CountedOption datatypes.JSON
 		}
 		var latestPostID *uint64
 		var latestPollAt *time.Time
 		if err := s.db.WithContext(ctx).
-			Table("event_poll_posts").
-			Select("id, published_at").
-			Where("event_id = ?", row.EventID).
-			Order("published_at DESC, id DESC").
+			Table("event_poll_posts epp").
+			Select("epp.id, epp.published_at, COALESCE(pt.options, '[]'::jsonb) AS template_opts, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_option").
+			Joins("LEFT JOIN poll_templates pt ON pt.id = epp.template_id").
+			Where("epp.event_id = ?", row.EventID).
+			Order("epp.published_at DESC, epp.id DESC").
 			Take(&latest).Error; err == nil {
 			latestPostID = &latest.ID
 			publishedAtLocal := latest.PublishedAt.In(loc)
@@ -2723,7 +2773,32 @@ func (s *Store) ListEventHistory(ctx context.Context, chatID int64) ([]EventHist
 		}
 
 		status := EventHistoryStatusCompleted
-		if latestPollAt != nil && latestPollAt.After(cycleStart) && latestPollAt.Before(nextStart) {
+		thresholdNotHeld := nextStart.Add(-time.Duration(normalizeCancelLeadMinutes(row.CancelLeadMinutes)) * time.Minute)
+		if row.MinVotesToHold > 0 && !nowLocal.Before(thresholdNotHeld) && nowLocal.Before(nextStart) {
+			countedVotes := 0
+			if latestPostID != nil {
+				var options []string
+				_ = json.Unmarshal(latest.TemplateOpts, &options)
+				var counted []int
+				_ = json.Unmarshal(latest.CountedOption, &counted)
+				counted = normalizeCountedOptionIndexes(len(options), counted)
+				if len(counted) > 0 {
+					choices := make([]string, 0, len(counted))
+					for _, idx := range counted {
+						choices = append(choices, "option_"+strconv.Itoa(idx))
+					}
+					countedVotes, err = s.CountVotesForPostChoices(ctx, latest.ID, choices)
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+			if countedVotes < row.MinVotesToHold {
+				status = EventHistoryStatusNotHeld
+			}
+		}
+
+		if status != EventHistoryStatusNotHeld && latestPollAt != nil && latestPollAt.After(cycleStart) && latestPollAt.Before(nextStart) {
 			if nowLocal.Before(distributionStart) {
 				status = EventHistoryStatusInVoting
 			} else if nowLocal.Before(nextStart) {
@@ -2742,7 +2817,7 @@ func (s *Store) ListEventHistory(ctx context.Context, chatID int64) ([]EventHist
 			LatestPollAt:   latestPollAt,
 			NextStartAt:    nextStart,
 			Status:         status,
-			CanDistribute:  status == EventHistoryStatusOnDistribution,
+			CanDistribute:  status == EventHistoryStatusOnDistribution && status != EventHistoryStatusNotHeld,
 			PublishEnabled: row.PublishEnabled,
 		})
 	}

@@ -130,6 +130,8 @@ export async function createEvent(
     teamsPublishList: boolean
     teamSize: number
     minVotesToHold: number
+    cancelLeadMinutes: number
+    cancelNotifyEnabled: boolean
     settlementEnabled: boolean
     settlementPublishBefore: boolean
     settlementPublishAfter: boolean
@@ -162,6 +164,8 @@ export async function updateEventDetails(
     teamsPublishList: boolean
     teamSize: number
     minVotesToHold: number
+    cancelLeadMinutes: number
+    cancelNotifyEnabled: boolean
     settlementEnabled: boolean
     settlementPublishBefore: boolean
     settlementPublishAfter: boolean
