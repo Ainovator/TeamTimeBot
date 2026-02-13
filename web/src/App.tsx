@@ -343,8 +343,18 @@ export default function App() {
       setArchivedEvents([])
       return
     }
+    if (!groups.some((group) => group.chatID === activeChatID)) {
+      setDetails(null)
+      setMembers([])
+      setMemberSkillProfiles({})
+      setSelectedMemberSkills(null)
+      setEventHistory([])
+      setActiveHistoryEventID(null)
+      setArchivedEvents([])
+      return
+    }
     void reloadActiveOrganization(activeChatID)
-  }, [activeChatID])
+  }, [activeChatID, groups])
 
   useEffect(() => {
     if (activeSection !== 'events') {
@@ -2921,6 +2931,14 @@ export default function App() {
   }
 
   function renderContent() {
+    if (!loading && groups.length === 0) {
+      return (
+        <section className="content-card">
+          <h3>Организации не найдены</h3>
+          <p className="muted">Добавь бота в группу Telegram и сделай первичную настройку, после этого группа появится здесь.</p>
+        </section>
+      )
+    }
     if (!details) {
       return <section className="content-card">Выбери организацию</section>
     }
