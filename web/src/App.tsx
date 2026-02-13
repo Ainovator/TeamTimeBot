@@ -4083,9 +4083,6 @@ export default function App() {
           ))}
         </nav>
 
-        <button className="refresh-btn" onClick={() => activeChatID !== null && reloadActiveOrganization(activeChatID)}>
-          Обновить данные
-        </button>
         {authConfig?.enabled && authUser ? (
           <button
             className="refresh-btn"
