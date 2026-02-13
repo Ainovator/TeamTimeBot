@@ -471,6 +471,11 @@ export default function App() {
   }, [activeChatID, activeOrgKey, authLoading, authUser])
 
   useEffect(() => {
+    // Wait until we know whether auth is enabled to avoid missing the moment
+    // when the login card (and the widget container) appears.
+    if (authLoading) {
+      return
+    }
     if (!authConfig?.enabled || !authConfig.telegramLoginBot || authUser) {
       return
     }
@@ -507,7 +512,7 @@ export default function App() {
       delete window.onTelegramAuth
       container.innerHTML = ''
     }
-  }, [authConfig, authUser])
+  }, [authConfig, authUser, authLoading])
 
   useEffect(() => {
     if (activeChatID === null) {
