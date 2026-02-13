@@ -1831,6 +1831,9 @@ func (s *Store) UpsertEventPollVote(
 		if err := upsertGroupMemberTx(tx, post.GroupID, userID, "member", "active"); err != nil {
 			return err
 		}
+		if err := ensureDefaultMemberSkillsTx(tx, post.GroupID, userID); err != nil {
+			return err
+		}
 
 		vote := EventPollVote{
 			PostID:    postID,
@@ -2807,4 +2810,15 @@ func upsertGroupMemberTx(tx *gorm.DB, groupID uint64, userTelegramID int64, role
 			}),
 		}).
 		Create(record).Error
+}
+
+func ensureDefaultMemberSkillsTx(tx *gorm.DB, groupID uint64, userTelegramID int64) error {
+	const defaultScore = 5
+	return tx.Exec(`
+		INSERT INTO group_member_skills (group_id, user_telegram_id, skill_id, score, created_at, updated_at)
+		SELECT ?, ?, sc.id, ?, NOW(), NOW()
+		FROM skills_catalog sc
+		WHERE sc.is_active = TRUE
+		ON CONFLICT (group_id, user_telegram_id, skill_id) DO NOTHING
+	`, groupID, userTelegramID, defaultScore).Error
 }
