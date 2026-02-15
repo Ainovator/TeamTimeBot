@@ -57,6 +57,12 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 		}
 		nowLocal := nowUTC.In(loc)
 
+		// Do not create/ensure instances on non-event days.
+		// Otherwise we may accidentally create "today" instances that later get cancelled.
+		if isoWeekday(nowLocal.Weekday()) != event.StartWeekday {
+			continue
+		}
+
 		// Work with an instance snapshot for today. If instance doesn't exist yet, create it once.
 		localDate := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc)
 		inst, err := s.store.GetEventInstanceSnapshotByEventDate(ctx, event.GroupID, event.EventID, localDate)
@@ -86,10 +92,6 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 		}
 
 		if !inst.SettlementEnabled {
-			continue
-		}
-		if isoWeekday(nowLocal.Weekday()) != event.StartWeekday {
-			// Keep old guard for now; instance schedule is still based on the template's weekday.
 			continue
 		}
 		eventStartLocal := inst.PlannedStartAt.In(loc)
