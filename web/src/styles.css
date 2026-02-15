@@ -425,6 +425,166 @@ h4 {
   font-size: 13px;
 }
 
+.debt-trainings {
+  margin-bottom: 0;
+}
+
+.billing-expand-row td {
+  padding: 0;
+}
+
+.billing-debtors-table {
+  table-layout: fixed;
+}
+
+.billing-training-row {
+  display: grid;
+  grid-template-columns: 44% 28% 20% 8%;
+  align-items: center;
+  /* Percent columns must sum to 100%; gaps would cause horizontal overflow. */
+  gap: 0;
+  border-radius: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  width: 100%;
+  min-width: 0;
+  position: relative;
+  --training-box-left: 48px; /* keep tree gutter clean and add breathing room before text */
+}
+
+.billing-training-row.clickable {
+  cursor: pointer;
+}
+
+.billing-training-info {
+  grid-column: 1 / span 2;
+  min-width: 0;
+  padding: 10px 8px;
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 10px;
+  align-items: center;
+  align-self: center;
+}
+
+.billing-training-row > * {
+  position: relative;
+  z-index: 1;
+}
+
+.billing-training-row::before {
+  content: '';
+  position: absolute;
+  left: var(--training-box-left);
+  right: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 12px;
+  background: rgba(19, 33, 58, 0.35);
+  border: 1px solid rgba(120, 166, 243, 0.26);
+  box-shadow: 0 10px 24px rgba(7, 18, 36, 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+
+.tree-gutter {
+  position: relative;
+  width: 40px;
+  height: 100%;
+  align-self: stretch;
+}
+
+.tree-gutter::before {
+  content: '';
+  position: absolute;
+  left: 20px;
+  top: -12px;
+  bottom: -12px;
+  width: 2px;
+  border-radius: 2px;
+  background: #2b4268;
+}
+
+.tree-first .tree-gutter::before {
+  top: -20px;
+}
+
+.tree-last .tree-gutter::before {
+  bottom: 50%;
+}
+
+.tree-elbow {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-left: 2px solid #2b4268;
+  border-bottom: 2px solid #2b4268;
+  border-radius: 0 0 0 10px;
+}
+
+.billing-training-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.billing-training-text p {
+  margin-top: 4px;
+}
+
+.billing-training-debt {
+  grid-column: 3;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 10px 8px;
+}
+
+.billing-training-spacer {
+  grid-column: 4;
+  padding: 10px 8px;
+}
+
+.billing-training-row.clickable:hover {
+  /* Hover visuals are drawn by ::before so the tree gutter stays clean. */
+}
+
+.billing-training-row.clickable:hover::before {
+  opacity: 1;
+}
+
+.billing-training-row.clickable:focus-visible::before {
+  opacity: 1;
+}
+
+.billing-training-row.clickable:focus-visible::after {
+  content: '';
+  position: absolute;
+  left: var(--training-box-left);
+  right: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 12px;
+  outline: 2px solid rgba(120, 166, 243, 0.85);
+  outline-offset: 2px;
+  pointer-events: none;
+}
+
+.billing-training-row.clickable:hover .tree-gutter::before {
+  background: #3b5f98;
+}
+
+.billing-training-row.clickable:hover .tree-elbow {
+  border-left-color: #3b5f98;
+  border-bottom-color: #3b5f98;
+}
+
 .event-info-grid {
   margin-top: 10px;
   display: grid;

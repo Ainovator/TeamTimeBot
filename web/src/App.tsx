@@ -2547,7 +2547,13 @@ export default function App() {
 
         {!billingLoading && !billingError && billingDebtors.length > 0 ? (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table billing-debtors-table">
+              <colgroup>
+                <col style={{ width: '44%' }} />
+                <col style={{ width: '28%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '8%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Игрок</th>
@@ -2605,14 +2611,17 @@ export default function App() {
 
                   if (expanded) {
                     rows.push(
-                      <tr key={`debtor-expand-${debtor.userID}`}>
+                      <tr key={`debtor-expand-${debtor.userID}`} className="billing-expand-row">
                         <td colSpan={4}>
                           {debtor.trainings?.length ? (
-                            <div className="list-block" style={{ marginTop: 10 }}>
-                              {debtor.trainings.map((t) => (
+                            <div className="list-block debt-trainings" style={{ marginTop: 10 }}>
+                              {debtor.trainings.map((t, idx) => {
+                                const isFirst = idx === 0
+                                const isLast = idx === debtor.trainings.length - 1
+                                return (
                                 <div
                                   key={`${debtor.userID}-${t.instanceID}`}
-                                  className="list-row clickable"
+                                  className={`billing-training-row clickable ${isFirst ? 'tree-first' : ''} ${isLast ? 'tree-last' : ''}`}
                                   role="button"
                                   tabIndex={0}
                                   onClick={(e) => {
@@ -2642,15 +2651,22 @@ export default function App() {
                                     })
                                   }}
                                 >
-                                  <div>
-                                    <strong>{t.eventName || `Событие #${t.instanceID}`}</strong>
-                                    <p className="muted">{formatDateTime(t.startAt)}</p>
+                                  <div className="billing-training-info">
+                                    <div className="tree-gutter" aria-hidden="true">
+                                      <span className="tree-elbow" />
+                                    </div>
+                                    <div className="billing-training-text">
+                                      <strong>{t.eventName || `Событие #${t.instanceID}`}</strong>
+                                      <p className="muted">{formatDateTime(t.startAt)}</p>
+                                    </div>
                                   </div>
-                                  <div className="list-actions">
+                                  <div className="billing-training-debt">
                                     <span className="badge badge-debt debt-badge">{formatMoney(t.amountDue)}</span>
                                   </div>
+                                  <div className="billing-training-spacer" aria-hidden="true" />
                                 </div>
-                              ))}
+                                )
+                              })}
                             </div>
                           ) : (
                             <p className="muted" style={{ marginTop: 10 }}>
