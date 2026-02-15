@@ -50,6 +50,12 @@ jobs:
             fi
             git config --global --add safe.directory "$APP_DIR"
             cd "$APP_DIR"
+            # GitHub can be unreachable over SSH port 22 from some hosts/networks.
+            # Force git@github.com URLs to use ssh.github.com:443 instead.
+            mkdir -p "$HOME/.ssh"
+            touch "$HOME/.ssh/known_hosts"
+            ssh-keyscan -p 443 ssh.github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+            git config --local url."ssh://git@ssh.github.com:443/".insteadOf "git@github.com:"
             git fetch --all --prune
             git checkout "$BRANCH"
             git pull origin "$BRANCH"

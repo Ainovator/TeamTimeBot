@@ -3226,7 +3226,7 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 		}
 	}
 
-	// Load ratings for real users; guests will inherit their owner's rating.
+	// Load ratings for real users. Guest slots are synthetic and use a neutral baseline rating (5.0).
 	userIDs := make([]int64, 0, len(seatItems))
 	for _, it := range seatItems {
 		userIDs = append(userIDs, it.UserID)
@@ -3313,7 +3313,7 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 				Choice:      choice,
 				ChoiceIndex: choiceIdx,
 				ChoiceLabel: "Гость (+1)",
-				Rating:      rating,
+				Rating:      5.0,
 				Team:        gTeam,
 				Position:    gPos,
 			})
