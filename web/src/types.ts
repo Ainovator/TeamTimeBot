@@ -2,6 +2,36 @@ export type Group = {
   chatID: number
   title: string
   timezone: string
+  role?: 'admin' | 'member'
+}
+
+export type UserGroupTrainingItem = {
+  instanceID: number
+  name: string
+  startAt: string
+  endAt: string
+  status: string
+  amountDue: number
+  isPaid: boolean
+}
+
+export type UserGroupProfile = {
+  roleCode: string
+  roleTitle: string
+  debtAmount: number
+  trainings: UserGroupTrainingItem[]
+}
+
+export type GroupPermissionsView = {
+  roleCode: string
+  roleTitle: string
+  permissions: Record<string, boolean>
+}
+
+export type GroupRoleView = {
+  code: string
+  title: string
+  permissions: Record<string, boolean>
 }
 
 export type TemplateView = {

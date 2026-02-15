@@ -80,4 +80,17 @@ export const sections: SectionItem[] = [
       </Icon>
     ),
   },
+  {
+    id: 'profile',
+    title: 'Профиль',
+    subtitle: 'Мои данные',
+    icon: (
+      <Icon>
+        <path
+          d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5Z"
+          fill="currentColor"
+        />
+      </Icon>
+    ),
+  },
 ]

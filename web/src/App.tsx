@@ -3,6 +3,7 @@ import {
   activateEventPublications,
   archiveEvent,
   bindEvent,
+  assignGroupRole,
   createEvent,
   createEventInstance,
   createTemplate,
@@ -16,6 +17,8 @@ import {
   fetchEventHistory,
   fetchGroupPolls,
   fetchGroupPollVotes,
+  fetchGroupPermissions,
+  fetchGroupRoles,
   publishRegistration,
   generateEventBillingForInstance,
   fetchEventPollHistoryForInstance,
@@ -33,6 +36,7 @@ import {
   publishEventTeamSplit,
   saveEventTeamSplit,
   saveEventBillingForInstance,
+  fetchMyGroupProfile,
   telegramAuthLogin,
   unarchiveEvent,
   updateMemberProfile,
@@ -81,11 +85,14 @@ import type {
   GroupPollItem,
   GroupPollVoteItem,
   GroupMember,
+  GroupPermissionsView,
+  GroupRoleView,
   MemberSkillProfile,
   PlayerRelation,
   SkillCatalogItem,
   AuthConfig,
   AuthUser,
+  UserGroupProfile,
 } from './types'
 
 const initialRoute = parseRoute(window.location.pathname)
@@ -237,10 +244,58 @@ export default function App() {
   const [eventBillingError, setEventBillingError] = useState('')
   const [eventBillingDraft, setEventBillingDraft] = useState<Record<number, boolean>>({})
   const [groupDebtSummary, setGroupDebtSummary] = useState<GroupDebtSummary | null>(null)
+  const [myProfile, setMyProfile] = useState<UserGroupProfile | null>(null)
+  const [myProfileLoading, setMyProfileLoading] = useState(false)
+  const [myProfileError, setMyProfileError] = useState('')
+  const [activePerms, setActivePerms] = useState<GroupPermissionsView | null>(null)
+  const [groupRoles, setGroupRoles] = useState<GroupRoleView[]>([])
+  const [groupRolesLoading, setGroupRolesLoading] = useState(false)
+  const [groupRolesError, setGroupRolesError] = useState('')
+  const [roleAssignUserID, setRoleAssignUserID] = useState('')
+  const [roleAssignCode, setRoleAssignCode] = useState('member')
 
   const templateNames = useMemo(() => ensureList(details?.templateNames), [details])
   const templates = useMemo(() => ensureList(details?.templates), [details])
   const events = useMemo(() => ensureList(details?.events), [details])
+
+  const fullAccessPerms = useMemo<GroupPermissionsView>(
+    () => ({
+      roleCode: 'admin',
+      roleTitle: 'Администратор',
+      permissions: {
+        members_read: true,
+        members_write: true,
+        templates_manage: true,
+        event_templates_manage: true,
+        events_read: true,
+        events_manage: true,
+        polls_read: true,
+        roles_manage: true,
+        profile_read: true,
+      },
+    }),
+    [],
+  )
+
+  function can(perm: string): boolean {
+    if (!authConfig?.enabled) {
+      return true
+    }
+    return Boolean(activePerms?.permissions?.[perm])
+  }
+
+  const visibleSections = useMemo(() => {
+    return sections.filter((s) => {
+      if (s.id === 'overview') return true
+      if (s.id === 'events') return can('events_read')
+      if (s.id === 'polls') return can('polls_read')
+      if (s.id === 'profile') return can('profile_read')
+      if (s.id === 'members') return can('members_read')
+      if (s.id === 'templates') return can('templates_manage')
+      if (s.id === 'event_templates') return can('event_templates_manage')
+      return false
+    })
+  }, [authConfig?.enabled, activePerms])
   const templateCountedMap = useMemo(() => {
     const map = new Map<string, number>()
     for (const template of templates) {
@@ -290,6 +345,67 @@ export default function App() {
     () => eventHistory.find((event) => event.instanceID === activeHistoryEventID) ?? null,
     [eventHistory, activeHistoryEventID],
   )
+
+  useEffect(() => {
+    if (activeChatID === null) {
+      setActivePerms(null)
+      return
+    }
+    if (!authConfig?.enabled) {
+      setActivePerms(fullAccessPerms)
+      return
+    }
+    if (!authUser) {
+      setActivePerms(null)
+      return
+    }
+    void (async () => {
+      try {
+        const view = await fetchGroupPermissions(activeChatID)
+        setActivePerms(view)
+      } catch (err) {
+        setActivePerms(null)
+      }
+    })()
+  }, [activeChatID, authConfig?.enabled, authUser, fullAccessPerms])
+
+  useEffect(() => {
+    if (activeSection !== 'profile') {
+      return
+    }
+    if (activeChatID === null) {
+      return
+    }
+    if (!authConfig?.enabled) {
+      // local mode: show roles list as defaults (server returns full access anyway)
+      return
+    }
+    if (!activePerms?.permissions?.roles_manage) {
+      return
+    }
+    void (async () => {
+      try {
+        setGroupRolesError('')
+        setGroupRolesLoading(true)
+        const roles = await fetchGroupRoles(activeChatID)
+        setGroupRoles(roles)
+      } catch (err: any) {
+        setGroupRolesError(err?.message || 'Ошибка загрузки ролей')
+      } finally {
+        setGroupRolesLoading(false)
+      }
+    })()
+    if (members.length === 0) {
+      void (async () => {
+        try {
+          const nextMembers = await fetchGroupMembers(activeChatID)
+          setMembers(nextMembers)
+        } catch {
+          // ignore: roles UI will show empty dropdown if we can't read members
+        }
+      })()
+    }
+  }, [activeChatID, activePerms, activeSection, authConfig?.enabled, members.length])
   const availableRelationMembers = useMemo(() => {
     if (!selectedMemberSkills) {
       return []
@@ -528,6 +644,7 @@ export default function App() {
       setActiveHistoryEventID(null)
       setActivePollPostID(null)
       setArchivedEvents([])
+      setMyProfile(null)
       return
     }
     if (!groups.some((group) => group.chatID === activeChatID)) {
@@ -543,10 +660,42 @@ export default function App() {
       setActiveHistoryEventID(null)
       setActivePollPostID(null)
       setArchivedEvents([])
+      setMyProfile(null)
       return
     }
     void reloadActiveOrganization(activeChatID)
   }, [activeChatID, groups])
+
+  useEffect(() => {
+    if (activeSection !== 'profile' || activeChatID === null) {
+      setMyProfile(null)
+      setMyProfileError('')
+      return
+    }
+    let cancelled = false
+    setMyProfileLoading(true)
+    setMyProfileError('')
+    void fetchMyGroupProfile(activeChatID)
+      .then((profile) => {
+        if (!cancelled) {
+          setMyProfile(profile)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setMyProfile(null)
+          setMyProfileError((err as Error).message)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMyProfileLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, success])
 
   useEffect(() => {
     if (activeSection !== 'event_templates') {
@@ -4003,18 +4152,221 @@ export default function App() {
       case 'overview':
         return renderOverview()
       case 'members':
+        if (!can('members_read')) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Раздел «Игроки» доступен только администраторам.</p>
+            </section>
+          )
+        }
         return renderMembers()
       case 'templates':
+        if (!can('templates_manage')) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Шаблоны доступны только администраторам.</p>
+            </section>
+          )
+        }
         return renderTemplates()
       case 'polls':
+        if (!can('polls_read')) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Раздел «Голосования» недоступен.</p>
+            </section>
+          )
+        }
         return renderPolls()
       case 'events':
+        if (!can('events_read')) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Раздел «События» недоступен.</p>
+            </section>
+          )
+        }
         return renderHistory()
       case 'event_templates':
+        if (!can('event_templates_manage')) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Шаблоны событий доступны только администраторам.</p>
+            </section>
+          )
+        }
         return renderEvents()
+      case 'profile':
+        if (!can('profile_read')) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Раздел «Профиль» недоступен.</p>
+            </section>
+          )
+        }
+        return renderProfile()
       default:
         return null
     }
+  }
+
+  function renderProfile() {
+    if (activeChatID === null) {
+      return <section className="content-card">Выбери организацию</section>
+    }
+    if (myProfileLoading) {
+      return <section className="content-card">Загрузка профиля...</section>
+    }
+    if (myProfileError) {
+      return (
+        <section className="content-card">
+          <h3>Профиль</h3>
+          <p className="muted">Ошибка: {myProfileError}</p>
+        </section>
+      )
+    }
+    if (!myProfile) {
+      return (
+        <section className="content-card">
+          <h3>Профиль</h3>
+          <p className="muted">Нет данных</p>
+        </section>
+      )
+    }
+
+    return (
+      <section className="content-card">
+        <div className="template-head">
+          <h3>Профиль</h3>
+        </div>
+        <div className="form-grid form-grid-3 members-filters">
+          <label className="field">
+            <span>Роль</span>
+            <input value={myProfile.roleTitle || myProfile.roleCode} readOnly />
+          </label>
+          <label className="field">
+            <span>Задолженность</span>
+            <input value={formatMoney(myProfile.debtAmount)} readOnly />
+          </label>
+          <label className="field">
+            <span>Тренировок</span>
+            <input value={`${myProfile.trainings.length} шт.`} readOnly />
+          </label>
+        </div>
+
+        <h4 style={{ marginTop: 18 }}>История</h4>
+        {myProfile.trainings.length ? (
+          <div className="table-wrap table-wrap-spaced">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Событие</th>
+                  <th>Статус</th>
+                  <th>Сумма</th>
+                  <th className="col-center">Оплачено</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myProfile.trainings.map((item) => (
+                  <tr key={item.instanceID}>
+                    <td>{formatDateTime(item.startAt)}</td>
+                    <td>{item.name}</td>
+                    <td>{historyStatusLabel(item.status as any)}</td>
+                    <td>{formatMoney(item.amountDue)}</td>
+                    <td className="col-center">{item.isPaid ? 'да' : 'нет'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted">Пока нет тренировок</p>
+        )}
+
+        {authConfig?.enabled && activePerms?.permissions?.roles_manage ? (
+          <>
+            <h4 style={{ marginTop: 22 }}>Роли</h4>
+            <p className="muted" style={{ marginTop: 6 }}>
+              Назначай дополнительные роли (тренер/капитан) участникам группы. Telegram-админам назначать роли не нужно.
+            </p>
+            <div className="form-grid form-grid-3 members-filters" style={{ marginTop: 12 }}>
+              <label className="field">
+                <span>Участник</span>
+                <select className="ui-select" value={roleAssignUserID} onChange={(e) => setRoleAssignUserID(e.target.value)}>
+                  <option value="">Выбери участника</option>
+                  {members.map((m) => (
+                    <option key={m.userTelegramID} value={m.userTelegramID}>
+                      {`${fullName(m)}${m.username ? ` (@${m.username})` : ''} · ${m.role}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>Роль</span>
+                <select className="ui-select" value={roleAssignCode} onChange={(e) => setRoleAssignCode(e.target.value)}>
+                  <option value="member">Участник</option>
+                  <option value="captain">Капитан</option>
+                  <option value="trainer">Тренер</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>&nbsp;</span>
+                <button
+                  type="button"
+                  className="primary-btn"
+                  disabled={!roleAssignUserID}
+                  onClick={() =>
+                    void (async () => {
+                      if (!activeChatID) return
+                      try {
+                        setGroupRolesError('')
+                        await assignGroupRole(activeChatID, { userTelegramID: Number(roleAssignUserID), roleCode: roleAssignCode })
+                        setSuccess('Роль обновлена')
+                      } catch (err: any) {
+                        setGroupRolesError(err?.message || 'Ошибка назначения роли')
+                      }
+                    })()
+                  }
+                >
+                  Сохранить роль
+                </button>
+              </label>
+            </div>
+            {groupRolesLoading ? <p className="muted">Загрузка ролей...</p> : null}
+            {groupRolesError ? <p className="muted">Ошибка: {groupRolesError}</p> : null}
+            {groupRoles.length ? (
+              <div className="table-wrap table-wrap-spaced">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Код</th>
+                      <th>Название</th>
+                      <th>Доступы</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupRoles.map((r) => (
+                      <tr key={r.code}>
+                        <td>{r.code}</td>
+                        <td>{r.title}</td>
+                        <td>{Object.keys(r.permissions || {}).filter((k) => r.permissions[k]).join(', ') || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </section>
+    )
   }
 
   return (
@@ -4059,7 +4411,7 @@ export default function App() {
 
         <nav className="nav-menu" aria-label="Справочники">
           <p className="section-caption">Справочники</p>
-          {sections.map((section) => (
+          {visibleSections.map((section) => (
             <button
               key={section.id}
               className={activeSection === section.id ? 'nav-item active' : 'nav-item'}

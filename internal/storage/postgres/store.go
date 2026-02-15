@@ -40,6 +40,7 @@ type GroupView struct {
 	ChatID   int64  `json:"chatID"`
 	Title    string `json:"title"`
 	Timezone string `json:"timezone"`
+	Role     string `json:"role,omitempty"`
 }
 
 type ScheduleView struct {
@@ -162,6 +163,35 @@ type GroupDebtSummary struct {
 	UnpaidRows int64   `json:"unpaidRows"`
 }
 
+type UserGroupTrainingItem struct {
+	InstanceID uint64    `json:"instanceID"`
+	Name       string    `json:"name"`
+	StartAt    time.Time `json:"startAt"`
+	EndAt      time.Time `json:"endAt"`
+	Status     string    `json:"status"`
+	AmountDue  float64   `json:"amountDue"`
+	IsPaid     bool      `json:"isPaid"`
+}
+
+type UserGroupProfile struct {
+	RoleCode   string                  `json:"roleCode"`
+	RoleTitle  string                  `json:"roleTitle"`
+	DebtAmount float64                 `json:"debtAmount"`
+	Trainings  []UserGroupTrainingItem `json:"trainings"`
+}
+
+type GroupRoleView struct {
+	Code        string          `json:"code"`
+	Title       string          `json:"title"`
+	Permissions map[string]bool `json:"permissions"`
+}
+
+type GroupPermissionsView struct {
+	RoleCode    string          `json:"roleCode"`
+	RoleTitle   string          `json:"roleTitle"`
+	Permissions map[string]bool `json:"permissions"`
+}
+
 type EventPollHistoryItem struct {
 	PostID            uint64    `json:"postID"`
 	TelegramMessageID int64     `json:"telegramMessageID"`
@@ -239,6 +269,8 @@ type GroupMemberView struct {
 	Role           string    `json:"role"`
 	Status         string    `json:"status"`
 	LastSeenAt     time.Time `json:"lastSeenAt"`
+	AppRoleCode    string    `json:"appRoleCode,omitempty"`
+	AppRoleTitle   string    `json:"appRoleTitle,omitempty"`
 }
 
 type SkillCatalogItem struct {
@@ -919,7 +951,7 @@ func (s *Store) ListActiveGroupsForAdmin(ctx context.Context, userTelegramID int
 	var groups []GroupView
 	if err := s.db.WithContext(ctx).
 		Table("telegram_groups g").
-		Select("g.chat_id, g.title, g.timezone").
+		Select("g.chat_id, g.title, g.timezone, gm.role").
 		Joins("JOIN group_members gm ON gm.group_id = g.id").
 		Where("g.is_active = TRUE AND gm.is_active = TRUE AND gm.user_telegram_id = ? AND gm.role = 'admin'", userTelegramID).
 		Order("g.title ASC, g.chat_id ASC").
@@ -927,6 +959,304 @@ func (s *Store) ListActiveGroupsForAdmin(ctx context.Context, userTelegramID int
 		return nil, err
 	}
 	return groups, nil
+}
+
+func (s *Store) ListActiveGroupsForUser(ctx context.Context, userTelegramID int64) ([]GroupView, error) {
+	var groups []GroupView
+	if err := s.db.WithContext(ctx).
+		Table("telegram_groups g").
+		Select("g.chat_id, g.title, g.timezone, gm.role").
+		Joins("JOIN group_members gm ON gm.group_id = g.id").
+		Where("g.is_active = TRUE AND gm.is_active = TRUE AND gm.status = 'active' AND gm.user_telegram_id = ?", userTelegramID).
+		Order("g.title ASC, g.chat_id ASC").
+		Scan(&groups).Error; err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
+func (s *Store) GetGroupRoleForUser(ctx context.Context, chatID int64, userTelegramID int64) (string, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+	type row struct {
+		Role string
+	}
+	var out row
+	err = s.db.WithContext(ctx).
+		Table("group_members").
+		Select("role").
+		Where("group_id = ? AND is_active = TRUE AND status = 'active' AND user_telegram_id = ?", group.ID, userTelegramID).
+		Limit(1).
+		Scan(&out).Error
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out.Role), nil
+}
+
+func (s *Store) EnsureDefaultGroupRoles(ctx context.Context, chatID int64) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	type roleSeed struct {
+		Code        string
+		Title       string
+		Permissions map[string]bool
+	}
+	seeds := []roleSeed{
+		{
+			Code:  "trainer",
+			Title: "Тренер",
+			Permissions: map[string]bool{
+				"members_read":           true,
+				"members_write":          true,
+				"templates_manage":       true,
+				"event_templates_manage": true,
+				"events_read":            true,
+				"events_manage":          true,
+				"polls_read":             true,
+				"roles_manage":           true,
+				"profile_read":           true,
+			},
+		},
+		{
+			Code:  "captain",
+			Title: "Капитан",
+			Permissions: map[string]bool{
+				"events_read":   true,
+				"events_manage": true,
+				"polls_read":    true,
+				"profile_read":  true,
+			},
+		},
+	}
+
+	for _, seed := range seeds {
+		payload, err := json.Marshal(seed.Permissions)
+		if err != nil {
+			return err
+		}
+		record := GroupRole{
+			GroupID:     group.ID,
+			Code:        seed.Code,
+			Title:       seed.Title,
+			Permissions: datatypes.JSON(payload),
+			IsActive:    true,
+		}
+		if err := s.db.WithContext(ctx).
+			Clauses(clause.OnConflict{
+				Columns: []clause.Column{
+					{Name: "group_id"},
+					{Name: "code"},
+				},
+				DoUpdates: clause.Assignments(map[string]interface{}{
+					"title":       seed.Title,
+					"permissions": datatypes.JSON(payload),
+					"is_active":   true,
+					"updated_at":  gorm.Expr("NOW()"),
+				}),
+			}).
+			Create(&record).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) ListGroupRoles(ctx context.Context, chatID int64) ([]GroupRoleView, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.EnsureDefaultGroupRoles(ctx, chatID); err != nil {
+		return nil, err
+	}
+
+	type row struct {
+		Code        string
+		Title       string
+		Permissions datatypes.JSON
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("group_roles").
+		Select("code, title, permissions").
+		Where("group_id = ? AND is_active = TRUE", group.ID).
+		Order("code ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]GroupRoleView, 0, len(rows))
+	for _, r := range rows {
+		perms := map[string]bool{}
+		_ = json.Unmarshal(r.Permissions, &perms)
+		out = append(out, GroupRoleView{
+			Code:        strings.TrimSpace(r.Code),
+			Title:       strings.TrimSpace(r.Title),
+			Permissions: perms,
+		})
+	}
+	return out, nil
+}
+
+func defaultMemberPermissions() map[string]bool {
+	return map[string]bool{
+		"events_read":  true,
+		"polls_read":   true,
+		"profile_read": true,
+	}
+}
+
+func mergePermissions(dst map[string]bool, src map[string]bool) map[string]bool {
+	if dst == nil {
+		dst = map[string]bool{}
+	}
+	for k, v := range src {
+		if v {
+			dst[k] = true
+		}
+	}
+	return dst
+}
+
+func (s *Store) GetGroupPermissionsForUser(ctx context.Context, chatID int64, userTelegramID int64) (*GroupPermissionsView, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.EnsureDefaultGroupRoles(ctx, chatID); err != nil {
+		return nil, err
+	}
+
+	telegramRole, err := s.GetGroupRoleForUser(ctx, chatID, userTelegramID)
+	if err != nil {
+		return nil, err
+	}
+	if telegramRole == "" {
+		return nil, errors.New("user is not a member of this group")
+	}
+
+	// Telegram admins always have full access.
+	if strings.EqualFold(strings.TrimSpace(telegramRole), "admin") {
+		return &GroupPermissionsView{
+			RoleCode:  "admin",
+			RoleTitle: "Администратор",
+			Permissions: map[string]bool{
+				"members_read":           true,
+				"members_write":          true,
+				"templates_manage":       true,
+				"event_templates_manage": true,
+				"events_read":            true,
+				"events_manage":          true,
+				"polls_read":             true,
+				"roles_manage":           true,
+				"profile_read":           true,
+			},
+		}, nil
+	}
+
+	type row struct {
+		RoleCode    string
+		RoleTitle   string
+		Permissions datatypes.JSON
+	}
+	var r row
+	err = s.db.WithContext(ctx).
+		Table("group_role_assignments gra").
+		Select("gra.role_code, COALESCE(gr.title, '') AS role_title, COALESCE(gr.permissions, '{}'::jsonb) AS permissions").
+		Joins("JOIN group_roles gr ON gr.group_id = gra.group_id AND gr.code = gra.role_code AND gr.is_active = TRUE").
+		Where("gra.group_id = ? AND gra.user_telegram_id = ? AND gra.is_active = TRUE", group.ID, userTelegramID).
+		Limit(1).
+		Scan(&r).Error
+	if err != nil {
+		return nil, err
+	}
+
+	perms := defaultMemberPermissions()
+	roleCode := "member"
+	roleTitle := "Участник"
+	if strings.TrimSpace(r.RoleCode) != "" {
+		roleCode = strings.TrimSpace(r.RoleCode)
+		roleTitle = strings.TrimSpace(r.RoleTitle)
+		custom := map[string]bool{}
+		_ = json.Unmarshal(r.Permissions, &custom)
+		perms = mergePermissions(perms, custom)
+	}
+
+	return &GroupPermissionsView{
+		RoleCode:    roleCode,
+		RoleTitle:   roleTitle,
+		Permissions: perms,
+	}, nil
+}
+
+func (s *Store) AssignGroupRole(ctx context.Context, chatID int64, userTelegramID int64, roleCode string) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	if err := s.EnsureDefaultGroupRoles(ctx, chatID); err != nil {
+		return err
+	}
+	roleCode = strings.TrimSpace(strings.ToLower(roleCode))
+
+	// prevent overriding telegram admins with app role
+	telegramRole, err := s.GetGroupRoleForUser(ctx, chatID, userTelegramID)
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(telegramRole), "admin") {
+		return errors.New("telegram admins do not need an additional role")
+	}
+
+	// Allow clearing assignment back to default "member".
+	if roleCode == "" || roleCode == "member" || roleCode == "none" {
+		return s.db.WithContext(ctx).
+			Model(&GroupRoleAssignment{}).
+			Where("group_id = ? AND user_telegram_id = ? AND is_active = TRUE", group.ID, userTelegramID).
+			Updates(map[string]interface{}{
+				"is_active":  false,
+				"updated_at": gorm.Expr("NOW()"),
+			}).Error
+	}
+
+	// ensure role exists
+	var role GroupRole
+	if err := s.db.WithContext(ctx).
+		Where("group_id = ? AND code = ? AND is_active = TRUE", group.ID, roleCode).
+		First(&role).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("role not found")
+		}
+		return err
+	}
+
+	record := GroupRoleAssignment{
+		GroupID:        group.ID,
+		UserTelegramID: userTelegramID,
+		RoleCode:       roleCode,
+		IsActive:       true,
+	}
+
+	return s.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "group_id"},
+				{Name: "user_telegram_id"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"role_code":  roleCode,
+				"is_active":  true,
+				"updated_at": gorm.Expr("NOW()"),
+			}),
+		}).
+		Create(&record).Error
 }
 
 func ParsePollSpec(payload string) (name, question string, options []string, err error) {
@@ -1859,11 +2189,15 @@ func (s *Store) ListGroupMembersByChatID(ctx context.Context, chatID int64) ([]G
 		return nil, err
 	}
 
+	_ = s.EnsureDefaultGroupRoles(ctx, chatID)
+
 	var rows []GroupMemberView
 	if err := s.db.WithContext(ctx).
 		Table("group_members gm").
-		Select("gm.user_telegram_id, COALESCE(tu.username, '') AS username, COALESCE(tu.first_name, '') AS first_name, COALESCE(tu.last_name, '') AS last_name, COALESCE(gm.player_type, '') AS player_type, gm.role, gm.status, gm.last_seen_at").
+		Select("gm.user_telegram_id, COALESCE(tu.username, '') AS username, COALESCE(tu.first_name, '') AS first_name, COALESCE(tu.last_name, '') AS last_name, COALESCE(gm.player_type, '') AS player_type, gm.role, gm.status, gm.last_seen_at, COALESCE(gra.role_code, '') AS app_role_code, COALESCE(gr.title, '') AS app_role_title").
 		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = gm.user_telegram_id").
+		Joins("LEFT JOIN group_role_assignments gra ON gra.group_id = gm.group_id AND gra.user_telegram_id = gm.user_telegram_id AND gra.is_active = TRUE").
+		Joins("LEFT JOIN group_roles gr ON gr.group_id = gm.group_id AND gr.code = gra.role_code AND gr.is_active = TRUE").
 		Where("gm.group_id = ? AND gm.is_active = TRUE", group.ID).
 		Order("gm.role DESC, gm.last_seen_at DESC, gm.user_telegram_id ASC").
 		Scan(&rows).Error; err != nil {
@@ -3572,6 +3906,75 @@ func (s *Store) GetGroupDebtSummary(ctx context.Context, chatID int64) (*GroupDe
 	return &GroupDebtSummary{
 		TotalDebt:  out.TotalDebt,
 		UnpaidRows: out.UnpaidRows,
+	}, nil
+}
+
+func (s *Store) GetUserGroupProfile(ctx context.Context, chatID int64, userTelegramID int64) (*UserGroupProfile, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	perms, err := s.GetGroupPermissionsForUser(ctx, chatID, userTelegramID)
+	if err != nil {
+		return nil, err
+	}
+
+	var debt float64
+	if err := s.db.WithContext(ctx).
+		Table("event_settlement_payments esp").
+		Select("COALESCE(SUM(esp.amount_due), 0) AS total_debt").
+		Joins("JOIN event_settlements es ON es.id = esp.settlement_id").
+		Where("es.group_id = ? AND esp.user_id = ? AND esp.is_paid = FALSE", group.ID, userTelegramID).
+		Scan(&debt).Error; err != nil {
+		return nil, err
+	}
+
+	type row struct {
+		InstanceID uint64
+		Name       string
+		StartAt    time.Time
+		EndAt      time.Time
+		Status     string
+		AmountDue  float64
+		IsPaid     bool
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_votes epv").
+		Select("DISTINCT ei.id AS instance_id, COALESCE(ei.event_name, '') AS name, ei.planned_start_at AS start_at, ei.planned_end_at AS end_at, ei.status, COALESCE(esp.amount_due, 0) AS amount_due, COALESCE(esp.is_paid, FALSE) AS is_paid").
+		Joins("JOIN event_poll_posts epp ON epp.id = epv.post_id").
+		Joins("JOIN event_instances ei ON ei.id = epp.instance_id").
+		Joins("LEFT JOIN event_settlements es ON es.instance_id = ei.id").
+		Joins("LEFT JOIN event_settlement_payments esp ON esp.settlement_id = es.id AND esp.user_id = epv.user_id").
+		Where("ei.group_id = ? AND epv.user_id = ?", group.ID, userTelegramID).
+		Order("ei.planned_start_at DESC, ei.id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	items := make([]UserGroupTrainingItem, 0, len(rows))
+	for _, r := range rows {
+		name := strings.TrimSpace(r.Name)
+		if name == "" {
+			name = "Событие"
+		}
+		items = append(items, UserGroupTrainingItem{
+			InstanceID: r.InstanceID,
+			Name:       name,
+			StartAt:    r.StartAt,
+			EndAt:      r.EndAt,
+			Status:     r.Status,
+			AmountDue:  r.AmountDue,
+			IsPaid:     r.IsPaid,
+		})
+	}
+
+	return &UserGroupProfile{
+		RoleCode:   perms.RoleCode,
+		RoleTitle:  perms.RoleTitle,
+		DebtAmount: debt,
+		Trainings:  items,
 	}, nil
 }
 

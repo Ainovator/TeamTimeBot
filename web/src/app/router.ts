@@ -1,4 +1,4 @@
-export type Section = 'overview' | 'members' | 'templates' | 'polls' | 'event_templates' | 'events'
+export type Section = 'overview' | 'members' | 'templates' | 'polls' | 'event_templates' | 'events' | 'profile'
 
 export type RouteState = {
   chatID: number | null
@@ -43,7 +43,14 @@ export function parseRoute(pathname: string): RouteState {
   // We will resolve the actual organization later after groups are loaded.
   if (segments.length > 0 && segments[0] !== 'org') {
     const section = segments[0]
-    if (section === 'overview' || section === 'members' || section === 'templates' || section === 'polls' || section === 'events') {
+    if (
+      section === 'overview' ||
+      section === 'members' ||
+      section === 'templates' ||
+      section === 'polls' ||
+      section === 'events' ||
+      section === 'profile'
+    ) {
       route.section = section
     }
     if (section === 'history') {
@@ -113,7 +120,14 @@ export function parseRoute(pathname: string): RouteState {
 
   if (segments.length >= 3) {
     const section = segments[2]
-    if (section === 'overview' || section === 'members' || section === 'templates' || section === 'polls' || section === 'events') {
+    if (
+      section === 'overview' ||
+      section === 'members' ||
+      section === 'templates' ||
+      section === 'polls' ||
+      section === 'events' ||
+      section === 'profile'
+    ) {
       route.section = section
     }
     if (section === 'history') {
@@ -216,6 +230,10 @@ export function buildRoutePath(route: RouteState): string {
       return `/org/${encodeURIComponent(orgSegment)}/events/${route.historyEventID}`
     }
     return `/org/${encodeURIComponent(orgSegment)}/events`
+  }
+
+  if (route.section === 'profile') {
+    return `/org/${encodeURIComponent(orgSegment)}/profile`
   }
 
   if (route.section === 'event_templates') {

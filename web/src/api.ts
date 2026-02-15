@@ -18,6 +18,9 @@ import type {
   TemplateDetails,
   AuthConfig,
   AuthUser,
+  UserGroupProfile,
+  GroupPermissionsView,
+  GroupRoleView,
 } from './types'
 
 async function parseResponse<T>(res: Response): Promise<T> {
@@ -39,6 +42,30 @@ async function parseResponse<T>(res: Response): Promise<T> {
 export async function fetchGroups(): Promise<Group[]> {
   const res = await fetch('/api/groups')
   return parseResponse<Group[]>(res)
+}
+
+export async function fetchMyGroupProfile(chatID: number): Promise<UserGroupProfile> {
+  const res = await fetch(`/api/groups/${chatID}/me`)
+  return parseResponse<UserGroupProfile>(res)
+}
+
+export async function fetchGroupPermissions(chatID: number): Promise<GroupPermissionsView> {
+  const res = await fetch(`/api/groups/${chatID}/permissions`)
+  return parseResponse<GroupPermissionsView>(res)
+}
+
+export async function fetchGroupRoles(chatID: number): Promise<GroupRoleView[]> {
+  const res = await fetch(`/api/groups/${chatID}/roles`)
+  return parseResponse<GroupRoleView[]>(res)
+}
+
+export async function assignGroupRole(chatID: number, payload: { userTelegramID: number; roleCode: string }) {
+  const res = await fetch(`/api/groups/${chatID}/roles/assign`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchAuthConfig(): Promise<AuthConfig> {

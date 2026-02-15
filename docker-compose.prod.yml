@@ -16,6 +16,9 @@ services:
       timeout: 3s
       retries: 15
       start_period: 5s
+    # Expose Postgres only on server localhost so we can connect via SSH tunnel (e.g. DBeaver).
+    ports:
+      - "127.0.0.1:5432:5432"
 
   bot:
     build:

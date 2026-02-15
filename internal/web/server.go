@@ -87,6 +87,41 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+func (s *Server) requireGroupPermission(w http.ResponseWriter, r *http.Request, chatID int64, perm string) (AuthUser, *postgres.GroupPermissionsView, bool) {
+	if !s.auth.enabled {
+		return AuthUser{}, &postgres.GroupPermissionsView{
+			RoleCode:  "admin",
+			RoleTitle: "Администратор",
+			Permissions: map[string]bool{
+				"members_read":           true,
+				"members_write":          true,
+				"templates_manage":       true,
+				"event_templates_manage": true,
+				"events_read":            true,
+				"events_manage":          true,
+				"polls_read":             true,
+				"roles_manage":           true,
+				"profile_read":           true,
+			},
+		}, true
+	}
+	user, ok := s.authUserFromRequest(r)
+	if !ok {
+		writeErrorMessage(w, http.StatusUnauthorized, "unauthorized")
+		return AuthUser{}, nil, false
+	}
+	view, err := s.store.GetGroupPermissionsForUser(r.Context(), chatID, user.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return AuthUser{}, nil, false
+	}
+	if view == nil || !view.Permissions[perm] {
+		writeErrorMessage(w, http.StatusForbidden, "forbidden")
+		return AuthUser{}, view, false
+	}
+	return user, view, true
+}
+
 func NewServer(store *postgres.Store, bot *tele.Bot, cfg Config) *Server {
 	loginBot := strings.TrimSpace(cfg.TelegramLoginBotUsername)
 	botToken := strings.TrimSpace(cfg.TelegramBotToken)
@@ -150,7 +185,9 @@ func (s *Server) handleGroups(w http.ResponseWriter, r *http.Request) {
 		writeErrorMessage(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	groups, err := s.store.ListActiveGroupsForAdmin(r.Context(), authUser.ID)
+	// When auth is enabled, allow both admins and regular members to log in.
+	// We will gate sensitive endpoints separately based on role.
+	groups, err := s.store.ListActiveGroupsForUser(r.Context(), authUser.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -265,6 +302,12 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch parts[1] {
+	case "me":
+		s.handleMeRoutes(w, r, chatID, parts[2:])
+	case "permissions":
+		s.handlePermissionsRoutes(w, r, chatID, parts[2:])
+	case "roles":
+		s.handleRolesRoutes(w, r, chatID, parts[2:])
 	case "members":
 		s.handleMemberRoutes(w, r, chatID, parts[2:])
 	case "templates":
@@ -284,7 +327,135 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handlePermissionsRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if r.Method != http.MethodGet || len(parts) != 0 {
+		writeMethodNotAllowed(w)
+		return
+	}
+	if !s.auth.enabled {
+		writeJSON(w, http.StatusOK, postgres.GroupPermissionsView{
+			RoleCode:  "admin",
+			RoleTitle: "Администратор",
+			Permissions: map[string]bool{
+				"members_read":           true,
+				"members_write":          true,
+				"templates_manage":       true,
+				"event_templates_manage": true,
+				"events_read":            true,
+				"events_manage":          true,
+				"polls_read":             true,
+				"roles_manage":           true,
+				"profile_read":           true,
+			},
+		})
+		return
+	}
+	user, ok := s.authUserFromRequest(r)
+	if !ok {
+		writeErrorMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	view, err := s.store.GetGroupPermissionsForUser(r.Context(), chatID, user.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) handleRolesRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if !s.auth.enabled {
+		writeErrorMessage(w, http.StatusBadRequest, "auth is not configured")
+		return
+	}
+	user, ok := s.authUserFromRequest(r)
+	if !ok {
+		writeErrorMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	perms, err := s.store.GetGroupPermissionsForUser(r.Context(), chatID, user.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if perms == nil || !perms.Permissions["roles_manage"] {
+		writeErrorMessage(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	if len(parts) == 0 && r.Method == http.MethodGet {
+		roles, err := s.store.ListGroupRoles(r.Context(), chatID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if roles == nil {
+			roles = make([]postgres.GroupRoleView, 0)
+		}
+		writeJSON(w, http.StatusOK, roles)
+		return
+	}
+
+	if len(parts) == 1 && parts[0] == "assign" && r.Method == http.MethodPut {
+		var req struct {
+			UserTelegramID int64  `json:"userTelegramID"`
+			RoleCode       string `json:"roleCode"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.UserTelegramID == 0 {
+			writeErrorMessage(w, http.StatusBadRequest, "userTelegramID is required")
+			return
+		}
+		if err := s.store.AssignGroupRole(r.Context(), chatID, req.UserTelegramID, req.RoleCode); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	writeMethodNotAllowed(w)
+}
+
+func (s *Server) handleMeRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if !s.auth.enabled {
+		writeErrorMessage(w, http.StatusBadRequest, "auth is not configured")
+		return
+	}
+	user, ok := s.authUserFromRequest(r)
+	if !ok {
+		writeErrorMessage(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	perms, err := s.store.GetGroupPermissionsForUser(r.Context(), chatID, user.ID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if perms == nil || !perms.Permissions["profile_read"] {
+		writeErrorMessage(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if len(parts) == 0 && r.Method == http.MethodGet {
+		profile, err := s.store.GetUserGroupProfile(r.Context(), chatID, user.ID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, profile)
+		return
+	}
+	writeMethodNotAllowed(w)
+}
+
 func (s *Server) handleRegistrationRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if _, _, ok := s.requireGroupPermission(w, r, chatID, "templates_manage"); !ok {
+		return
+	}
+
 	if len(parts) == 1 && parts[0] == "publish" && r.Method == http.MethodPost {
 		if s.bot == nil {
 			writeErrorMessage(w, http.StatusBadRequest, "manual controls are unavailable: bot is not configured")
@@ -316,6 +487,10 @@ func (s *Server) handleRegistrationRoutes(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handlePollRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if _, _, ok := s.requireGroupPermission(w, r, chatID, "polls_read"); !ok {
+		return
+	}
+
 	if len(parts) == 0 && r.Method == http.MethodGet {
 		items, err := s.store.ListGroupPollsByChatID(r.Context(), chatID)
 		if err != nil {
@@ -349,6 +524,10 @@ func (s *Server) handlePollRoutes(w http.ResponseWriter, r *http.Request, chatID
 }
 
 func (s *Server) handleBillingRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if _, _, ok := s.requireGroupPermission(w, r, chatID, "events_read"); !ok {
+		return
+	}
+
 	if len(parts) == 1 && parts[0] == "summary" && r.Method == http.MethodGet {
 		summary, err := s.store.GetGroupDebtSummary(r.Context(), chatID)
 		if err != nil {
@@ -409,6 +588,10 @@ func (s *Server) handleGroupDetails(w http.ResponseWriter, r *http.Request, chat
 }
 
 func (s *Server) handleMemberRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if _, _, ok := s.requireGroupPermission(w, r, chatID, "members_read"); !ok {
+		return
+	}
+
 	if len(parts) == 0 {
 		if r.Method != http.MethodGet {
 			writeMethodNotAllowed(w)
@@ -560,6 +743,10 @@ func (s *Server) handleMemberRoutes(w http.ResponseWriter, r *http.Request, chat
 }
 
 func (s *Server) handleTemplateRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if _, _, ok := s.requireGroupPermission(w, r, chatID, "templates_manage"); !ok {
+		return
+	}
+
 	if len(parts) == 0 {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w)
@@ -662,6 +849,10 @@ func (s *Server) handleTemplateRoutes(w http.ResponseWriter, r *http.Request, ch
 }
 
 func (s *Server) handleScheduleRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if _, _, ok := s.requireGroupPermission(w, r, chatID, "templates_manage"); !ok {
+		return
+	}
+
 	if len(parts) == 0 {
 		if r.Method != http.MethodPost {
 			writeMethodNotAllowed(w)
@@ -712,6 +903,20 @@ func (s *Server) handleScheduleRoutes(w http.ResponseWriter, r *http.Request, ch
 }
 
 func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if len(parts) > 0 && parts[0] == "history" {
+		needed := "events_read"
+		if r.Method != http.MethodGet {
+			needed = "events_manage"
+		}
+		if _, _, ok := s.requireGroupPermission(w, r, chatID, needed); !ok {
+			return
+		}
+	} else {
+		if _, _, ok := s.requireGroupPermission(w, r, chatID, "event_templates_manage"); !ok {
+			return
+		}
+	}
+
 	if len(parts) == 0 {
 		if r.Method == http.MethodGet {
 			events, err := s.store.ListEventsByChatID(r.Context(), chatID)
