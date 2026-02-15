@@ -65,7 +65,9 @@ func (s *PollScheduler) tick(ctx context.Context) {
 		if sent != nil {
 			var eventID *uint64
 			loc, locErr := time.LoadLocation(schedule.Timezone)
-			if locErr == nil {
+			if locErr != nil {
+				log.Printf("scheduler: invalid timezone %q for schedule %d chat %d: %v", schedule.Timezone, schedule.ScheduleID, schedule.ChatID, locErr)
+			} else {
 				localWeekday := isoWeekday(nowUTC.In(loc).Weekday())
 				foundEventID, findErr := s.store.FindBoundEventIDByTemplateAndWeekday(ctx, schedule.ChatID, schedule.TemplateName, localWeekday)
 				if findErr != nil {

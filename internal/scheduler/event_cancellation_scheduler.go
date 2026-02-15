@@ -50,6 +50,7 @@ func (s *EventCancellationScheduler) tick(ctx context.Context) {
 	for _, inst := range instances {
 		loc, err := time.LoadLocation(inst.Timezone)
 		if err != nil {
+			log.Printf("event_cancellation: invalid timezone %q for chat %d event %d: %v", inst.Timezone, inst.ChatID, inst.EventID, err)
 			continue
 		}
 

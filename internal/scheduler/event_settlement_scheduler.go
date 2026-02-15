@@ -52,6 +52,7 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 	for _, event := range events {
 		loc, err := time.LoadLocation(event.Timezone)
 		if err != nil {
+			log.Printf("event_settlement: invalid timezone %q for chat %d event %d: %v", event.Timezone, event.ChatID, event.EventID, err)
 			continue
 		}
 		nowLocal := nowUTC.In(loc)

@@ -8,6 +8,7 @@ import (
 	tele "gopkg.in/telebot.v4"
 	"gopkg.in/telebot.v4/internal/config"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
+	_ "gopkg.in/telebot.v4/internal/tzdata"
 	"gopkg.in/telebot.v4/internal/web"
 )
 

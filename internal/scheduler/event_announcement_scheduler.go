@@ -58,6 +58,7 @@ func (s *EventAnnouncementScheduler) tick(ctx context.Context) {
 
 		loc, err := time.LoadLocation(event.Timezone)
 		if err != nil {
+			log.Printf("event_announcement: invalid timezone %q for chat %d event %d: %v", event.Timezone, event.ChatID, event.EventID, err)
 			continue
 		}
 

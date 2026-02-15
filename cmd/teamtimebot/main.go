@@ -10,6 +10,7 @@ import (
 	"gopkg.in/telebot.v4/internal/scheduler"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
 	"gopkg.in/telebot.v4/internal/telegram"
+	_ "gopkg.in/telebot.v4/internal/tzdata"
 )
 
 func main() {
