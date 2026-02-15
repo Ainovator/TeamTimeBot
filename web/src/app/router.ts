@@ -1,4 +1,4 @@
-export type Section = 'overview' | 'members' | 'templates' | 'polls' | 'event_templates' | 'events' | 'profile'
+export type Section = 'overview' | 'members' | 'templates' | 'polls' | 'event_templates' | 'events' | 'profile' | 'billing'
 
 export type RouteState = {
   chatID: number | null
@@ -49,7 +49,8 @@ export function parseRoute(pathname: string): RouteState {
       section === 'templates' ||
       section === 'polls' ||
       section === 'events' ||
-      section === 'profile'
+      section === 'profile' ||
+      section === 'billing'
     ) {
       route.section = section
     }
@@ -126,7 +127,8 @@ export function parseRoute(pathname: string): RouteState {
       section === 'templates' ||
       section === 'polls' ||
       section === 'events' ||
-      section === 'profile'
+      section === 'profile' ||
+      section === 'billing'
     ) {
       route.section = section
     }
@@ -234,6 +236,10 @@ export function buildRoutePath(route: RouteState): string {
 
   if (route.section === 'profile') {
     return `/org/${encodeURIComponent(orgSegment)}/profile`
+  }
+
+  if (route.section === 'billing') {
+    return `/org/${encodeURIComponent(orgSegment)}/billing`
   }
 
   if (route.section === 'event_templates') {

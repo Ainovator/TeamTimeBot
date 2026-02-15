@@ -188,6 +188,23 @@ type GroupDebtSummary struct {
 	UnpaidRows int64   `json:"unpaidRows"`
 }
 
+type DebtorTrainingDebt struct {
+	InstanceID uint64    `json:"instanceID"`
+	EventName  string    `json:"eventName"`
+	StartAt    time.Time `json:"startAt"`
+	AmountDue  float64   `json:"amountDue"`
+}
+
+type GroupDebtor struct {
+	UserID    int64                `json:"userID"`
+	Username  string               `json:"username"`
+	FirstName string               `json:"firstName"`
+	LastName  string               `json:"lastName"`
+	RealName  string               `json:"realName"`
+	TotalDebt float64              `json:"totalDebt"`
+	Trainings []DebtorTrainingDebt `json:"trainings"`
+}
+
 type UserGroupTrainingItem struct {
 	InstanceID uint64    `json:"instanceID"`
 	Name       string    `json:"name"`
@@ -1030,9 +1047,11 @@ func (s *Store) ReplaceEventPollVotes(
 		}
 		var post struct {
 			GroupID uint64
+			// When set, poll is bound to an event instance and should obey its lifecycle.
+			InstanceID *uint64
 		}
 		if err := tx.Table("event_poll_posts").
-			Select("group_id").
+			Select("group_id, instance_id").
 			Where("id = ?", postID).
 			First(&post).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1040,6 +1059,23 @@ func (s *Store) ReplaceEventPollVotes(
 			}
 			return err
 		}
+
+		// Protect settlements from late poll edits: once the event is no longer in voting,
+		// ignore Telegram poll updates (admins can still correct votes via console actions).
+		if strings.TrimSpace(source) == "poll" && post.InstanceID != nil && *post.InstanceID != 0 {
+			var inst struct {
+				Status string
+			}
+			if err := tx.Table("event_instances").
+				Select("status").
+				Where("id = ? AND group_id = ? AND is_active = TRUE", *post.InstanceID, post.GroupID).
+				Take(&inst).Error; err == nil {
+				if strings.TrimSpace(inst.Status) != string(EventHistoryStatusInVoting) {
+					return nil
+				}
+			}
+		}
+
 		if err := upsertGroupMemberTx(tx, post.GroupID, userID, "member", "active"); err != nil {
 			return err
 		}
@@ -1091,6 +1127,92 @@ func (s *Store) ListEventPollVotes(ctx context.Context, postID uint64) ([]EventP
 	return rows, nil
 }
 
+// DeleteGroupPollVoteChoiceByPostUser removes a single choice row for a user in a poll post
+// and recalculates the settlement/payments for the bound event instance (if any).
+func (s *Store) DeleteGroupPollVoteChoiceByPostUser(ctx context.Context, chatID int64, postID uint64, userID int64, choice string) error {
+	if postID == 0 || userID == 0 {
+		return errors.New("post_id and user_id are required")
+	}
+	choice = strings.TrimSpace(choice)
+	if choice == "" {
+		return errors.New("choice is required")
+	}
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		type postRow struct {
+			InstanceID *uint64
+		}
+		var post postRow
+		if err := tx.
+			Table("event_poll_posts").
+			Select("instance_id").
+			Where("id = ? AND group_id = ?", postID, group.ID).
+			Take(&post).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("poll post not found")
+			}
+			return err
+		}
+
+		if err := tx.Table("event_poll_votes").
+			Where("post_id = ? AND user_id = ? AND choice = ?", postID, userID, choice).
+			Delete(&EventPollVote{}).Error; err != nil {
+			return err
+		}
+
+		if post.InstanceID == nil || *post.InstanceID == 0 {
+			return nil
+		}
+		return s.recalculateEventSettlementByInstanceTx(ctx, tx, group.ID, *post.InstanceID)
+	})
+}
+
+// DeleteGroupPollVotesByPostAndUser removes all vote rows for a user in a poll post (including multi-choice)
+// and recalculates the settlement/payments for the bound event instance (if any).
+func (s *Store) DeleteGroupPollVotesByPostAndUser(ctx context.Context, chatID int64, postID uint64, userID int64) error {
+	if postID == 0 || userID == 0 {
+		return errors.New("post_id and user_id are required")
+	}
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		type postRow struct {
+			InstanceID *uint64
+		}
+		var post postRow
+		if err := tx.
+			Table("event_poll_posts").
+			Select("instance_id").
+			Where("id = ? AND group_id = ?", postID, group.ID).
+			Take(&post).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("poll post not found")
+			}
+			return err
+		}
+
+		if err := tx.Table("event_poll_votes").
+			Where("post_id = ? AND user_id = ?", postID, userID).
+			Delete(&EventPollVote{}).Error; err != nil {
+			return err
+		}
+
+		if post.InstanceID == nil || *post.InstanceID == 0 {
+			return nil
+		}
+
+		// Settlement might not exist yet: recalc creates it if possible.
+		return s.recalculateEventSettlementByInstanceTx(ctx, tx, group.ID, *post.InstanceID)
+	})
+}
+
 func (s *Store) GetEventPollPostByTelegramPollID(ctx context.Context, telegramPollID string) (*EventPollPostView, error) {
 	telegramPollID = strings.TrimSpace(telegramPollID)
 	if telegramPollID == "" {
@@ -1110,6 +1232,260 @@ func (s *Store) GetEventPollPostByTelegramPollID(ctx context.Context, telegramPo
 		return nil, err
 	}
 	return &row, nil
+}
+
+func (s *Store) recalculateEventSettlementByInstanceTx(ctx context.Context, tx *gorm.DB, groupID uint64, instanceID uint64) error {
+	if instanceID == 0 || groupID == 0 {
+		return errors.New("group_id and instance_id are required")
+	}
+
+	var inst struct {
+		ID             uint64
+		GroupID        uint64
+		EventID        uint64
+		LocalDate      time.Time
+		PollPostID     *uint64
+		CostAmount     *float64
+		PollOptions    datatypes.JSON
+		CountedOptions datatypes.JSON
+		OptionWeights  datatypes.JSON
+		Status         string
+	}
+	if err := tx.WithContext(ctx).
+		Table("event_instances").
+		Select("id, group_id, event_id, local_date, poll_post_id, cost_amount, COALESCE(poll_options, '[]'::jsonb) AS poll_options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, COALESCE(poll_option_weights, '[]'::jsonb) AS option_weights, status").
+		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, groupID).
+		Take(&inst).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("event instance not found")
+		}
+		return err
+	}
+	if strings.TrimSpace(inst.Status) == string(EventHistoryStatusNotHeld) {
+		// Nothing to recalc for not held events.
+		return nil
+	}
+	if inst.PollPostID == nil || *inst.PollPostID == 0 {
+		return nil
+	}
+
+	var options []string
+	_ = json.Unmarshal(inst.PollOptions, &options)
+	var counted []int
+	_ = json.Unmarshal(inst.CountedOptions, &counted)
+	var weights []int
+	_ = json.Unmarshal(inst.OptionWeights, &weights)
+	counted = normalizeCountedOptionIndexes(len(options), counted)
+	weights = normalizeOptionWeightsLen(len(options), weights)
+	if len(counted) == 0 {
+		return nil
+	}
+
+	choices := make([]string, 0, len(counted))
+	weightByChoice := make(map[string]int, len(counted))
+	for _, idx := range counted {
+		choice := "option_" + strconv.Itoa(idx)
+		choices = append(choices, choice)
+		w := 1
+		if idx >= 0 && idx < len(weights) {
+			w = weights[idx]
+		}
+		if w <= 0 {
+			w = 1
+		}
+		weightByChoice[choice] = w
+	}
+
+	type voteRow struct {
+		UserID    int64
+		Username  string
+		FirstName string
+		LastName  string
+		Choice    string
+	}
+	var rows []voteRow
+	if err := tx.WithContext(ctx).
+		Table("event_poll_votes").
+		Select("user_id, COALESCE(username, '') AS username, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name, choice").
+		Where("post_id = ? AND choice IN ?", *inst.PollPostID, choices).
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+
+	type payer struct {
+		UserID    int64
+		Username  string
+		FirstName string
+		LastName  string
+		Seats     int
+	}
+	payers := make(map[int64]*payer, len(rows))
+	for _, row := range rows {
+		p, ok := payers[row.UserID]
+		if !ok {
+			p = &payer{
+				UserID:    row.UserID,
+				Username:  strings.TrimSpace(row.Username),
+				FirstName: strings.TrimSpace(row.FirstName),
+				LastName:  strings.TrimSpace(row.LastName),
+				Seats:     0,
+			}
+			payers[row.UserID] = p
+		}
+		w := weightByChoice[strings.TrimSpace(row.Choice)]
+		if w <= 0 {
+			w = 1
+		}
+		p.Seats += w
+	}
+	participants := 0
+	for _, p := range payers {
+		if p.Seats > 0 {
+			participants += p.Seats
+		}
+	}
+
+	totalAmount := 4000.0
+	if inst.CostAmount != nil {
+		totalAmount = *inst.CostAmount
+	}
+	perPerson := 0.0
+	if participants > 0 {
+		perPerson = math.Ceil(totalAmount / float64(participants))
+	}
+
+	var settlement struct {
+		ID uint64
+	}
+	err := tx.WithContext(ctx).
+		Table("event_settlements").
+		Select("id").
+		Where("group_id = ? AND instance_id = ?", groupID, inst.ID).
+		Order("id DESC").
+		Take(&settlement).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		record := map[string]interface{}{
+			"group_id":           groupID,
+			"event_id":           inst.EventID,
+			"instance_id":        &inst.ID,
+			"post_id":            inst.PollPostID,
+			"local_date":         inst.LocalDate.Format("2006-01-02"),
+			"total_amount":       totalAmount,
+			"participants_count": participants,
+			"amount_per_person":  perPerson,
+			"sent_at":            gorm.Expr("NOW()"),
+			"created_at":         gorm.Expr("NOW()"),
+			"updated_at":         gorm.Expr("NOW()"),
+		}
+		if err := tx.WithContext(ctx).Table("event_settlements").Create(record).Error; err != nil {
+			return err
+		}
+		if err := tx.WithContext(ctx).
+			Table("event_settlements").
+			Select("id").
+			Where("group_id = ? AND instance_id = ?", groupID, inst.ID).
+			Order("id DESC").
+			Take(&settlement).Error; err != nil {
+			return err
+		}
+	} else {
+		if err := tx.WithContext(ctx).
+			Table("event_settlements").
+			Where("id = ?", settlement.ID).
+			Updates(map[string]interface{}{
+				"total_amount":       totalAmount,
+				"participants_count": participants,
+				"amount_per_person":  perPerson,
+				"updated_at":         gorm.Expr("NOW()"),
+			}).Error; err != nil {
+			return err
+		}
+	}
+
+	// Preserve is_paid/paid_at where possible, but always update amount_due and participant set.
+	type existingPayment struct {
+		UserID int64
+		IsPaid bool
+		PaidAt *time.Time
+	}
+	var existing []existingPayment
+	if err := tx.WithContext(ctx).
+		Table("event_settlement_payments").
+		Select("user_id, is_paid, paid_at").
+		Where("settlement_id = ?", settlement.ID).
+		Scan(&existing).Error; err != nil {
+		return err
+	}
+	existingByUser := make(map[int64]existingPayment, len(existing))
+	for _, e := range existing {
+		existingByUser[e.UserID] = e
+	}
+
+	userIDs := make([]int64, 0, len(payers))
+	for uid := range payers {
+		userIDs = append(userIDs, uid)
+	}
+	if len(userIDs) == 0 {
+		// No participants: clear all payments.
+		return tx.WithContext(ctx).
+			Table("event_settlement_payments").
+			Where("settlement_id = ?", settlement.ID).
+			Delete(&struct{}{}).Error
+	}
+
+	// Remove users who are no longer participants.
+	if err := tx.WithContext(ctx).
+		Table("event_settlement_payments").
+		Where("settlement_id = ? AND user_id NOT IN ?", settlement.ID, userIDs).
+		Delete(&struct{}{}).Error; err != nil {
+		return err
+	}
+
+	for _, uid := range userIDs {
+		p := payers[uid]
+		if p == nil || p.Seats <= 0 {
+			continue
+		}
+		amountDue := perPerson * float64(p.Seats)
+
+		updates := map[string]interface{}{
+			"username":    p.Username,
+			"first_name":  p.FirstName,
+			"last_name":   p.LastName,
+			"amount_due":  amountDue,
+			"updated_at":  gorm.Expr("NOW()"),
+		}
+
+		if _, ok := existingByUser[uid]; ok {
+			if err := tx.WithContext(ctx).
+				Table("event_settlement_payments").
+				Where("settlement_id = ? AND user_id = ?", settlement.ID, uid).
+				Updates(updates).Error; err != nil {
+				return err
+			}
+			continue
+		}
+
+		rec := map[string]interface{}{
+			"settlement_id": settlement.ID,
+			"user_id":       uid,
+			"username":      p.Username,
+			"first_name":    p.FirstName,
+			"last_name":     p.LastName,
+			"amount_due":    amountDue,
+			"is_paid":       false,
+			"created_at":    gorm.Expr("NOW()"),
+			"updated_at":    gorm.Expr("NOW()"),
+		}
+		if err := tx.WithContext(ctx).Table("event_settlement_payments").Create(rec).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *Store) FindBoundEventIDByTemplateAndWeekday(ctx context.Context, chatID int64, templateName string, weekday int) (*uint64, error) {
@@ -2044,51 +2420,15 @@ func (s *Store) EnsureEventBillingByInstance(ctx context.Context, chatID int64, 
 		return nil, errors.New("template has no options marked with accounting flag")
 	}
 	choices := make([]string, 0, len(counted))
-	weightByChoice := make(map[string]int, len(counted))
 	for _, idx := range counted {
 		choice := "option_" + strconv.Itoa(idx)
 		choices = append(choices, choice)
-		w := 1
-		if idx >= 0 && idx < len(weights) {
-			w = weights[idx]
-		}
-		if w <= 0 {
-			w = 1
-		}
-		weightByChoice[choice] = w
-	}
-	byChoice, err := s.CountVotesForPostChoicesByChoice(ctx, *inst.PollPostID, choices)
-	if err != nil {
-		return nil, err
-	}
-	participants := 0
-	for choice, c := range byChoice {
-		w := weightByChoice[choice]
-		if w <= 0 {
-			w = 1
-		}
-		participants += c * w
-	}
-
-	totalAmount := 4000.0
-	if inst.CostAmount != nil {
-		totalAmount = *inst.CostAmount
-	}
-	perPerson := 0.0
-	if participants > 0 {
-		perPerson = math.Ceil(totalAmount / float64(participants))
 	}
 
 	// If settlement already exists, return it (and ensure missing payment rows exist).
-	existing, err := s.GetEventBillingByInstance(ctx, chatID, instanceID)
-	if err != nil {
-		return nil, err
-	}
-	if existing != nil {
-		return existing, nil
-	}
-
-	if err := s.CreateEventSettlement(ctx, group.ID, inst.EventID, &inst.ID, inst.PollPostID, inst.LocalDate, totalAmount, participants, perPerson); err != nil {
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.recalculateEventSettlementByInstanceTx(ctx, tx, group.ID, inst.ID)
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetEventBillingByInstance(ctx, chatID, instanceID)
@@ -2387,6 +2727,93 @@ func (s *Store) GetGroupDebtSummary(ctx context.Context, chatID int64) (*GroupDe
 		TotalDebt:  out.TotalDebt,
 		UnpaidRows: out.UnpaidRows,
 	}, nil
+}
+
+func (s *Store) ListGroupDebtors(ctx context.Context, chatID int64) ([]GroupDebtor, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	type row struct {
+		UserID     int64
+		Username   string
+		FirstName  string
+		LastName   string
+		RealName   string
+		InstanceID *uint64
+		EventName  string
+		StartAt    *time.Time
+		AmountDue  float64
+	}
+
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_settlement_payments esp").
+		Select(`
+			esp.user_id,
+			COALESCE(NULLIF(tu.username, ''), NULLIF(esp.username, ''), '') AS username,
+			COALESCE(NULLIF(tu.first_name, ''), NULLIF(esp.first_name, ''), '') AS first_name,
+			COALESCE(NULLIF(tu.last_name, ''), NULLIF(esp.last_name, ''), '') AS last_name,
+			COALESCE(gm.real_name, '') AS real_name,
+			es.instance_id,
+			COALESCE(NULLIF(ei.event_name, ''), NULLIF(ge.name, ''), '') AS event_name,
+			ei.planned_start_at AS start_at,
+			esp.amount_due::float8 AS amount_due
+		`).
+		Joins("JOIN event_settlements es ON es.id = esp.settlement_id").
+		Joins("LEFT JOIN event_instances ei ON ei.id = es.instance_id").
+		Joins("LEFT JOIN group_events ge ON ge.id = es.event_id").
+		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = esp.user_id").
+		Joins("LEFT JOIN group_members gm ON gm.group_id = es.group_id AND gm.user_telegram_id = esp.user_id AND gm.is_active = TRUE").
+		Where("es.group_id = ? AND esp.is_paid = FALSE", group.ID).
+		Order("esp.user_id ASC, ei.planned_start_at DESC, es.id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	byUser := map[int64]*GroupDebtor{}
+	order := make([]int64, 0)
+	for _, r := range rows {
+		d, ok := byUser[r.UserID]
+		if !ok {
+			d = &GroupDebtor{
+				UserID:    r.UserID,
+				Username:  strings.TrimSpace(r.Username),
+				FirstName: strings.TrimSpace(r.FirstName),
+				LastName:  strings.TrimSpace(r.LastName),
+				RealName:  strings.TrimSpace(r.RealName),
+				TotalDebt: 0,
+				Trainings: make([]DebtorTrainingDebt, 0),
+			}
+			byUser[r.UserID] = d
+			order = append(order, r.UserID)
+		}
+		d.TotalDebt += r.AmountDue
+		if r.InstanceID != nil && *r.InstanceID != 0 && r.StartAt != nil {
+			d.Trainings = append(d.Trainings, DebtorTrainingDebt{
+				InstanceID: *r.InstanceID,
+				EventName:  strings.TrimSpace(r.EventName),
+				StartAt:    *r.StartAt,
+				AmountDue:  r.AmountDue,
+			})
+		}
+	}
+
+	out := make([]GroupDebtor, 0, len(order))
+	for _, uid := range order {
+		if d := byUser[uid]; d != nil {
+			out = append(out, *d)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].TotalDebt != out[j].TotalDebt {
+			return out[i].TotalDebt > out[j].TotalDebt
+		}
+		return out[i].UserID < out[j].UserID
+	})
+	return out, nil
 }
 
 func (s *Store) GetUserGroupProfile(ctx context.Context, chatID int64, userTelegramID int64) (*UserGroupProfile, error) {

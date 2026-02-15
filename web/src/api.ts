@@ -9,6 +9,7 @@ import type {
   EventView,
   EventBilling,
   EventSetRow,
+  GroupDebtor,
   Group,
   GroupDebtSummary,
   GroupDetails,
@@ -397,6 +398,12 @@ export async function fetchGroupPollVotes(chatID: number, postID: number): Promi
   return parseResponse<GroupPollVoteItem[]>(res)
 }
 
+export async function deleteGroupPollVotesForUser(chatID: number, postID: number, userID: number, choice?: string) {
+  const qs = choice ? `?choice=${encodeURIComponent(choice)}` : ''
+  const res = await fetch(`/api/groups/${chatID}/polls/${postID}/votes/${userID}${qs}`, { method: 'DELETE' })
+  await parseResponse<{ status: string }>(res)
+}
+
 export async function publishRegistration(chatID: number) {
   const res = await fetch(`/api/groups/${chatID}/registration/publish`, { method: 'POST' })
   await parseResponse<{ status: string }>(res)
@@ -410,6 +417,20 @@ export async function fetchEventHistory(chatID: number): Promise<EventHistoryIte
 export async function fetchGroupDebtSummary(chatID: number): Promise<GroupDebtSummary> {
   const res = await fetch(`/api/groups/${chatID}/billing/summary`)
   return parseResponse<GroupDebtSummary>(res)
+}
+
+export async function fetchGroupDebtors(chatID: number): Promise<GroupDebtor[]> {
+  const res = await fetch(`/api/groups/${chatID}/billing/debtors`)
+  return parseResponse<GroupDebtor[]>(res)
+}
+
+export async function publishGroupDebtors(chatID: number, userIDs: number[]) {
+  const res = await fetch(`/api/groups/${chatID}/billing/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userIDs }),
+  })
+  await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchEventBilling(chatID: number, eventID: number): Promise<EventBilling | null> {
@@ -439,6 +460,15 @@ export async function saveEventSetRowsForInstance(chatID: number, instanceID: nu
 export async function publishEventSetRowsForInstance(chatID: number, instanceID: number) {
   const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/sets/publish`, {
     method: 'POST',
+  })
+  await parseResponse<{ status: string }>(res)
+}
+
+export async function publishEventBillingDebtorsForInstance(chatID: number, instanceID: number, userIDs: number[]) {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userIDs }),
   })
   await parseResponse<{ status: string }>(res)
 }

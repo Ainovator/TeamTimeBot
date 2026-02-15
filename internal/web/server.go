@@ -521,11 +521,40 @@ func (s *Server) handlePollRoutes(w http.ResponseWriter, r *http.Request, chatID
 		writeJSON(w, http.StatusOK, votes)
 		return
 	}
+	if len(parts) == 3 && parts[1] == "votes" && r.Method == http.MethodDelete {
+		if _, _, ok := s.requireGroupPermission(w, r, chatID, "roles_manage"); !ok {
+			return
+		}
+		postID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid post id")
+			return
+		}
+		userID, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid user id")
+			return
+		}
+		choice := strings.TrimSpace(r.URL.Query().Get("choice"))
+		var delErr error
+		if choice != "" {
+			delErr = s.store.DeleteGroupPollVoteChoiceByPostUser(r.Context(), chatID, postID, userID, choice)
+		} else {
+			// Backward-compat: if choice isn't provided, delete all choices for this user in this poll.
+			delErr = s.store.DeleteGroupPollVotesByPostAndUser(r.Context(), chatID, postID, userID)
+		}
+		if delErr != nil {
+			writeError(w, http.StatusBadRequest, delErr)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
 	writeMethodNotAllowed(w)
 }
 
 func (s *Server) handleBillingRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
-	if _, _, ok := s.requireGroupPermission(w, r, chatID, "events_read"); !ok {
+	if _, _, ok := s.requireGroupPermission(w, r, chatID, "roles_manage"); !ok {
 		return
 	}
 
@@ -536,6 +565,33 @@ func (s *Server) handleBillingRoutes(w http.ResponseWriter, r *http.Request, cha
 			return
 		}
 		writeJSON(w, http.StatusOK, summary)
+		return
+	}
+	if len(parts) == 1 && parts[0] == "debtors" && r.Method == http.MethodGet {
+		debtors, err := s.store.ListGroupDebtors(r.Context(), chatID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if debtors == nil {
+			debtors = make([]postgres.GroupDebtor, 0)
+		}
+		writeJSON(w, http.StatusOK, debtors)
+		return
+	}
+	if len(parts) == 1 && parts[0] == "publish" && r.Method == http.MethodPost {
+		var req struct {
+			UserIDs []int64 `json:"userIDs"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := s.publishGroupDebtorsNow(r.Context(), chatID, req.UserIDs); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
 	writeMethodNotAllowed(w)
@@ -1088,6 +1144,27 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			history = make([]postgres.EventPollHistoryItem, 0)
 		}
 		writeJSON(w, http.StatusOK, history)
+		return
+	}
+
+	if len(parts) == 4 && parts[0] == "history" && parts[2] == "billing" && parts[3] == "publish" && r.Method == http.MethodPost {
+		instanceID, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid instance id")
+			return
+		}
+		var req struct {
+			UserIDs []int64 `json:"userIDs"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := s.publishEventBillingDebtorsNow(r.Context(), chatID, instanceID, req.UserIDs); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
 
@@ -2039,6 +2116,166 @@ func (s *Server) publishEventSetRowsNow(ctx context.Context, chatID int64, insta
 		return errors.New("nothing to publish")
 	}
 
+	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
+	return s.bot.SendMessage(chat, message, nil)
+}
+
+func billingPlayerDisplayName(p postgres.EventBillingParticipant) string {
+	full := strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
+	if full != "" {
+		return full
+	}
+	if strings.TrimSpace(p.Username) != "" {
+		return "@" + strings.TrimSpace(p.Username)
+	}
+	return strconv.FormatInt(p.UserID, 10)
+}
+
+func (s *Server) publishEventBillingDebtorsNow(ctx context.Context, chatID int64, instanceID uint64, includeUserIDs []int64) error {
+	name, localDate, err := s.store.GetEventInstanceHeader(ctx, chatID, instanceID)
+	if err != nil {
+		return err
+	}
+	billing, err := s.store.GetEventBillingByInstance(ctx, chatID, instanceID)
+	if err != nil {
+		return err
+	}
+	if billing == nil {
+		return errors.New("billing not found")
+	}
+
+	include := map[int64]bool(nil)
+	if len(includeUserIDs) > 0 {
+		include = make(map[int64]bool, len(includeUserIDs))
+		for _, uid := range includeUserIDs {
+			if uid != 0 {
+				include[uid] = true
+			}
+		}
+	}
+
+	type item struct {
+		Name   string
+		Amount float64
+	}
+	list := make([]item, 0, len(billing.Players))
+	total := 0.0
+	for _, p := range billing.Players {
+		if p.IsPaid || p.AmountDue <= 0 {
+			continue
+		}
+		if include != nil && !include[p.UserID] {
+			continue
+		}
+		name := billingPlayerDisplayName(p)
+		list = append(list, item{Name: name, Amount: p.AmountDue})
+		total += p.AmountDue
+	}
+	if len(list) == 0 {
+		return errors.New("no debtors to publish")
+	}
+
+	sort.SliceStable(list, func(i, j int) bool {
+		if list[i].Amount != list[j].Amount {
+			return list[i].Amount > list[j].Amount
+		}
+		return list[i].Name < list[j].Name
+	})
+
+	if strings.TrimSpace(name) == "" {
+		name = fmt.Sprintf("Событие #%d", instanceID)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Задолженности за %q\n", name)
+	if !localDate.IsZero() {
+		fmt.Fprintf(&b, "Дата: %s\n", localDate.Format("2006-01-02"))
+	}
+	b.WriteString("\n")
+	for _, it := range list {
+		fmt.Fprintf(&b, "%s — %.0f ₽\n", it.Name, it.Amount)
+	}
+	fmt.Fprintf(&b, "\nИтого: %.0f ₽", total)
+
+	message := strings.TrimSpace(b.String())
+	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
+	return s.bot.SendMessage(chat, message, nil)
+}
+
+func groupDebtorDisplayName(d postgres.GroupDebtor) string {
+	full := strings.TrimSpace(strings.TrimSpace(d.FirstName + " " + d.LastName))
+	if full != "" {
+		return full
+	}
+	if strings.TrimSpace(d.Username) != "" {
+		return "@" + strings.TrimSpace(d.Username)
+	}
+	return strconv.FormatInt(d.UserID, 10)
+}
+
+func (s *Server) publishGroupDebtorsNow(ctx context.Context, chatID int64, includeUserIDs []int64) error {
+	group, err := s.store.GetGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	debtors, err := s.store.ListGroupDebtors(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	include := map[int64]bool(nil)
+	if len(includeUserIDs) > 0 {
+		include = make(map[int64]bool, len(includeUserIDs))
+		for _, uid := range includeUserIDs {
+			if uid != 0 {
+				include[uid] = true
+			}
+		}
+	}
+
+	type item struct {
+		Name   string
+		Amount float64
+	}
+	list := make([]item, 0, len(debtors))
+	total := 0.0
+	for _, d := range debtors {
+		if d.TotalDebt <= 0 {
+			continue
+		}
+		if include != nil && !include[d.UserID] {
+			continue
+		}
+		name := groupDebtorDisplayName(d)
+		if rn := strings.TrimSpace(d.RealName); rn != "" && rn != name {
+			name = fmt.Sprintf("%s (%s)", name, rn)
+		}
+		list = append(list, item{Name: name, Amount: d.TotalDebt})
+		total += d.TotalDebt
+	}
+	if len(list) == 0 {
+		return errors.New("no debtors to publish")
+	}
+
+	sort.SliceStable(list, func(i, j int) bool {
+		if list[i].Amount != list[j].Amount {
+			return list[i].Amount > list[j].Amount
+		}
+		return list[i].Name < list[j].Name
+	})
+
+	var b strings.Builder
+	title := strings.TrimSpace(group.Title)
+	if title == "" {
+		title = strconv.FormatInt(chatID, 10)
+	}
+	fmt.Fprintf(&b, "Задолженности · %s\n\n", title)
+	for _, it := range list {
+		fmt.Fprintf(&b, "%s — %.0f ₽\n", it.Name, it.Amount)
+	}
+	fmt.Fprintf(&b, "\nИтого: %.0f ₽", total)
+
+	message := strings.TrimSpace(b.String())
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
 	return s.bot.SendMessage(chat, message, nil)
 }

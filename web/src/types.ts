@@ -214,6 +214,23 @@ export type GroupDebtSummary = {
   unpaidRows: number
 }
 
+export type DebtorTrainingDebt = {
+  instanceID: number
+  eventName: string
+  startAt: string
+  amountDue: number
+}
+
+export type GroupDebtor = {
+  userID: number
+  username: string
+  firstName: string
+  lastName: string
+  realName: string
+  totalDebt: number
+  trainings: DebtorTrainingDebt[]
+}
+
 export type GroupDetails = {
   group: Group
   templateNames: string[]

@@ -17,10 +17,13 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
   fetchEventBillingForInstance,
   fetchEventSetRowsForInstance,
   fetchEventHistory,
+  fetchGroupDebtors,
   fetchGroupPolls,
   fetchGroupPollVotes,
   fetchGroupPermissions,
   fetchGroupRoles,
+  deleteGroupPollVotesForUser,
+  publishGroupDebtors,
   publishRegistration,
   generateEventBillingForInstance,
   fetchEventPollHistoryForInstance,
@@ -89,6 +92,7 @@ import type {
   GroupPollItem,
   GroupPollVoteItem,
   GroupMember,
+  GroupDebtor,
   GroupPermissionsView,
   GroupRoleView,
   MemberSkillProfile,
@@ -270,9 +274,32 @@ export default function App() {
   const [eventSetsLoading, setEventSetsLoading] = useState(false)
   const [eventSetsError, setEventSetsError] = useState('')
   const [groupDebtSummary, setGroupDebtSummary] = useState<GroupDebtSummary | null>(null)
+  const [billingDebtors, setBillingDebtors] = useState<GroupDebtor[]>([])
+  const [billingLoading, setBillingLoading] = useState(false)
+  const [billingError, setBillingError] = useState('')
+  const [billingExpanded, setBillingExpanded] = useState<Record<number, boolean>>({})
+  const [billingPublishDraft, setBillingPublishDraft] = useState<Record<number, boolean>>({})
   const [myProfile, setMyProfile] = useState<UserGroupProfile | null>(null)
   const [myProfileLoading, setMyProfileLoading] = useState(false)
   const [myProfileError, setMyProfileError] = useState('')
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean
+    title: string
+    message: string
+    confirmLabel: string
+    cancelLabel: string
+    danger: boolean
+    onConfirm: null | (() => Promise<void>)
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    confirmLabel: 'Подтвердить',
+    cancelLabel: 'Отмена',
+    danger: false,
+    onConfirm: null,
+  })
+  const [confirmBusy, setConfirmBusy] = useState(false)
   const [activePerms, setActivePerms] = useState<GroupPermissionsView | null>(null)
   const [groupRoles, setGroupRoles] = useState<GroupRoleView[]>([])
   const [groupRolesLoading, setGroupRolesLoading] = useState(false)
@@ -320,6 +347,7 @@ export default function App() {
   const visibleSections = useMemo(() => {
     return sections.filter((s) => {
       if (s.id === 'overview') return isAdmin
+      if (s.id === 'billing') return isAdmin
       if (s.id === 'events') return can('events_read')
       if (s.id === 'polls') return can('polls_read')
       if (s.id === 'profile') return can('profile_read')
@@ -675,6 +703,9 @@ export default function App() {
       setGroupPollVotes([])
       setEventBilling(null)
       setGroupDebtSummary(null)
+      setBillingDebtors([])
+      setBillingExpanded({})
+      setBillingPublishDraft({})
       setActiveHistoryEventID(null)
       setActivePollPostID(null)
       setArchivedEvents([])
@@ -691,6 +722,9 @@ export default function App() {
       setGroupPollVotes([])
       setEventBilling(null)
       setGroupDebtSummary(null)
+      setBillingDebtors([])
+      setBillingExpanded({})
+      setBillingPublishDraft({})
       setActiveHistoryEventID(null)
       setActivePollPostID(null)
       setArchivedEvents([])
@@ -1055,6 +1089,51 @@ export default function App() {
       cancelled = true
     }
   }, [activeSection, activeChatID, activeHistoryEventID, success])
+
+  useEffect(() => {
+    if (activeSection !== 'billing' || activeChatID === null || !isAdmin) {
+      setBillingDebtors([])
+      setBillingLoading(false)
+      setBillingError('')
+      setBillingPublishDraft({})
+      return
+    }
+    let cancelled = false
+    setBillingLoading(true)
+    setBillingError('')
+    void fetchGroupDebtors(activeChatID)
+      .then((items) => {
+        if (cancelled) return
+        const safe = Array.isArray(items) ? items : []
+        setBillingDebtors(safe)
+        setBillingPublishDraft((prev) => {
+          const next: Record<number, boolean> = { ...prev }
+          const seen = new Set<number>()
+          for (const d of safe) {
+            const uid = Number(d.userID)
+            if (!Number.isFinite(uid) || uid === 0) continue
+            seen.add(uid)
+            if (typeof next[uid] !== 'boolean') next[uid] = true
+          }
+          for (const k of Object.keys(next)) {
+            const uid = Number(k)
+            if (!seen.has(uid)) delete next[uid]
+          }
+          return next
+        })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setBillingDebtors([])
+        setBillingError((err as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) setBillingLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, isAdmin, success])
 
   useEffect(() => {
     if (activeSection !== 'events' || activeChatID === null || activeHistoryEventID === null) {
@@ -2419,6 +2498,179 @@ export default function App() {
     )
   }
 
+  function debtorDisplayName(d: GroupDebtor): string {
+    const full = `${d.firstName ?? ''} ${d.lastName ?? ''}`.trim()
+    if (full) {
+      return full
+    }
+    if (d.username) {
+      return `@${d.username}`
+    }
+    return `ID ${d.userID}`
+  }
+
+  function renderBilling() {
+    if (activeChatID === null) {
+      return <section className="content-card">Выбери организацию</section>
+    }
+
+    const publishIncluded = Object.keys(billingPublishDraft)
+      .filter((k) => billingPublishDraft[Number(k)])
+      .map((k) => Number(k))
+      .filter((n) => Number.isFinite(n) && n !== 0)
+
+    return (
+      <section className="content-card">
+        <div className="template-head">
+          <h3>Задолженности</h3>
+          <button
+            type="button"
+            disabled={billingLoading || publishIncluded.length === 0}
+            onClick={() =>
+              void runAction(
+                async () => {
+                  if (activeChatID === null) return
+                  await publishGroupDebtors(activeChatID, publishIncluded)
+                },
+                'Задолженности опубликованы',
+              )
+            }
+          >
+            Опубликовать
+          </button>
+        </div>
+
+        {billingLoading ? <p className="muted">Загрузка задолженностей...</p> : null}
+        {billingError ? <p className="muted">Ошибка: {billingError}</p> : null}
+
+        {!billingLoading && !billingError && billingDebtors.length === 0 ? <p className="muted">Задолженностей нет</p> : null}
+
+        {!billingLoading && !billingError && billingDebtors.length > 0 ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Игрок</th>
+                  <th>Реальное ФИО</th>
+                  <th className="col-center">Долг за все тренировки</th>
+                  <th className="col-center">Публиковать</th>
+                </tr>
+              </thead>
+              <tbody>
+                {billingDebtors.flatMap((debtor) => {
+                  const expanded = Boolean(billingExpanded[debtor.userID])
+                  const rows: JSX.Element[] = []
+                  rows.push(
+                    <tr
+                      key={`debtor-${debtor.userID}`}
+                      className="member-row"
+                      onClick={() =>
+                        setBillingExpanded((prev) => ({
+                          ...prev,
+                          [debtor.userID]: !prev[debtor.userID],
+                        }))
+                      }
+                    >
+                      <td>
+                        <div className="person-cell">
+                          <strong>{debtorDisplayName(debtor)}</strong>
+                          <span>{debtor.username ? `@${debtor.username}` : `ID ${debtor.userID}`}</span>
+                        </div>
+                      </td>
+                      <td>{debtor.realName || '-'}</td>
+                      <td className="col-center">
+                        <span className="badge badge-debt debt-badge">{formatMoney(debtor.totalDebt)}</span>
+                      </td>
+                      <td className="col-center">
+                        <label
+                          className="toggle-field toggle-field-only"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={Boolean(billingPublishDraft[debtor.userID])}
+                            onChange={(e) =>
+                              setBillingPublishDraft((prev) => ({
+                                ...prev,
+                                [debtor.userID]: e.target.checked,
+                              }))
+                            }
+                          />
+                        </label>
+                      </td>
+                    </tr>,
+                  )
+
+                  if (expanded) {
+                    rows.push(
+                      <tr key={`debtor-expand-${debtor.userID}`}>
+                        <td colSpan={4}>
+                          {debtor.trainings?.length ? (
+                            <div className="list-block" style={{ marginTop: 10 }}>
+                              {debtor.trainings.map((t) => (
+                                <div
+                                  key={`${debtor.userID}-${t.instanceID}`}
+                                  className="list-row clickable"
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigateTo({
+                                      chatID: activeChatID,
+                                      section: 'events',
+                                      historyEventID: t.instanceID,
+                                      templateView: 'list',
+                                      templateName: null,
+                                      eventView: 'list',
+                                      eventID: null,
+                                    })
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== 'Enter' && e.key !== ' ') return
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    navigateTo({
+                                      chatID: activeChatID,
+                                      section: 'events',
+                                      historyEventID: t.instanceID,
+                                      templateView: 'list',
+                                      templateName: null,
+                                      eventView: 'list',
+                                      eventID: null,
+                                    })
+                                  }}
+                                >
+                                  <div>
+                                    <strong>{t.eventName || `Событие #${t.instanceID}`}</strong>
+                                    <p className="muted">{formatDateTime(t.startAt)}</p>
+                                  </div>
+                                  <div className="list-actions">
+                                    <span className="badge badge-debt debt-badge">{formatMoney(t.amountDue)}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="muted" style={{ marginTop: 10 }}>
+                              Нет привязанных тренировок
+                            </p>
+                          )}
+                        </td>
+                      </tr>,
+                    )
+                  }
+                  return rows
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
   function renderMembers() {
     if (activeMemberID !== null) {
       return (
@@ -2898,7 +3150,7 @@ export default function App() {
     return (
       <section className="content-card">
         <div className="template-head">
-          <h3>Шаблоны опросов</h3>
+          <h3>Шаблоны голосований</h3>
           <button
             className="btn-secondary"
             onClick={() =>
@@ -4206,11 +4458,12 @@ export default function App() {
                           <th>Учет</th>
                           <th>Источник</th>
                           <th>Время</th>
+                          {isAdmin ? <th className="col-center">Удалить</th> : null}
                         </tr>
                       </thead>
                       <tbody>
                         {historyPollVotes.map((vote) => (
-                          <tr key={vote.userID}>
+                          <tr key={`${vote.userID}-${vote.choice}-${vote.votedAt}`}>
                             <td>
                               {`${vote.firstName || ''} ${vote.lastName || ''}`.trim() ||
                                 (vote.username ? `@${vote.username}` : `ID ${vote.userID}`)}
@@ -4219,6 +4472,39 @@ export default function App() {
                             <td>{vote.counted ? 'да' : 'нет'}</td>
                             <td>{vote.source || '-'}</td>
                             <td>{formatDateTime(vote.votedAt)}</td>
+                            {isAdmin ? (
+                              <td className="col-center">
+                                <button
+                                  type="button"
+                                  className="btn-danger btn-icon"
+                                  title="Удалить голос"
+                                  aria-label="Удалить голос"
+                                  onClick={() => {
+                                    if (activeChatID === null || selectedHistoryPostID === null) return
+                                    const name =
+                                      `${vote.firstName || ''} ${vote.lastName || ''}`.trim() ||
+                                      (vote.username ? `@${vote.username}` : `ID ${vote.userID}`)
+                                    setConfirmModal({
+                                      open: true,
+                                      title: 'Удалить голос игрока?',
+                                      message:
+                                        `Вы точно хотите удалить голос игрока?\n\n` +
+                                        `Игрок: ${name}\n` +
+                                        `Выбор: ${vote.choiceLabel || vote.choice}\n\n` +
+                                        `Действие безвозвратно и приведет к перерасчёту стоимости тренировки.`,
+                                      confirmLabel: 'Удалить',
+                                      cancelLabel: 'Отмена',
+                                      danger: true,
+                                      onConfirm: async () => {
+                                        await deleteGroupPollVotesForUser(activeChatID, selectedHistoryPostID, vote.userID, vote.choice)
+                                      },
+                                    })
+                                  }}
+                                >
+                                  −
+                                </button>
+                              </td>
+                            ) : null}
                           </tr>
                         ))}
                       </tbody>
@@ -4702,6 +4988,16 @@ export default function App() {
           )
         }
         return renderOverview()
+      case 'billing':
+        if (!isAdmin) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Раздел «Задолженности» доступен только администраторам.</p>
+            </section>
+          )
+        }
+        return renderBilling()
       case 'members':
         if (!can('members_read')) {
           return (
@@ -5065,6 +5361,75 @@ export default function App() {
           renderContent()
         )}
       </main>
+
+      {confirmModal.open ? (
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onClick={() => {
+            if (confirmBusy) return
+            setConfirmModal((prev) => ({ ...prev, open: false, onConfirm: null }))
+          }}
+        >
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-label={confirmModal.title}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h4>{confirmModal.title}</h4>
+              <button
+                type="button"
+                className="btn-icon btn-secondary modal-close"
+                aria-label="Закрыть"
+                disabled={confirmBusy}
+                onClick={() => setConfirmModal((prev) => ({ ...prev, open: false, onConfirm: null }))}
+              >
+                <span aria-hidden="true">✕</span>
+              </button>
+            </div>
+            <p className="muted modal-body" style={{ whiteSpace: 'pre-line' }}>
+              {confirmModal.message}
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={confirmBusy}
+                onClick={() => setConfirmModal((prev) => ({ ...prev, open: false, onConfirm: null }))}
+              >
+                {confirmModal.cancelLabel}
+              </button>
+              <button
+                type="button"
+                className={confirmModal.danger ? 'btn-danger' : ''}
+                disabled={confirmBusy}
+                onClick={() =>
+                  void (async () => {
+                    if (!confirmModal.onConfirm) {
+                      setConfirmModal((prev) => ({ ...prev, open: false }))
+                      return
+                    }
+                    setConfirmBusy(true)
+                    try {
+                      // Close immediately to avoid double-clicks; errors will show via runAction.
+                      setConfirmModal((prev) => ({ ...prev, open: false }))
+                      await runAction(confirmModal.onConfirm, 'Голос удалён, расчёт пересчитан')
+                    } finally {
+                      setConfirmBusy(false)
+                      setConfirmModal((prev) => ({ ...prev, onConfirm: null }))
+                    }
+                  })()
+                }
+              >
+                {confirmModal.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
