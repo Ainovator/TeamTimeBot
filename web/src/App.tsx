@@ -48,7 +48,7 @@ import {
   updateTemplate,
   logoutAuth,
 } from './api'
-import { announcementLeadLabel, announcementLeadOptions, ensureList, formatMoney, toHourMinute, weekdayLabel, weekdayOptions } from './app/constants'
+import { announcementLeadLabel, announcementLeadOptions, clockMinutes, ensureList, formatMoney, toHourMinute, weekdayLabel, weekdayOptions } from './app/constants'
 import { sections } from './app/navigation'
 import { buildRoutePath, makeOrgKey, parseRoute, type RouteState, type Section } from './app/router'
 import {
@@ -1462,14 +1462,37 @@ export default function App() {
       setError('Время отмены должно быть больше 0 минут')
       return
     }
-    if (announcementEnabled && announcementText === '') {
-      setError('Заполни текст анонса или отключи публикацию')
-      return
-    }
-    if (settlementEnabled && !settlementPublishBefore && !settlementPublishAfter) {
-      setError('Для расчёта выбери хотя бы один режим: перед началом или после')
-      return
-    }
+	    if (announcementEnabled && announcementText === '') {
+	      setError('Заполни текст анонса или отключи публикацию')
+	      return
+	    }
+	    const startMin = clockMinutes(eventForm.startAt)
+	    const endMin = clockMinutes(eventForm.endAt)
+	    const publishMin = clockMinutes(eventForm.publishAt)
+	    if (startMin === null) {
+	      setError('Время начала должно быть в формате HH:MM')
+	      return
+	    }
+	    if (endMin === null) {
+	      setError('Время окончания должно быть в формате HH:MM')
+	      return
+	    }
+	    if (endMin <= startMin) {
+	      setError('Время окончания должно быть позже времени начала')
+	      return
+	    }
+	    if (publishMin === null) {
+	      setError('Время публикации должно быть в формате HH:MM')
+	      return
+	    }
+	    if (publishWeekday === weekday && publishMin > startMin) {
+	      setError('Время публикации опроса не может быть позже начала события')
+	      return
+	    }
+	    if (settlementEnabled && !settlementPublishBefore && !settlementPublishAfter) {
+	      setError('Для расчёта выбери хотя бы один режим: перед началом или после')
+	      return
+	    }
     if (settlementEnabled && !eventEditorCanEnableSettlement) {
       setError('Расчёт доступен только при привязанном шаблоне с отмеченными вариантами "Учёт"')
       return
@@ -1596,10 +1619,10 @@ export default function App() {
       setError('Выбери день публикации опроса')
       return
     }
-    if (hasTemplate && publishAt === '') {
-      setError('Укажи время публикации опроса')
-      return
-    }
+	    if (hasTemplate && publishAt === '') {
+	      setError('Укажи время публикации опроса')
+	      return
+	    }
     if (!hasTemplate) {
       if (Number.isNaN(publishWeekday)) {
         publishWeekday = weekday
@@ -1624,14 +1647,37 @@ export default function App() {
       setError('Время отмены должно быть больше 0 минут')
       return
     }
-    if (announcementEnabled && announcementText === '') {
-      setError('Заполни текст анонса или отключи публикацию')
-      return
-    }
-    if (settlementEnabled && !settlementPublishBefore && !settlementPublishAfter) {
-      setError('Для расчёта выбери хотя бы один режим: перед началом или после')
-      return
-    }
+	    if (announcementEnabled && announcementText === '') {
+	      setError('Заполни текст анонса или отключи публикацию')
+	      return
+	    }
+	    const startMin = clockMinutes(eventEditor.startAt)
+	    const endMin = clockMinutes(eventEditor.endAt)
+	    const publishMin = clockMinutes(publishAt)
+	    if (startMin === null) {
+	      setError('Время начала должно быть в формате HH:MM')
+	      return
+	    }
+	    if (endMin === null) {
+	      setError('Время окончания должно быть в формате HH:MM')
+	      return
+	    }
+	    if (endMin <= startMin) {
+	      setError('Время окончания должно быть позже времени начала')
+	      return
+	    }
+	    if (publishMin === null) {
+	      setError('Время публикации должно быть в формате HH:MM')
+	      return
+	    }
+	    if (publishWeekday === weekday && publishMin > startMin) {
+	      setError('Время публикации опроса не может быть позже начала события')
+	      return
+	    }
+	    if (settlementEnabled && !settlementPublishBefore && !settlementPublishAfter) {
+	      setError('Для расчёта выбери хотя бы один режим: перед началом или после')
+	      return
+	    }
     if (costAmount !== undefined && (Number.isNaN(costAmount) || costAmount < 0)) {
       setError('Стоимость должна быть числом >= 0')
       return

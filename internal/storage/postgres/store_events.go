@@ -9,6 +9,14 @@ import (
 	"gorm.io/gorm"
 )
 
+func clockMinutes(value string) (int, error) {
+	parsed, err := time.Parse("15:04", strings.TrimSpace(value))
+	if err != nil {
+		return 0, err
+	}
+	return parsed.Hour()*60 + parsed.Minute(), nil
+}
+
 func (s *Store) CreateEvent(
 	ctx context.Context,
 	chatID int64,
@@ -61,6 +69,21 @@ func (s *Store) CreateEvent(
 	}
 	if _, err := time.Parse("15:04", pollPublishTime); err != nil {
 		return nil, errors.New("invalid publish time format, use HH:MM")
+	}
+
+	startMin, _ := clockMinutes(startTime)
+	endMin, _ := clockMinutes(endTime)
+	if endMin <= startMin {
+		return nil, errors.New("end time must be after start time")
+	}
+
+	// Publish must not be later than the start of the event.
+	// If publish weekday differs, interpret it as a day before the event within the previous 6 days.
+	if pollPublishWeekday == startWeekday {
+		publishMin, _ := clockMinutes(pollPublishTime)
+		if publishMin > startMin {
+			return nil, errors.New("poll publish time must not be later than event start time")
+		}
 	}
 	announcementText = strings.TrimSpace(announcementText)
 	announcementLeadMinutes = normalizeAnnouncementLeadMinutes(announcementLeadMinutes)
@@ -296,6 +319,18 @@ func (s *Store) UpdateEventDetails(
 	}
 	if _, err := time.Parse("15:04", endTime); err != nil {
 		return errors.New("invalid end time format, use HH:MM")
+	}
+
+	startMin, _ := clockMinutes(startTime)
+	endMin, _ := clockMinutes(endTime)
+	if endMin <= startMin {
+		return errors.New("end time must be after start time")
+	}
+	if pollPublishWeekday == startWeekday {
+		publishMin, _ := clockMinutes(pollPublishTime)
+		if publishMin > startMin {
+			return errors.New("poll publish time must not be later than event start time")
+		}
 	}
 	announcementLeadMinutes = normalizeAnnouncementLeadMinutes(announcementLeadMinutes)
 	if announcementLeadMinutes == -1 {

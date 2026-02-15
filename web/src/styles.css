@@ -1092,6 +1092,30 @@ textarea {
   padding: 10px 11px;
 }
 
+/* Make native date/time picker icons visible on dark UI. */
+input[type='time'],
+input[type='date'],
+input[type='datetime-local'] {
+  color-scheme: dark;
+}
+
+input[type='time']::-webkit-calendar-picker-indicator,
+input[type='date']::-webkit-calendar-picker-indicator,
+input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  -webkit-filter: invert(1) saturate(0) brightness(2) contrast(1.1);
+  filter: invert(1) saturate(0) brightness(2) contrast(1.1);
+  opacity: 1;
+  background-color: transparent;
+  cursor: pointer;
+}
+
+input[type='time']::-webkit-inner-spin-button,
+input[type='datetime-local']::-webkit-inner-spin-button {
+  -webkit-filter: invert(1) saturate(0) brightness(2) contrast(1.1);
+  filter: invert(1) saturate(0) brightness(2) contrast(1.1);
+  opacity: 1;
+}
+
 select,
 .ui-select {
   appearance: none;
