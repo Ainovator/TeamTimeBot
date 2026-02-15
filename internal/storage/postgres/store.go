@@ -1864,6 +1864,7 @@ func (s *Store) CreateEvent(
 	chatID int64,
 	name string,
 	eventType string,
+	pollTemplateName string,
 	startWeekday int,
 	pollPublishWeekday int,
 	pollPublishTime, startTime, endTime string,
@@ -1892,6 +1893,7 @@ func (s *Store) CreateEvent(
 	if eventType == "" {
 		return nil, errors.New("event type must be training or activity")
 	}
+	pollTemplateName = strings.TrimSpace(pollTemplateName)
 	if startWeekday < 1 || startWeekday > 7 {
 		return nil, errors.New("weekday must be between 1 and 7")
 	}
@@ -1932,8 +1934,23 @@ func (s *Store) CreateEvent(
 		return nil, errors.New("cost amount must be >= 0")
 	}
 
+	var pollTemplateID *uint64
+	if pollTemplateName != "" {
+		var pollTemplate PollTemplate
+		if err := s.db.WithContext(ctx).
+			Where("group_id = ? AND name = ? AND is_active = TRUE", group.ID, pollTemplateName).
+			First(&pollTemplate).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.New("poll template not found")
+			}
+			return nil, err
+		}
+		pollTemplateID = &pollTemplate.ID
+	}
+
 	event := GroupEvent{
 		GroupID:                 group.ID,
+		PollTemplateID:          pollTemplateID,
 		Name:                    strings.TrimSpace(name),
 		EventType:               eventType,
 		StartWeekday:            int16(startWeekday),

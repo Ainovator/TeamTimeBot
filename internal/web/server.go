@@ -937,6 +937,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		var req struct {
 			Name                    string   `json:"name"`
 			EventType               string   `json:"eventType"`
+			TemplateName            string   `json:"templateName"`
 			Weekday                 int      `json:"weekday"`
 			PublishWeekday          int      `json:"publishWeekday"`
 			PublishAt               string   `json:"publishAt"`
@@ -1001,6 +1002,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			chatID,
 			strings.TrimSpace(req.Name),
 			req.EventType,
+			strings.TrimSpace(req.TemplateName),
 			req.Weekday,
 			publishWeekday,
 			strings.TrimSpace(req.PublishAt),

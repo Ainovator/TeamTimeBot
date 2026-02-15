@@ -158,6 +158,7 @@ export default function App() {
   const [eventForm, setEventForm] = useState({
     name: '',
     eventType: 'training' as 'training' | 'activity',
+    templateName: '',
     weekday: '5',
     publishWeekday: '5',
     publishAt: '10:00',
@@ -1427,6 +1428,7 @@ export default function App() {
     const weekday = Number(eventForm.weekday)
     const publishWeekday = Number(eventForm.publishWeekday)
     const eventType = eventForm.eventType
+    const templateName = eventForm.templateName.trim()
     const announcementLeadMinutes = Number(eventForm.announcementLeadMinutes)
     const teamSize = Number(eventForm.teamSize)
     const minVotesToHold = Number(eventForm.minVotesToHold)
@@ -1476,6 +1478,10 @@ export default function App() {
       setError('Для нового события сначала привяжи шаблон с отмеченными вариантами "Учёт"')
       return
     }
+    if (templateName === '') {
+      setError('Выбери шаблон опроса')
+      return
+    }
     setError('')
     setSuccess('')
 
@@ -1484,6 +1490,7 @@ export default function App() {
       const created = await createEvent(activeChatID, {
         name: eventForm.name.trim(),
         eventType,
+        templateName,
         weekday,
         publishWeekday,
         publishAt: eventForm.publishAt,
@@ -1514,6 +1521,7 @@ export default function App() {
     setEventForm({
       name: '',
       eventType: 'training',
+      templateName: '',
       weekday: '5',
       publishWeekday: '5',
       publishAt: '10:00',
@@ -2754,7 +2762,22 @@ export default function App() {
                 required
               />
             </label>
-            <span />
+            <label className="field">
+              <span>Шаблон опроса</span>
+              <select
+                className="ui-select"
+                value={eventForm.templateName}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, templateName: e.target.value }))}
+                required
+              >
+                <option value="">Выбери шаблон</option>
+                {templateNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="event-editor-row event-editor-row-announcement-full">
             <label className="field announcement-text">

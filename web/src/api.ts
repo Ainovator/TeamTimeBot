@@ -215,6 +215,7 @@ export async function createEvent(
   payload: {
     name: string
     eventType: 'training' | 'activity'
+    templateName: string
     weekday: number
     publishWeekday: number
     publishAt: string

@@ -367,6 +367,7 @@ func handleStatefulText(bot *tele.Bot, store *postgres.Store, message tele.Messa
 			targetChatID,
 			state.EventName,
 			"training",
+			"",
 			state.EventStartDay,
 			state.EventStartDay,
 			state.EventPublishTime,
