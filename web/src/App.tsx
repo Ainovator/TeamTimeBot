@@ -15,6 +15,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
   fetchArchivedEvents,
   fetchEventActivity,
   fetchEventBillingForInstance,
+  fetchEventSetRowsForInstance,
   fetchEventHistory,
   fetchGroupPolls,
   fetchGroupPollVotes,
@@ -37,6 +38,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
   publishEventTeamSplit,
   saveEventTeamSplit,
   saveEventBillingForInstance,
+  saveEventSetRowsForInstance,
   fetchMyGroupProfile,
   telegramAuthLogin,
   unarchiveEvent,
@@ -109,6 +111,19 @@ declare global {
       hash: string
     }) => void
   }
+}
+
+type SetRowDraft = {
+  left: ActiveTeamCode
+  right: ActiveTeamCode
+  leftScore: number
+  rightScore: number
+}
+
+function clampInt(value: unknown, min: number, max: number): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return min
+  return Math.max(min, Math.min(max, Math.trunc(n)))
 }
 
 export default function App() {
@@ -223,7 +238,7 @@ export default function App() {
   const [showEventActivity, setShowEventActivity] = useState(false)
   const [eventHistory, setEventHistory] = useState<EventHistoryItem[]>([])
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'on_review' | 'completed' | 'not_held'>('')
-  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing'>('distribution')
+  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing' | 'sets'>('distribution')
   const [eventHistoryLoading, setEventHistoryLoading] = useState(false)
   const [eventHistoryError, setEventHistoryError] = useState('')
   const [eventPollHistory, setEventPollHistory] = useState<EventPollHistoryItem[]>([])
@@ -243,11 +258,15 @@ export default function App() {
   const [teamSplitLoading, setTeamSplitLoading] = useState(false)
   const [teamSplitError, setTeamSplitError] = useState('')
   const [draggedPlayerID, setDraggedPlayerID] = useState<number | null>(null)
+  const [touchDragMode, setTouchDragMode] = useState(false)
   const [teamCEnabled, setTeamCEnabled] = useState(false)
   const [eventBilling, setEventBilling] = useState<EventBilling | null>(null)
   const [eventBillingLoading, setEventBillingLoading] = useState(false)
   const [eventBillingError, setEventBillingError] = useState('')
   const [eventBillingDraft, setEventBillingDraft] = useState<Record<number, boolean>>({})
+  const [eventSetRowsDraft, setEventSetRowsDraft] = useState<SetRowDraft[]>([])
+  const [eventSetsLoading, setEventSetsLoading] = useState(false)
+  const [eventSetsError, setEventSetsError] = useState('')
   const [groupDebtSummary, setGroupDebtSummary] = useState<GroupDebtSummary | null>(null)
   const [myProfile, setMyProfile] = useState<UserGroupProfile | null>(null)
   const [myProfileLoading, setMyProfileLoading] = useState(false)
@@ -1036,6 +1055,45 @@ export default function App() {
   }, [activeSection, activeChatID, activeHistoryEventID, success])
 
   useEffect(() => {
+    if (activeSection !== 'events' || activeChatID === null || activeHistoryEventID === null) {
+      setEventSetRowsDraft([])
+      setEventSetsError('')
+      setEventSetsLoading(false)
+      return
+    }
+    let cancelled = false
+    setEventSetsLoading(true)
+    setEventSetsError('')
+    void fetchEventSetRowsForInstance(activeChatID, activeHistoryEventID)
+      .then((rows) => {
+        if (cancelled) return
+        const safe = Array.isArray(rows) ? rows : []
+        setEventSetRowsDraft(
+          safe
+            .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
+            .map((r) => ({
+              left: (r.team1 as ActiveTeamCode) || 'A',
+              right: (r.team2 as ActiveTeamCode) || 'B',
+              leftScore: clampInt(r.score1 ?? 0, 0, 99),
+              rightScore: clampInt(r.score2 ?? 0, 0, 99),
+            })),
+        )
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setEventSetRowsDraft([])
+        setEventSetsError((err as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) setEventSetsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, activeHistoryEventID, success])
+
+  useEffect(() => {
     setHistoryDetailTab('distribution')
   }, [activeHistoryEventID])
 
@@ -1110,6 +1168,20 @@ export default function App() {
   }, [activeSection, activeChatID, activeHistoryEventID, selectedHistoryPostID, selectedHistoryEvent])
 
   useEffect(() => {
+    if (historyDetailTab !== 'sets' || selectedHistoryPostID === null) {
+      return
+    }
+    if (eventSetRowsDraft.length > 0) {
+      return
+    }
+    const teams = teamSplit ? activeTeamCodes(teamSplit.players, teamCEnabled) : (['A', 'B'] as ActiveTeamCode[])
+    if (teams.length < 2) {
+      return
+    }
+    setEventSetRowsDraft([{ left: teams[0], right: teams[1], leftScore: 0, rightScore: 0 }])
+  }, [eventSetRowsDraft.length, historyDetailTab, selectedHistoryPostID, teamCEnabled, teamSplit])
+
+  useEffect(() => {
     if (activeSection !== 'members' || activeMemberID === null || activeChatID === null) {
       return
     }
@@ -1166,6 +1238,14 @@ export default function App() {
       window.clearTimeout(clearTimer)
     }
   }, [success])
+
+  useEffect(() => {
+    const mql = window.matchMedia('(pointer: coarse)')
+    const onChange = () => setTouchDragMode(mql.matches)
+    onChange()
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
 
   async function reloadActiveOrganization(chatID: number, options?: { silent?: boolean }) {
     const silent = options?.silent === true
@@ -2061,6 +2141,32 @@ export default function App() {
       setEventBillingError('')
     } catch (err) {
       setEventBillingError((err as Error).message)
+    }
+  }
+
+  async function onSaveEventSets() {
+    if (activeChatID === null || activeHistoryEventID === null) {
+      return
+    }
+    try {
+      const baseRows =
+        eventSetRowsDraft.length > 0 ? eventSetRowsDraft : [{ left: 'A' as const, right: 'B' as const, leftScore: 0, rightScore: 0 }]
+
+      const filtered = baseRows.filter((r) => r.left !== r.right)
+      const rowsToSave = (filtered.length ? filtered : [{ left: 'A' as const, right: 'B' as const, leftScore: 0, rightScore: 0 }]).map(
+        (r, idx) => ({
+          ordinal: idx + 1,
+          team1: r.left,
+          score1: clampInt(r.leftScore, 0, 99),
+          team2: r.right,
+          score2: clampInt(r.rightScore, 0, 99),
+        }),
+      )
+      await saveEventSetRowsForInstance(activeChatID, activeHistoryEventID, rowsToSave)
+      setSuccess('Партии сохранены')
+      setEventSetsError('')
+    } catch (err) {
+      setEventSetsError((err as Error).message)
     }
   }
 
@@ -3806,6 +3912,15 @@ export default function App() {
               >
                 Оплата
               </button>
+              <button
+                type="button"
+                className={historyDetailTab === 'sets' ? 'history-tab active' : 'history-tab'}
+                onClick={() => setHistoryDetailTab('sets')}
+                disabled={selectedHistoryPostID === null}
+                title={selectedHistoryPostID === null ? 'Сначала выбери опрос' : undefined}
+              >
+                Партии
+              </button>
             </div>
 
             {historyDetailTab === 'distribution' ? (
@@ -3847,10 +3962,16 @@ export default function App() {
                       const pairRows = teamPairProbabilities(teamSplit.players, teamCEnabled).filter((pair) =>
                         activeTeams.includes(pair.left) && activeTeams.includes(pair.right),
                       )
+                      const selectedTouchPlayer =
+                        draggedPlayerID !== null ? teamSplit.players.find((p) => p.userID === draggedPlayerID) ?? null : null
                       const renderTeamColumn = (teamCode: ActiveTeamCode) => (
                             <div
                               className={`team-column ${draggedPlayerID !== null ? 'team-column-drop' : ''}`}
                               data-team={teamCode}
+                          onClick={() => {
+                            if (!touchDragMode || draggedPlayerID === null) return
+                            onDropToTeam(teamCode)
+                          }}
                           onDragOver={(e) => {
                             e.preventDefault()
                           }}
@@ -3872,11 +3993,15 @@ export default function App() {
                               .filter((player) => player.team === teamCode)
                               .map((player) => (
                                 <article
-                                  className="team-player-card"
+                                  className={draggedPlayerID === player.userID ? 'team-player-card selected' : 'team-player-card'}
                                   key={`${teamCode}-${player.userID}`}
-                                  draggable
+                                  draggable={!touchDragMode}
                                   onDragStart={() => onDragStartTeamPlayer(player.userID)}
                                   onDragEnd={() => setDraggedPlayerID(null)}
+                                  onClick={() => {
+                                    if (!touchDragMode) return
+                                    setDraggedPlayerID((prev) => (prev === player.userID ? null : player.userID))
+                                  }}
                                 >
                                   <p>{playerDisplayName(player)}</p>
                                   <small>{player.choiceLabel} · рейтинг {player.rating.toFixed(1)}</small>
@@ -3889,9 +4014,18 @@ export default function App() {
 
                       return (
                         <>
+                          {touchDragMode && selectedTouchPlayer ? (
+                            <p className="muted" style={{ margin: '6px 0 10px' }}>
+                              Выбрано: <strong>{playerDisplayName(selectedTouchPlayer)}</strong>. Нажми на колонку команды, чтобы переместить.
+                            </p>
+                          ) : null}
                           <div className="team-layout">
                             <div
                               className={`team-column team-column-unassigned ${draggedPlayerID !== null ? 'team-column-drop' : ''}`}
+                              onClick={() => {
+                                if (!touchDragMode || draggedPlayerID === null) return
+                                onDropToTeam('unassigned')
+                              }}
                               onDragOver={(e) => {
                                 e.preventDefault()
                               }}
@@ -3906,11 +4040,15 @@ export default function App() {
                                   .filter((player) => player.team === 'unassigned')
                                   .map((player) => (
                                     <article
-                                      className="team-player-card"
+                                      className={draggedPlayerID === player.userID ? 'team-player-card selected' : 'team-player-card'}
                                       key={`unassigned-${player.userID}`}
-                                      draggable
+                                      draggable={!touchDragMode}
                                       onDragStart={() => onDragStartTeamPlayer(player.userID)}
                                       onDragEnd={() => setDraggedPlayerID(null)}
+                                      onClick={() => {
+                                        if (!touchDragMode) return
+                                        setDraggedPlayerID((prev) => (prev === player.userID ? null : player.userID))
+                                      }}
                                     >
                                       <p>{playerDisplayName(player)}</p>
                                       <small>{player.choiceLabel} · рейтинг {player.rating.toFixed(1)}</small>
@@ -4063,6 +4201,162 @@ export default function App() {
                       Открыть голосование
                     </button>
                   </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            {historyDetailTab === 'sets' ? (
+              <section className="content-card">
+                <div className="template-head">
+                  <h4>Партии</h4>
+                </div>
+                {selectedHistoryPostID === null ? <p className="muted">Выбери опрос в списке выше.</p> : null}
+                {eventSetsLoading ? <p className="muted">Загрузка партий...</p> : null}
+                {eventSetsError ? <p className="muted">Ошибка: {eventSetsError}</p> : null}
+
+                {selectedHistoryPostID !== null ? (
+                  <>
+                    {(() => {
+                      const teams = teamSplit ? activeTeamCodes(teamSplit.players, teamCEnabled) : (['A', 'B'] as ActiveTeamCode[])
+                      const availableTeams = teams.length >= 2 ? teams : (['A', 'B'] as ActiveTeamCode[])
+                      const ensureOtherTeam = (t: ActiveTeamCode) => availableTeams.find((x) => x !== t) ?? availableTeams[0]
+
+                      return (
+                        <>
+                          <div className="set-list">
+                            {(eventSetRowsDraft.length ? eventSetRowsDraft : [{ left: availableTeams[0], right: availableTeams[1], leftScore: 0, rightScore: 0 }]).map(
+                              (row, idx) => (
+                                <div className="set-row" key={`set-row-${idx}`}>
+                                  <span className="muted">{`Партия ${idx + 1}`}</span>
+                                  <div className="set-row-main">
+                                    {availableTeams.length > 2 ? (
+                                      <select
+                                        className="set-team"
+                                        value={row.left}
+                                        onChange={(e) => {
+                                          const nextLeft = e.target.value as ActiveTeamCode
+                                          setEventSetRowsDraft((prev) =>
+                                            prev.map((r, j) => {
+                                              if (j !== idx) return r
+                                              const nextRight = nextLeft === r.right ? ensureOtherTeam(nextLeft) : r.right
+                                              return { ...r, left: nextLeft, right: nextRight }
+                                            }),
+                                          )
+                                        }}
+                                      >
+                                        {availableTeams.map((t) => (
+                                          <option key={`left-${idx}-${t}`} value={t}>
+                                            {t}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <strong className="set-team">{row.left}</strong>
+                                    )}
+
+                                    <div className="set-score">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="99"
+                                        value={row.leftScore}
+                                        onChange={(e) => {
+                                          const value = Number(e.target.value)
+                                          setEventSetRowsDraft((prev) => prev.map((r, j) => (j === idx ? { ...r, leftScore: value } : r)))
+                                        }}
+                                      />
+                                      <span>:</span>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="99"
+                                        value={row.rightScore}
+                                        onChange={(e) => {
+                                          const value = Number(e.target.value)
+                                          setEventSetRowsDraft((prev) => prev.map((r, j) => (j === idx ? { ...r, rightScore: value } : r)))
+                                        }}
+                                      />
+                                    </div>
+
+                                    {availableTeams.length > 2 ? (
+                                      <select
+                                        className="set-team"
+                                        value={row.right}
+                                        onChange={(e) => {
+                                          const nextRight = e.target.value as ActiveTeamCode
+                                          setEventSetRowsDraft((prev) =>
+                                            prev.map((r, j) => {
+                                              if (j !== idx) return r
+                                              const nextLeft = nextRight === r.left ? ensureOtherTeam(nextRight) : r.left
+                                              return { ...r, left: nextLeft, right: nextRight }
+                                            }),
+                                          )
+                                        }}
+                                      >
+                                        {availableTeams.map((t) => (
+                                          <option key={`right-${idx}-${t}`} value={t}>
+                                            {t}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <strong className="set-team">{row.right}</strong>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="icon-btn danger set-del-btn"
+                                    title="Удалить партию"
+                                    disabled={(eventSetRowsDraft.length || 1) <= 1}
+                                    onClick={() => setEventSetRowsDraft((prev) => prev.filter((_, j) => j !== idx))}
+                                  >
+                                    −
+                                  </button>
+                                </div>
+                              ),
+                            )}
+
+                            <div className="set-add-row">
+                              <button
+                                type="button"
+                                className="set-add-btn"
+                                aria-label="Добавить партию"
+                                title="Добавить партию"
+                                onClick={() =>
+                                  setEventSetRowsDraft((prev) => [
+                                    ...prev,
+                                    {
+                                      left: prev[prev.length - 1]?.left ?? availableTeams[0],
+                                      right: prev[prev.length - 1]?.right ?? availableTeams[1],
+                                      leftScore: 0,
+                                      rightScore: 0,
+                                    },
+                                  ])
+                                }
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="manual-controls">
+                            {availableTeams.length > 2 ? (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                onClick={() => setEventSetRowsDraft([])}
+                              >
+                                Сбросить
+                              </button>
+                            ) : null}
+                            <button type="button" onClick={() => void onSaveEventSets()}>
+                              Сохранить
+                            </button>
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </>
                 ) : null}
               </section>
             ) : null}

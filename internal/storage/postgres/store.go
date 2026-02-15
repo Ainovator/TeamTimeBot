@@ -164,6 +164,25 @@ type EventBillingView struct {
 	AllPaymentsChecked bool                      `json:"allPaymentsChecked"`
 }
 
+type EventSetScore struct {
+	Left  int `json:"left"`
+	Right int `json:"right"`
+}
+
+type EventSetsMatch struct {
+	Left  string          `json:"left"`
+	Right string          `json:"right"`
+	Sets  []EventSetScore `json:"sets"`
+}
+
+type EventSetRow struct {
+	Ordinal int    `json:"ordinal"`
+	Team1   string `json:"team1"`
+	Score1  int    `json:"score1"`
+	Team2   string `json:"team2"`
+	Score2  int    `json:"score2"`
+}
+
 type GroupDebtSummary struct {
 	TotalDebt  float64 `json:"totalDebt"`
 	UnpaidRows int64   `json:"unpaidRows"`
@@ -2177,6 +2196,150 @@ func (s *Store) SaveEventBillingPaymentsByInstance(ctx context.Context, chatID i
 				"status":     nextStatus,
 				"updated_at": gorm.Expr("NOW()"),
 			}).Error
+	})
+}
+
+func (s *Store) GetEventSetRowsByInstance(ctx context.Context, chatID int64, instanceID uint64) ([]EventSetRow, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var instance struct {
+		ID uint64
+	}
+	if err := s.db.WithContext(ctx).
+		Table("event_instances").
+		Select("id").
+		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, group.ID).
+		Take(&instance).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	type row struct {
+		Ordinal int
+		Team1   string
+		Score1  int
+		Team2   string
+		Score2  int
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_instance_set_rows").
+		Select("ordinal, team1, score1, team2, score2").
+		Where("group_id = ? AND instance_id = ?", group.ID, instance.ID).
+		Order("ordinal ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]EventSetRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, EventSetRow{
+			Ordinal: r.Ordinal,
+			Team1:   strings.TrimSpace(r.Team1),
+			Score1:  r.Score1,
+			Team2:   strings.TrimSpace(r.Team2),
+			Score2:  r.Score2,
+		})
+	}
+	return out, nil
+}
+
+func (s *Store) SaveEventSetRowsByInstance(ctx context.Context, chatID int64, instanceID uint64, rows []EventSetRow) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	var instance struct {
+		ID      uint64
+		EventID uint64
+	}
+	if err := s.db.WithContext(ctx).
+		Table("event_instances").
+		Select("id, event_id").
+		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, group.ID).
+		Take(&instance).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("event instance not found")
+		}
+		return err
+	}
+
+	if rows == nil {
+		rows = []EventSetRow{}
+	}
+
+	allowed := map[string]struct{}{"A": {}, "B": {}, "C": {}}
+	seenOrd := make(map[int]struct{}, len(rows))
+	normalized := make([]EventSetRow, 0, len(rows))
+	for _, r := range rows {
+		ord := r.Ordinal
+		if ord <= 0 {
+			return errors.New("invalid ordinal")
+		}
+		if _, ok := seenOrd[ord]; ok {
+			return errors.New("duplicate ordinal")
+		}
+		seenOrd[ord] = struct{}{}
+
+		t1 := strings.TrimSpace(r.Team1)
+		t2 := strings.TrimSpace(r.Team2)
+		if _, ok := allowed[t1]; !ok {
+			return errors.New("invalid team1")
+		}
+		if _, ok := allowed[t2]; !ok {
+			return errors.New("invalid team2")
+		}
+		if t1 == t2 {
+			return errors.New("teams must be different")
+		}
+		if r.Score1 < 0 || r.Score2 < 0 {
+			return errors.New("score cannot be negative")
+		}
+		if r.Score1 > 99 || r.Score2 > 99 {
+			return errors.New("score is too large")
+		}
+		normalized = append(normalized, EventSetRow{
+			Ordinal: ord,
+			Team1:   t1,
+			Score1:  r.Score1,
+			Team2:   t2,
+			Score2:  r.Score2,
+		})
+	}
+
+	sort.Slice(normalized, func(i, j int) bool { return normalized[i].Ordinal < normalized[j].Ordinal })
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Table("event_instance_set_rows").
+			Where("group_id = ? AND instance_id = ?", group.ID, instance.ID).
+			Delete(nil).Error; err != nil {
+			return err
+		}
+		if len(normalized) == 0 {
+			return nil
+		}
+
+		inserts := make([]map[string]interface{}, 0, len(normalized))
+		for _, r := range normalized {
+			inserts = append(inserts, map[string]interface{}{
+				"group_id":    group.ID,
+				"event_id":    instance.EventID,
+				"instance_id": instance.ID,
+				"ordinal":     r.Ordinal,
+				"team1":       r.Team1,
+				"score1":      r.Score1,
+				"team2":       r.Team2,
+				"score2":      r.Score2,
+				"created_at":  gorm.Expr("NOW()"),
+				"updated_at":  gorm.Expr("NOW()"),
+			})
+		}
+		return tx.Table("event_instance_set_rows").Create(&inserts).Error
 	})
 }
 

@@ -8,6 +8,7 @@ import type {
   EventActivitySummary,
   EventView,
   EventBilling,
+  EventSetRow,
   Group,
   GroupDebtSummary,
   GroupDetails,
@@ -419,6 +420,20 @@ export async function fetchEventBilling(chatID: number, eventID: number): Promis
 export async function fetchEventBillingForInstance(chatID: number, instanceID: number): Promise<EventBilling | null> {
   const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`)
   return parseResponse<EventBilling | null>(res)
+}
+
+export async function fetchEventSetRowsForInstance(chatID: number, instanceID: number): Promise<EventSetRow[]> {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/sets`)
+  return parseResponse<EventSetRow[]>(res)
+}
+
+export async function saveEventSetRowsForInstance(chatID: number, instanceID: number, rows: EventSetRow[]) {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/sets`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows }),
+  })
+  await parseResponse<{ status: string }>(res)
 }
 
 export async function generateEventBillingForInstance(chatID: number, instanceID: number): Promise<EventBilling | null> {

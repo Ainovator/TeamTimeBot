@@ -201,6 +201,14 @@ export type EventBilling = {
   allPaymentsChecked: boolean
 }
 
+export type EventSetRow = {
+  ordinal: number
+  team1: 'A' | 'B' | 'C'
+  score1: number
+  team2: 'A' | 'B' | 'C'
+  score2: number
+}
+
 export type GroupDebtSummary = {
   totalDebt: number
   unpaidRows: number

@@ -21,18 +21,59 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   font-family: Manrope, 'IBM Plex Sans', 'Segoe UI', sans-serif;
   background: radial-gradient(circle at 18% 12%, #1c2f52 0%, #10192e 34%, #0a1020 100%);
   color: var(--text-main);
+  overflow: hidden; /* Prevent page bounce/white gaps; scroll lives inside panels. */
+}
+
+html {
+  /* iOS overscroll/bounce can reveal the html background. */
+  background: radial-gradient(circle at 18% 12%, #1c2f52 0%, #10192e 34%, #0a1020 100%);
+  overflow-x: hidden;
+}
+
+body,
+#root,
+.console-shell {
+  overflow-x: hidden;
 }
 
 .console-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-columns: 330px 1fr;
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  body {
+    min-height: 100dvh;
+  }
+
+  .console-shell {
+    height: 100dvh;
+  }
+}
+
+@supports (height: 100svh) {
+  /* Stable viewport height: avoids jumps when browser UI shows/hides on mobile. */
+  body {
+    min-height: 100svh;
+  }
+
+  .console-shell {
+    height: 100svh;
+  }
 }
 
 .console-sidebar {
@@ -42,6 +83,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .brand-block {
@@ -159,6 +203,22 @@ body {
 
 .console-main {
   padding: 24px;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.mobile-topbar {
+  display: none;
+}
+
+.sidebar-overlay {
+  display: none;
+}
+
+.sidebar-close-btn {
+  display: none;
 }
 
 .console-header {
@@ -863,6 +923,79 @@ h4 {
   background: rgba(45, 88, 162, 0.35);
 }
 
+.set-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.set-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.set-team {
+  width: 62px;
+  min-width: 62px;
+  text-align: center;
+  font-weight: 800;
+}
+
+.set-del-btn {
+  width: 42px;
+}
+
+.set-add-row {
+  display: flex;
+  justify-content: center;
+  padding-top: 6px;
+}
+
+.set-add-btn {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  font-size: 26px;
+  line-height: 1;
+  border-radius: 12px;
+  border: 1px solid rgba(124, 159, 223, 0.55);
+  background: rgba(61, 95, 156, 0.3);
+  color: #dce9ff;
+}
+
+.set-add-btn:hover {
+  background: rgba(61, 95, 156, 0.42);
+}
+
+.set-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.set-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.set-row .muted {
+  white-space: nowrap;
+}
+
+.set-score input[type='number'] {
+  width: 64px;
+  min-width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .team-chance {
   display: flex;
   align-items: center;
@@ -989,6 +1122,11 @@ h4 {
   background: rgba(18, 31, 53, 0.75);
   padding: 8px;
   cursor: grab;
+}
+
+.team-player-card.selected {
+  border-color: rgba(120, 166, 243, 0.9);
+  box-shadow: 0 0 0 2px rgba(120, 166, 243, 0.22);
 }
 
 .team-player-card p {
@@ -1644,12 +1782,100 @@ button:disabled {
 
 @media (max-width: 900px) {
   .console-shell {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
   }
 
   .console-sidebar {
-    border-right: none;
-    border-bottom: 1px solid rgba(95, 136, 214, 0.24);
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(330px, 92vw);
+    z-index: 60;
+    border-right: 1px solid rgba(95, 136, 214, 0.24);
+    border-bottom: none;
+    padding: 20px 16px;
+    transform: translateX(-105%);
+    transition: transform 0.22s ease;
+    overscroll-behavior: contain;
+  }
+
+  .console-shell.nav-open .console-sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(3, 7, 16, 0.66);
+    z-index: 55;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+
+  .console-shell.nav-open .sidebar-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: linear-gradient(180deg, rgba(12, 18, 33, 0.94) 0%, rgba(12, 18, 33, 0.78) 100%);
+    border-bottom: 1px solid rgba(95, 136, 214, 0.22);
+    backdrop-filter: blur(10px);
+  }
+
+  .mobile-topbar-text {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .mobile-topbar-title {
+    font-size: 14px;
+    font-weight: 750;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-topbar-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sidebar-close-btn {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .console-main {
+    padding: 14px 12px 18px;
+    flex: 1;
+  }
+
+  select,
+  input,
+  textarea {
+    font-size: 16px;
+  }
+
+  .history-tabs {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .split-forms,

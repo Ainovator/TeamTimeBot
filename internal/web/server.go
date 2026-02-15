@@ -1146,6 +1146,41 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		}
 	}
 
+	if len(parts) == 3 && parts[0] == "history" && parts[2] == "sets" {
+		instanceID, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid instance id")
+			return
+		}
+		if r.Method == http.MethodGet {
+			rows, err := s.store.GetEventSetRowsByInstance(r.Context(), chatID, instanceID)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if rows == nil {
+				rows = make([]postgres.EventSetRow, 0)
+			}
+			writeJSON(w, http.StatusOK, rows)
+			return
+		}
+		if r.Method == http.MethodPut {
+			var req struct {
+				Rows []postgres.EventSetRow `json:"rows"`
+			}
+			if err := decodeJSON(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			if err := s.store.SaveEventSetRowsByInstance(r.Context(), chatID, instanceID, req.Rows); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			return
+		}
+	}
+
 	if len(parts) == 2 && parts[0] == "history" && r.Method == http.MethodDelete {
 		instanceID, err := strconv.ParseUint(parts[1], 10, 64)
 		if err != nil {
