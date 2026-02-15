@@ -217,7 +217,7 @@ body,
   display: none;
 }
 
-.sidebar-close-btn {
+.btn-icon.sidebar-close-btn {
   display: none;
 }
 
@@ -1857,7 +1857,7 @@ button:disabled {
     text-overflow: ellipsis;
   }
 
-  .sidebar-close-btn {
+  .btn-icon.sidebar-close-btn {
     display: inline-flex;
     margin-left: auto;
   }
