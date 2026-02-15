@@ -282,6 +282,13 @@ export default function App() {
     [],
   )
 
+  const isAdmin = useMemo(() => {
+    if (!authConfig?.enabled) {
+      return true
+    }
+    return activePerms?.roleCode === 'admin'
+  }, [authConfig?.enabled, activePerms?.roleCode])
+
   function can(perm: string): boolean {
     if (!authConfig?.enabled) {
       return true
@@ -291,7 +298,7 @@ export default function App() {
 
   const visibleSections = useMemo(() => {
     return sections.filter((s) => {
-      if (s.id === 'overview') return true
+      if (s.id === 'overview') return isAdmin
       if (s.id === 'events') return can('events_read')
       if (s.id === 'polls') return can('polls_read')
       if (s.id === 'profile') return can('profile_read')
@@ -300,7 +307,7 @@ export default function App() {
       if (s.id === 'event_templates') return can('event_templates_manage')
       return false
     })
-  }, [authConfig?.enabled, activePerms])
+  }, [authConfig?.enabled, activePerms, isAdmin])
   const templateCountedMap = useMemo(() => {
     const map = new Map<string, number>()
     for (const template of templates) {
@@ -2762,30 +2769,49 @@ export default function App() {
         <div className="list-block">
           {templates.length ? (
             templates.map((template) => (
-              <div className="list-row" key={template.name}>
+              <div
+                className="list-row clickable"
+                key={template.name}
+                role="button"
+                tabIndex={0}
+                aria-label={`Открыть шаблон: ${template.name}`}
+                onClick={() =>
+                  navigateTo({
+                    chatID: activeChatID,
+                    section: 'templates',
+                    templateView: 'edit',
+                    templateName: template.name,
+                    eventView: 'list',
+                    eventID: null,
+                  })
+                }
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return
+                  e.preventDefault()
+                  navigateTo({
+                    chatID: activeChatID,
+                    section: 'templates',
+                    templateView: 'edit',
+                    templateName: template.name,
+                    eventView: 'list',
+                    eventID: null,
+                  })
+                }}
+              >
                 <div>
                   <strong>{template.name}</strong>
                   <p>{template.question}</p>
                   <p className="muted">Учёт вариантов: {template.countedOptionsCount}</p>
                 </div>
                 <div className="list-actions">
-                  <button
-                    className="btn-secondary"
-                    onClick={() =>
-                      navigateTo({
-                        chatID: activeChatID,
-                        section: 'templates',
-                        templateView: 'edit',
-                        templateName: template.name,
-                        eventView: 'list',
-                        eventID: null,
-                      })
-                    }
-                  >
-                    Открыть
-                  </button>
                   {template.name.trim().toLowerCase() === 'регистрация' ? null : (
-                    <button className="btn-danger" onClick={() => onDeleteTemplate(template.name)}>
+                    <button
+                      className="btn-danger"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDeleteTemplate(template.name)
+                      }}
+                    >
                       Удалить
                     </button>
                   )}
@@ -4326,6 +4352,14 @@ export default function App() {
 
     switch (activeSection) {
       case 'overview':
+        if (!isAdmin) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Раздел «Обзор» доступен только администраторам.</p>
+            </section>
+          )
+        }
         return renderOverview()
       case 'members':
         if (!can('members_read')) {

@@ -344,6 +344,20 @@ h4 {
   box-shadow: 0 10px 24px rgba(7, 18, 36, 0.35);
 }
 
+.list-row.clickable {
+  cursor: pointer;
+}
+
+.list-row.clickable:hover {
+  border-color: rgba(120, 166, 243, 0.6);
+  box-shadow: 0 10px 24px rgba(7, 18, 36, 0.35);
+}
+
+.list-row.clickable:focus-visible {
+  outline: 2px solid rgba(120, 166, 243, 0.85);
+  outline-offset: 2px;
+}
+
 .list-row p,
 .event-card p {
   margin: 6px 0 0;

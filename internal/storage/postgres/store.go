@@ -3934,7 +3934,9 @@ func upsertGroupMemberTx(tx *gorm.DB, groupID uint64, userTelegramID int64, role
 				{Name: "user_telegram_id"},
 			},
 			DoUpdates: clause.Assignments(map[string]interface{}{
-				"role":         record["role"],
+				// Never downgrade "admin" to "member" on routine upserts (e.g. poll votes).
+				// Allow upgrades to "admin" when the caller provides it.
+				"role":         gorm.Expr("CASE WHEN group_members.role = 'admin' THEN 'admin' ELSE EXCLUDED.role END"),
 				"status":       record["status"],
 				"is_active":    true,
 				"last_seen_at": gorm.Expr("NOW()"),
