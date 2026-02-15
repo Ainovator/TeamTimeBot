@@ -2343,6 +2343,29 @@ func (s *Store) SaveEventSetRowsByInstance(ctx context.Context, chatID int64, in
 	})
 }
 
+func (s *Store) GetEventInstanceHeader(ctx context.Context, chatID int64, instanceID uint64) (string, time.Time, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	var row struct {
+		EventName string
+		LocalDate time.Time
+	}
+	if err := s.db.WithContext(ctx).
+		Table("event_instances ei").
+		Select("COALESCE(NULLIF(ei.event_name, ''), ge.name) AS event_name, ei.local_date").
+		Joins("JOIN group_events ge ON ge.id = ei.event_id").
+		Where("ei.id = ? AND ei.group_id = ? AND ei.is_active = TRUE", instanceID, group.ID).
+		Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", time.Time{}, errors.New("event instance not found")
+		}
+		return "", time.Time{}, err
+	}
+	return strings.TrimSpace(row.EventName), row.LocalDate, nil
+}
+
 func (s *Store) GetGroupDebtSummary(ctx context.Context, chatID int64) (*GroupDebtSummary, error) {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {

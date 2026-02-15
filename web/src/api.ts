@@ -436,6 +436,13 @@ export async function saveEventSetRowsForInstance(chatID: number, instanceID: nu
   await parseResponse<{ status: string }>(res)
 }
 
+export async function publishEventSetRowsForInstance(chatID: number, instanceID: number) {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/sets/publish`, {
+    method: 'POST',
+  })
+  await parseResponse<{ status: string }>(res)
+}
+
 export async function generateEventBillingForInstance(chatID: number, instanceID: number): Promise<EventBilling | null> {
   const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`, {
     method: 'POST',

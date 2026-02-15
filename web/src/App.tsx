@@ -39,6 +39,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
   saveEventTeamSplit,
   saveEventBillingForInstance,
   saveEventSetRowsForInstance,
+  publishEventSetRowsForInstance,
   fetchMyGroupProfile,
   telegramAuthLogin,
   unarchiveEvent,
@@ -2153,21 +2154,41 @@ export default function App() {
         eventSetRowsDraft.length > 0 ? eventSetRowsDraft : [{ left: 'A' as const, right: 'B' as const, leftScore: 0, rightScore: 0 }]
 
       const filtered = baseRows.filter((r) => r.left !== r.right)
-      const rowsToSave = (filtered.length ? filtered : [{ left: 'A' as const, right: 'B' as const, leftScore: 0, rightScore: 0 }]).map(
-        (r, idx) => ({
-          ordinal: idx + 1,
-          team1: r.left,
-          score1: clampInt(r.leftScore, 0, 99),
-          team2: r.right,
-          score2: clampInt(r.rightScore, 0, 99),
-        }),
-      )
+      const source = filtered.length ? filtered : [{ left: 'A' as const, right: 'B' as const, leftScore: 0, rightScore: 0 }]
+      const rowsToSave = source.map((r, idx) => ({
+        ordinal: idx + 1,
+        team1: r.left,
+        score1: clampInt(r.leftScore, 0, 99),
+        team2: r.right,
+        score2: clampInt(r.rightScore, 0, 99),
+      }))
       await saveEventSetRowsForInstance(activeChatID, activeHistoryEventID, rowsToSave)
       setSuccess('Партии сохранены')
       setEventSetsError('')
     } catch (err) {
       setEventSetsError((err as Error).message)
     }
+  }
+
+  async function onPublishEventSets() {
+    if (activeChatID === null || activeHistoryEventID === null) {
+      return
+    }
+    await runAction(async () => {
+      const baseRows =
+        eventSetRowsDraft.length > 0 ? eventSetRowsDraft : [{ left: 'A' as const, right: 'B' as const, leftScore: 0, rightScore: 0 }]
+      const filtered = baseRows.filter((r) => r.left !== r.right)
+      const source = filtered.length ? filtered : [{ left: 'A' as const, right: 'B' as const, leftScore: 0, rightScore: 0 }]
+      const rowsToSave = source.map((r, idx) => ({
+        ordinal: idx + 1,
+        team1: r.left,
+        score1: clampInt(r.leftScore, 0, 99),
+        team2: r.right,
+        score2: clampInt(r.rightScore, 0, 99),
+      }))
+      await saveEventSetRowsForInstance(activeChatID, activeHistoryEventID, rowsToSave)
+      await publishEventSetRowsForInstance(activeChatID, activeHistoryEventID)
+    }, 'Результаты партий опубликованы')
   }
 
   async function loadMemberProfile(userTelegramID: number) {
@@ -4351,6 +4372,9 @@ export default function App() {
                             ) : null}
                             <button type="button" onClick={() => void onSaveEventSets()}>
                               Сохранить
+                            </button>
+                            <button type="button" className="btn-secondary" onClick={() => void onPublishEventSets()}>
+                              Опубликовать
                             </button>
                           </div>
                         </>

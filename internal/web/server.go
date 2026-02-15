@@ -1181,6 +1181,20 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		}
 	}
 
+	if len(parts) == 4 && parts[0] == "history" && parts[2] == "sets" && parts[3] == "publish" && r.Method == http.MethodPost {
+		instanceID, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid instance id")
+			return
+		}
+		if err := s.publishEventSetRowsNow(r.Context(), chatID, instanceID); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
 	if len(parts) == 2 && parts[0] == "history" && r.Method == http.MethodDelete {
 		instanceID, err := strconv.ParseUint(parts[1], 10, 64)
 		if err != nil {
@@ -1928,6 +1942,95 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 		b.WriteString("\n\nПрогноз:\n")
 		for _, pair := range pairs {
 			fmt.Fprintf(&b, "Команда %s %d%% / %d%% Команда %s\n", pair.Left, pair.LeftPercent, pair.RightPercent, pair.Right)
+		}
+	}
+
+	message := strings.TrimSpace(b.String())
+	if message == "" {
+		return errors.New("nothing to publish")
+	}
+
+	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
+	return s.bot.SendMessage(chat, message, nil)
+}
+
+func (s *Server) publishEventSetRowsNow(ctx context.Context, chatID int64, instanceID uint64) error {
+	name, localDate, err := s.store.GetEventInstanceHeader(ctx, chatID, instanceID)
+	if err != nil {
+		return err
+	}
+	rows, err := s.store.GetEventSetRowsByInstance(ctx, chatID, instanceID)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return errors.New("no sets to publish")
+	}
+
+	type pairKey struct {
+		A string
+		B string
+	}
+	type pairScore struct {
+		AWins int
+		BWins int
+	}
+	summary := map[pairKey]pairScore{}
+
+	var b strings.Builder
+	if strings.TrimSpace(name) == "" {
+		name = fmt.Sprintf("Событие #%d", instanceID)
+	}
+	fmt.Fprintf(&b, "Партии: %q\n", name)
+	if !localDate.IsZero() {
+		fmt.Fprintf(&b, "Дата: %s\n", localDate.Format("2006-01-02"))
+	}
+	b.WriteString("\n")
+
+	for _, r := range rows {
+		t1 := strings.TrimSpace(r.Team1)
+		t2 := strings.TrimSpace(r.Team2)
+		if t1 == "" || t2 == "" || t1 == t2 {
+			continue
+		}
+		fmt.Fprintf(&b, "%d) Команда %s %d:%d Команда %s\n", r.Ordinal, t1, r.Score1, r.Score2, t2)
+
+		// Pair summary: normalize order (A,B) == (B,A)
+		k := pairKey{A: t1, B: t2}
+		swap := false
+		if k.B < k.A {
+			k.A, k.B = k.B, k.A
+			swap = true
+		}
+		ps := summary[k]
+		leftScore := r.Score1
+		rightScore := r.Score2
+		if swap {
+			leftScore, rightScore = rightScore, leftScore
+		}
+		if leftScore > rightScore {
+			ps.AWins++
+		} else if rightScore > leftScore {
+			ps.BWins++
+		}
+		summary[k] = ps
+	}
+
+	if len(summary) > 0 {
+		b.WriteString("\nИтог по матчам:\n")
+		keys := make([]pairKey, 0, len(summary))
+		for k := range summary {
+			keys = append(keys, k)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			if keys[i].A != keys[j].A {
+				return keys[i].A < keys[j].A
+			}
+			return keys[i].B < keys[j].B
+		})
+		for _, k := range keys {
+			ps := summary[k]
+			fmt.Fprintf(&b, "Команда %s %d:%d Команда %s\n", k.A, ps.AWins, ps.BWins, k.B)
 		}
 	}
 
