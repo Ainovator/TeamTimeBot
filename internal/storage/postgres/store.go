@@ -1,10 +1,13 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"math"
+	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -4855,13 +4858,7 @@ func (s *Store) AutoSplitEventTeams(ctx context.Context, chatID int64, eventID, 
 		roleByUser[row.UserID] = strings.TrimSpace(strings.ToLower(row.PlayerType))
 	}
 
-	type relationRow struct {
-		UserAID      int64
-		UserBID      int64
-		RelationType string
-		Weight       int
-	}
-	var relationRows []relationRow
+	var relationRows []teamSplitRelationRow
 	if err := s.db.WithContext(ctx).
 		Table("player_relations").
 		Select("user_a_id AS user_a_id, user_b_id AS user_b_id, relation_type, weight").
@@ -4886,6 +4883,17 @@ func (s *Store) AutoSplitEventTeams(ctx context.Context, chatID int64, eventID, 
 			Type:   rel.RelationType,
 			Weight: rel.Weight,
 		})
+	}
+
+	if url := strings.TrimSpace(os.Getenv("TEAM_SPLIT_SERVICE_URL")); url != "" {
+		assignments, err := callTeamSplitService(ctx, url, state.Players, roleByUser, relationRows)
+		if err == nil && len(assignments) > 0 {
+			if err := s.SaveEventTeamSplit(ctx, chatID, eventID, postID, assignments); err != nil {
+				return nil, err
+			}
+			return s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+		}
+		// Fall back to the in-process algorithm if the service is unavailable.
 	}
 
 	teamCodes := []string{"A", "B"}
@@ -5026,6 +5034,121 @@ func (s *Store) AutoSplitEventTeams(ctx context.Context, chatID int64, eventID, 
 		return nil, err
 	}
 	return s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+}
+
+type teamSplitServiceReq struct {
+	Players []struct {
+		UserID     int64   `json:"userID"`
+		Rating     float64 `json:"rating"`
+		PlayerType string  `json:"playerType"`
+	} `json:"players"`
+	Relations []struct {
+		UserAID      int64  `json:"userAID"`
+		UserBID      int64  `json:"userBID"`
+		RelationType string `json:"relationType"`
+		Weight       int    `json:"weight"`
+	} `json:"relations"`
+	TeamCodes []string       `json:"teamCodes,omitempty"`
+	Capacity  map[string]int `json:"capacity,omitempty"`
+}
+
+type teamSplitServiceResp struct {
+	Assignments []TeamSplitAssignmentInput `json:"assignments"`
+}
+
+type teamSplitRelationRow struct {
+	UserAID      int64
+	UserBID      int64
+	RelationType string
+	Weight       int
+}
+
+func callTeamSplitService(
+	ctx context.Context,
+	baseURL string,
+	players []TeamSplitPlayer,
+	roleByUser map[int64]string,
+	relationRows []teamSplitRelationRow,
+) ([]TeamSplitAssignmentInput, error) {
+	n := len(players)
+	teamCodes := []string{"A", "B"}
+	if n > 14 {
+		teamCodes = append(teamCodes, "C")
+	}
+	base := n / len(teamCodes)
+	rest := n % len(teamCodes)
+	capacity := make(map[string]int, len(teamCodes))
+	for idx, code := range teamCodes {
+		capacity[code] = base
+		if idx < rest {
+			capacity[code]++
+		}
+	}
+
+	reqBody := teamSplitServiceReq{
+		TeamCodes: teamCodes,
+		Capacity:  capacity,
+	}
+	reqBody.Players = make([]struct {
+		UserID     int64   `json:"userID"`
+		Rating     float64 `json:"rating"`
+		PlayerType string  `json:"playerType"`
+	}, 0, len(players))
+	for _, p := range players {
+		reqBody.Players = append(reqBody.Players, struct {
+			UserID     int64   `json:"userID"`
+			Rating     float64 `json:"rating"`
+			PlayerType string  `json:"playerType"`
+		}{
+			UserID:     p.UserID,
+			Rating:     p.Rating,
+			PlayerType: roleByUser[p.UserID],
+		})
+	}
+	reqBody.Relations = make([]struct {
+		UserAID      int64  `json:"userAID"`
+		UserBID      int64  `json:"userBID"`
+		RelationType string `json:"relationType"`
+		Weight       int    `json:"weight"`
+	}, 0, len(relationRows))
+	for _, r := range relationRows {
+		reqBody.Relations = append(reqBody.Relations, struct {
+			UserAID      int64  `json:"userAID"`
+			UserBID      int64  `json:"userBID"`
+			RelationType string `json:"relationType"`
+			Weight       int    `json:"weight"`
+		}{
+			UserAID:      r.UserAID,
+			UserBID:      r.UserBID,
+			RelationType: r.RelationType,
+			Weight:       r.Weight,
+		})
+	}
+
+	raw, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+	url := strings.TrimRight(baseURL, "/") + "/split"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 2 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, errors.New("team split service returned non-2xx")
+	}
+	var out teamSplitServiceResp
+	if err := json.NewDecoder(res.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Assignments, nil
 }
 
 func keysOfMap(m map[string]struct{}) []string {

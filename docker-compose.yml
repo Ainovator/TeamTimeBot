@@ -29,9 +29,22 @@ services:
       - .env
     environment:
       POSTGRES_HOST: db
+      TEAM_SPLIT_SERVICE_URL: ${TEAM_SPLIT_SERVICE_URL:-http://ml:9000}
     depends_on:
       db:
         condition: service_healthy
+
+  ml:
+    build:
+      context: ./ml
+      dockerfile: Dockerfile
+    container_name: teamtimebot-ml-local
+    restart: unless-stopped
+    environment:
+      ML_ADDR: ${ML_ADDR:-:9000}
+      TZ: ${TZ:-UTC}
+    expose:
+      - "9000"
 
   web:
     build:
@@ -48,11 +61,14 @@ services:
       WEB_TELEGRAM_LOGIN_BOT: ${WEB_TELEGRAM_LOGIN_BOT:-}
       WEB_SESSION_SECRET: ${WEB_SESSION_SECRET:-}
       POSTGRES_HOST: db
+      TEAM_SPLIT_SERVICE_URL: ${TEAM_SPLIT_SERVICE_URL:-http://ml:9000}
     ports:
       - "${WEB_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy
+      ml:
+        condition: service_started
 
   frontend:
     image: node:20-alpine
