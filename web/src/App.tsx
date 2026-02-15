@@ -142,6 +142,7 @@ export default function App() {
   const [activeTemplateName, setActiveTemplateName] = useState<string | null>(initialRoute.templateName)
   const [activeEventView, setActiveEventView] = useState<'list' | 'create' | 'edit'>(initialRoute.eventView)
   const [activeEventID, setActiveEventID] = useState<number | null>(initialRoute.eventID)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const [details, setDetails] = useState<GroupDetails | null>(null)
   const [members, setMembers] = useState<GroupMember[]>([])
@@ -1246,6 +1247,28 @@ export default function App() {
     onChange()
     mql.addEventListener('change', onChange)
     return () => mql.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 900px)')
+    const onChange = () => {
+      if (!mql.matches) {
+        setMobileNavOpen(false)
+      }
+    }
+    onChange()
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMobileNavOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
   async function reloadActiveOrganization(chatID: number, options?: { silent?: boolean }) {
@@ -4898,7 +4921,32 @@ export default function App() {
   }
 
   return (
-    <div className="console-shell">
+    <div className={mobileNavOpen ? 'console-shell nav-open' : 'console-shell'}>
+      <div className="mobile-topbar">
+        <button
+          type="button"
+          className="btn-icon mobile-menu-btn"
+          aria-label={mobileNavOpen ? 'Закрыть меню' : 'Открыть меню'}
+          aria-expanded={mobileNavOpen}
+          onClick={() => setMobileNavOpen((v) => !v)}
+        >
+          <span aria-hidden="true">{mobileNavOpen ? '✕' : '☰'}</span>
+        </button>
+        <div className="mobile-topbar-text">
+          <strong className="mobile-topbar-title">{details?.group.title || 'TeamTime Console'}</strong>
+          <span className="mobile-topbar-subtitle">{sections.find((s) => s.id === activeSection)?.title || 'Навигация'}</span>
+        </div>
+        <button
+          type="button"
+          className="btn-icon mobile-refresh-btn"
+          aria-label="Обновить"
+          disabled={!activeChatID}
+          onClick={() => (activeChatID ? void reloadActiveOrganization(activeChatID) : undefined)}
+        >
+          <span aria-hidden="true">⟳</span>
+        </button>
+      </div>
+      <div className="sidebar-overlay" role="presentation" onClick={() => setMobileNavOpen(false)} />
       <aside className="console-sidebar">
         <div className="brand-block">
           <div className="brand-mark">TT</div>
@@ -4906,6 +4954,14 @@ export default function App() {
             <p className="brand-title">TeamTime Console</p>
             <p className="brand-subtitle">Управление организацией</p>
           </div>
+          <button
+            type="button"
+            className="btn-icon sidebar-close-btn"
+            aria-label="Закрыть меню"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
         </div>
 
         <section className="org-selector">
@@ -4916,6 +4972,7 @@ export default function App() {
             onChange={(e) => {
               const value = e.target.value
               const nextChatID = value ? Number(value) : null
+              setMobileNavOpen(false)
               navigateTo({
                 chatID: nextChatID,
                 section: activeSection,
@@ -4943,7 +5000,8 @@ export default function App() {
             <button
               key={section.id}
               className={activeSection === section.id ? 'nav-item active' : 'nav-item'}
-              onClick={() =>
+              onClick={() => {
+                setMobileNavOpen(false)
                 navigateTo({
                   chatID: activeChatID,
                   section: section.id,
@@ -4952,7 +5010,7 @@ export default function App() {
                   eventView: 'list',
                   eventID: null,
                 })
-              }
+              }}
             >
               <span className="nav-icon">{section.icon}</span>
               <span>
@@ -4968,6 +5026,7 @@ export default function App() {
             className="refresh-btn"
             onClick={() =>
               void (async () => {
+                setMobileNavOpen(false)
                 await logoutAuth()
                 setAuthUser(null)
                 setDetails(null)
