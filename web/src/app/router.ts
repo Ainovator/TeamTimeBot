@@ -5,6 +5,7 @@ export type Section =
   | 'polls'
   | 'event_templates'
   | 'events'
+  | 'games'
   | 'profile'
   | 'billing'
   | 'docs'
@@ -58,6 +59,7 @@ export function parseRoute(pathname: string): RouteState {
       section === 'templates' ||
       section === 'polls' ||
       section === 'events' ||
+      section === 'games' ||
       section === 'profile' ||
       section === 'billing' ||
       section === 'docs'
@@ -137,6 +139,7 @@ export function parseRoute(pathname: string): RouteState {
       section === 'templates' ||
       section === 'polls' ||
       section === 'events' ||
+      section === 'games' ||
       section === 'profile' ||
       section === 'billing' ||
       section === 'docs'
@@ -243,6 +246,10 @@ export function buildRoutePath(route: RouteState): string {
       return `/org/${encodeURIComponent(orgSegment)}/events/${route.historyEventID}`
     }
     return `/org/${encodeURIComponent(orgSegment)}/events`
+  }
+
+  if (route.section === 'games') {
+    return `/org/${encodeURIComponent(orgSegment)}/games`
   }
 
   if (route.section === 'profile') {

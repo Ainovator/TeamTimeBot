@@ -84,6 +84,19 @@ export const sections: SectionItem[] = [
     ),
   },
   {
+    id: 'games',
+    title: 'Игры',
+    subtitle: 'Счёт и составы',
+    icon: (
+      <Icon>
+        <path
+          d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Zm2 0v10h12V7H6Zm1.8 2.2h2.6v2.6H7.8V9.2Zm5.8 0h2.6v2.6h-2.6V9.2Zm-6 5h8v1.8h-8v-1.8Z"
+          fill="currentColor"
+        />
+      </Icon>
+    ),
+  },
+  {
     id: 'polls',
     title: 'Голосования',
     subtitle: 'Все опубликованные',

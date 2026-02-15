@@ -323,9 +323,67 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 		s.handleEventRoutes(w, r, chatID, parts[2:])
 	case "billing":
 		s.handleBillingRoutes(w, r, chatID, parts[2:])
+	case "games":
+		s.handleGamesRoutes(w, r, chatID, parts[2:])
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (s *Server) handleGamesRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {
+	if _, _, ok := s.requireGroupPermission(w, r, chatID, "events_read"); !ok {
+		return
+	}
+
+	// GET /api/groups/:chatID/games
+	if len(parts) == 0 {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w)
+			return
+		}
+		rows, err := s.store.ListGroupGames(r.Context(), chatID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if rows == nil {
+			rows = make([]postgres.GroupGameRow, 0)
+		}
+		writeJSON(w, http.StatusOK, rows)
+		return
+	}
+
+	// GET /api/groups/:chatID/games/:instanceID/roster?team1=A&team2=B
+	if len(parts) == 2 && parts[1] == "roster" && r.Method == http.MethodGet {
+		instanceID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil || instanceID == 0 {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid instance id")
+			return
+		}
+		team1 := strings.TrimSpace(r.URL.Query().Get("team1"))
+		team2 := strings.TrimSpace(r.URL.Query().Get("team2"))
+		if team1 == "" || team2 == "" {
+			writeErrorMessage(w, http.StatusBadRequest, "team1 and team2 are required")
+			return
+		}
+		out, err := s.store.GetGameRosterByInstance(r.Context(), chatID, instanceID, team1, team2)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if out == nil {
+			out = &postgres.GameRosterResponse{
+				Team1:        team1,
+				Team2:        team2,
+				Team1Players: []postgres.TeamSplitPlayer{},
+				Team2Players: []postgres.TeamSplitPlayer{},
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+
+	writeMethodNotAllowed(w)
 }
 
 func (s *Server) handlePermissionsRoutes(w http.ResponseWriter, r *http.Request, chatID int64, parts []string) {

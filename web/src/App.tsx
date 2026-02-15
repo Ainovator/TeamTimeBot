@@ -1,60 +1,62 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
-  import {
+import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import {
   activateEventPublications,
   archiveEvent,
-  bindEvent,
   assignGroupRole,
+  autoSplitEventTeams,
+  bindEvent,
   createEvent,
-	  createEventInstance,
-	  createTemplate,
-	  deleteEventInstance,
-	  deactivateEventPublications,
+  createEventInstance,
+  createTemplate,
+  deactivateEventPublications,
+  deleteEventInstance,
+  deleteGroupPollVotesForUser,
+  deleteMemberRelation,
   deleteTemplate,
+  fetchArchivedEvents,
   fetchAuthConfig,
   fetchAuthMe,
-  fetchArchivedEvents,
   fetchEventActivity,
   fetchEventBillingForInstance,
-  fetchEventSetRowsForInstance,
   fetchEventHistory,
+  fetchEventPollHistoryForInstance,
+  fetchEventSetRowsForInstance,
+  fetchEventTeamSplit,
+  fetchGameRoster,
+  fetchGroupDebtSummary,
   fetchGroupDebtors,
+  fetchGroupDetails,
+  fetchGroupGames,
+  fetchGroupMembers,
+  fetchGroupPermissions,
   fetchGroupPolls,
   fetchGroupPollVotes,
-  fetchGroupPermissions,
   fetchGroupRoles,
-  deleteGroupPollVotesForUser,
-  publishGroupDebtors,
-  publishRegistration,
-  generateEventBillingForInstance,
-  fetchEventPollHistoryForInstance,
-  fetchEventTeamSplit,
-  fetchGroupDebtSummary,
-  fetchGroupDetails,
-  fetchGroupMembers,
   fetchGroups,
-  fetchMemberSkills,
   fetchMemberRelations,
+  fetchMemberSkills,
+  fetchMyGroupProfile,
   fetchSkillsCatalog,
   fetchTemplate,
-  autoSplitEventTeams,
+  generateEventBillingForInstance,
+  logoutAuth,
+  publishEventSetRowsForInstance,
   publishEventSettlement,
   publishEventTeamSplit,
-  saveEventTeamSplit,
+  publishGroupDebtors,
+  publishRegistration,
   saveEventBillingForInstance,
   saveEventSetRowsForInstance,
-  publishEventSetRowsForInstance,
-  fetchMyGroupProfile,
+  saveEventTeamSplit,
   telegramAuthLogin,
   unarchiveEvent,
-  updateMemberProfile,
-  updateMemberSkills,
-  upsertMemberRelation,
-  deleteMemberRelation,
   updateEventCost,
   updateEventDetails,
+  updateMemberProfile,
+  updateMemberSkills,
   updateTemplate,
-  logoutAuth,
-	} from './api'
+  upsertMemberRelation,
+} from './api'
 import { announcementLeadLabel, announcementLeadOptions, clockMinutes, ensureList, formatMoney, toHourMinute, weekdayLabel, weekdayOptions } from './app/constants'
 import { sections } from './app/navigation'
 import { buildRoutePath, makeOrgKey, parseRoute, type RouteState, type Section } from './app/router'
@@ -86,9 +88,11 @@ import type {
   EventPollHistoryItem,
   EventTeamSplitState,
   EventView,
+  GameRosterResponse,
   Group,
   GroupDebtSummary,
   GroupDetails,
+  GroupGameRow,
   GroupPollItem,
   GroupPollVoteItem,
   GroupMember,
@@ -257,7 +261,8 @@ export default function App() {
   const [showEventActivity, setShowEventActivity] = useState(false)
   const [eventHistory, setEventHistory] = useState<EventHistoryItem[]>([])
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'on_review' | 'completed' | 'not_held'>('')
-  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing' | 'sets'>('distribution')
+  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing' | 'sets' | 'games'>('distribution')
+  const [gamesExpanded, setGamesExpanded] = useState<Record<number, boolean>>({})
   const [eventHistoryLoading, setEventHistoryLoading] = useState(false)
   const [eventHistoryError, setEventHistoryError] = useState('')
   const [eventPollHistory, setEventPollHistory] = useState<EventPollHistoryItem[]>([])
@@ -292,6 +297,11 @@ export default function App() {
   const [billingError, setBillingError] = useState('')
   const [billingExpanded, setBillingExpanded] = useState<Record<number, boolean>>({})
   const [billingPublishDraft, setBillingPublishDraft] = useState<Record<number, boolean>>({})
+  const [groupGames, setGroupGames] = useState<GroupGameRow[]>([])
+  const [groupGamesLoading, setGroupGamesLoading] = useState(false)
+  const [groupGamesError, setGroupGamesError] = useState('')
+  const [gamesExpandedRows, setGamesExpandedRows] = useState<Record<string, boolean>>({})
+  const [gamesRosterCache, setGamesRosterCache] = useState<Record<string, GameRosterResponse>>({})
   const [myProfile, setMyProfile] = useState<UserGroupProfile | null>(null)
   const [myProfileLoading, setMyProfileLoading] = useState(false)
   const [myProfileError, setMyProfileError] = useState('')
@@ -363,6 +373,7 @@ export default function App() {
       if (s.id === 'billing') return isAdmin
       if (s.id === 'docs') return true
       if (s.id === 'events') return can('events_read')
+      if (s.id === 'games') return can('events_read')
       if (s.id === 'polls') return can('polls_read')
       if (s.id === 'profile') return can('profile_read')
       if (s.id === 'members') return can('members_read')
@@ -1211,6 +1222,36 @@ export default function App() {
   }, [activeSection, activeChatID, isAdmin, success])
 
   useEffect(() => {
+    if (activeSection !== 'games' || activeChatID === null) {
+      setGroupGames([])
+      setGroupGamesLoading(false)
+      setGroupGamesError('')
+      setGamesExpandedRows({})
+      setGamesRosterCache({})
+      return
+    }
+    let cancelled = false
+    setGroupGamesLoading(true)
+    setGroupGamesError('')
+    void fetchGroupGames(activeChatID)
+      .then((rows) => {
+        if (cancelled) return
+        setGroupGames(Array.isArray(rows) ? rows : [])
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setGroupGames([])
+        setGroupGamesError((err as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) setGroupGamesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, success])
+
+  useEffect(() => {
     if (activeSection !== 'events' || activeChatID === null || activeHistoryEventID === null) {
       setEventSetRowsDraft([])
       setEventSetsError('')
@@ -1251,6 +1292,7 @@ export default function App() {
 
   useEffect(() => {
     setHistoryDetailTab('distribution')
+    setGamesExpanded({})
   }, [activeHistoryEventID])
 
   useEffect(() => {
@@ -5160,6 +5202,15 @@ export default function App() {
               >
                 Партии
               </button>
+              <button
+                type="button"
+                className={historyDetailTab === 'games' ? 'history-tab active' : 'history-tab'}
+                onClick={() => setHistoryDetailTab('games')}
+                disabled={selectedHistoryPostID === null}
+                title={selectedHistoryPostID === null ? 'Сначала выбери опрос' : undefined}
+              >
+                Игры
+              </button>
             </div>
 
             {historyDetailTab === 'distribution' ? (
@@ -5637,6 +5688,121 @@ export default function App() {
               </section>
             ) : null}
 
+            {historyDetailTab === 'games' ? (
+              <section className="content-card">
+                <div className="template-head">
+                  <h4>Игры</h4>
+                </div>
+                {eventSetsLoading ? <p className="muted">Загружаю партии...</p> : null}
+                {eventSetsError ? <p className="muted">Ошибка: {eventSetsError}</p> : null}
+
+                {!eventSetsLoading && !eventSetsError && eventSetRowsDraft.length === 0 ? (
+                  <p className="muted">Партии пока не заданы. Заполни их во вкладке «Партии».</p>
+                ) : null}
+
+                {!eventSetsLoading && !eventSetsError && eventSetRowsDraft.length > 0 ? (
+                  <>
+                    {(() => {
+                      const rosterByTeam = new Map<string, EventTeamSplitState['players']>()
+                      if (teamSplit?.players?.length) {
+                        for (const p of teamSplit.players) {
+                          const key = String(p.team || '')
+                          if (!rosterByTeam.has(key)) rosterByTeam.set(key, [])
+                          rosterByTeam.get(key)!.push(p)
+                        }
+                      }
+                      const scoreLabel = (a: number, b: number) => `${clampInt(a, 0, 99)}:${clampInt(b, 0, 99)}`
+                      const teamTitle = (code: string) => `Команда ${code}`
+
+                      const toggle = (idx: number) =>
+                        setGamesExpanded((prev) => ({
+                          ...prev,
+                          [idx]: !prev[idx],
+                        }))
+
+                      return (
+                        <div className="table-wrap table-wrap-spaced">
+                          <table className="table games-table">
+                            <thead>
+                              <tr>
+                                <th>Команда A</th>
+                                <th className="col-center">Счёт</th>
+                                <th>Команда B</th>
+                                <th className="col-center" aria-label="Детали" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {eventSetRowsDraft.map((row, idx) => {
+                                const expanded = Boolean(gamesExpanded[idx])
+                                const left = String(row.left || 'A')
+                                const right = String(row.right || 'B')
+                                const leftPlayers = (rosterByTeam.get(left) ?? []).filter((p) => p.team === left)
+                                const rightPlayers = (rosterByTeam.get(right) ?? []).filter((p) => p.team === right)
+                                const hasRoster = Boolean(teamSplit && teamSplit.players && teamSplit.players.length > 0)
+
+                                return (
+                                  <Fragment key={`game-${idx}`}>
+                                    <tr className="member-row game-row" onClick={() => toggle(idx)}>
+                                      <td>
+                                        <strong>{teamTitle(left)}</strong>
+                                      </td>
+                                      <td className="col-center">
+                                        <span className="game-score">{scoreLabel(row.leftScore, row.rightScore)}</span>
+                                      </td>
+                                      <td>
+                                        <strong>{teamTitle(right)}</strong>
+                                      </td>
+                                      <td className="col-center game-caret" aria-hidden="true">
+                                        {expanded ? '▾' : '▸'}
+                                      </td>
+                                    </tr>
+                                    {expanded ? (
+                                      <tr className="games-expand-row">
+                                        <td colSpan={4}>
+                                          {!hasRoster ? (
+                                            <p className="muted game-expand-empty">
+                                              Нет сохранённого распределения команд. Сначала сохрани команды во вкладке «Распределение».
+                                            </p>
+                                          ) : (
+                                            <div className="game-roster">
+                                              <div className="game-roster-col">
+                                                <p className="muted game-roster-title">{teamTitle(left)}</p>
+                                                <ul className="game-roster-list">
+                                                  {leftPlayers.length ? (
+                                                    leftPlayers.map((p) => <li key={`l-${idx}-${p.userID}`}>{playerDisplayName(p)}</li>)
+                                                  ) : (
+                                                    <li className="muted">Пусто</li>
+                                                  )}
+                                                </ul>
+                                              </div>
+                                              <div className="game-roster-col">
+                                                <p className="muted game-roster-title">{teamTitle(right)}</p>
+                                                <ul className="game-roster-list">
+                                                  {rightPlayers.length ? (
+                                                    rightPlayers.map((p) => <li key={`r-${idx}-${p.userID}`}>{playerDisplayName(p)}</li>)
+                                                  ) : (
+                                                    <li className="muted">Пусто</li>
+                                                  )}
+                                                </ul>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ) : null}
+                                  </Fragment>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    })()}
+                  </>
+                ) : null}
+              </section>
+            ) : null}
+
             {historyDetailTab === 'billing' ? (
               <section className="content-card">
                 <div className="template-head">
@@ -5907,6 +6073,120 @@ export default function App() {
     )
   }
 
+  function renderGames() {
+    if (activeChatID === null) {
+      return <section className="content-card">Выбери организацию</section>
+    }
+
+    const toggleRow = async (row: GroupGameRow) => {
+      const key = `${row.instanceID}:${row.ordinal}:${row.team1}:${row.team2}`
+      setGamesExpandedRows((prev) => ({ ...prev, [key]: !prev[key] }))
+      if (gamesRosterCache[key]) {
+        return
+      }
+      try {
+        const roster = await fetchGameRoster(activeChatID, row.instanceID, row.team1, row.team2)
+        setGamesRosterCache((prev) => ({ ...prev, [key]: roster }))
+      } catch {
+        // keep collapsed/expanded state; roster will show "нет данных" placeholder
+      }
+    }
+
+    return (
+      <section className="content-card">
+        <div className="template-head">
+          <h3>Игры</h3>
+        </div>
+
+        {groupGamesLoading ? <p className="muted">Загрузка игр...</p> : null}
+        {groupGamesError ? <p className="muted">Ошибка: {groupGamesError}</p> : null}
+        {!groupGamesLoading && !groupGamesError && groupGames.length === 0 ? <p className="muted">Пока нет сохранённых партий</p> : null}
+
+        {!groupGamesLoading && !groupGamesError && groupGames.length > 0 ? (
+          <div className="table-wrap">
+            <table className="table games-table">
+              <thead>
+                <tr>
+                  <th>Команда</th>
+                  <th className="col-center">Счёт</th>
+                  <th>Команда</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupGames.map((row) => {
+                  const key = `${row.instanceID}:${row.ordinal}:${row.team1}:${row.team2}`
+                  const expanded = Boolean(gamesExpandedRows[key])
+                  const roster = gamesRosterCache[key]
+                  const team1Players = roster?.team1Players ?? []
+                  const team2Players = roster?.team2Players ?? []
+                  const hasRoster = Boolean(roster && (team1Players.length > 0 || team2Players.length > 0))
+
+                  return (
+                    <Fragment key={key}>
+                      <tr className="member-row game-row" onClick={() => void toggleRow(row)}>
+                        <td>
+                          <div className="person-cell">
+                            <strong>{`Команда ${row.team1}`}</strong>
+                            <span className="muted">{row.eventName || `Событие #${row.instanceID}`}</span>
+                          </div>
+                        </td>
+                        <td className="col-center">
+                          <span className="game-score">{`${clampInt(row.score1, 0, 99)}:${clampInt(row.score2, 0, 99)}`}</span>
+                        </td>
+                        <td>
+                          <strong>{`Команда ${row.team2}`}</strong>
+                        </td>
+                        <td>{formatDateTime(row.startAt)}</td>
+                      </tr>
+
+                      {expanded ? (
+                        <tr className="games-expand-row">
+                          <td colSpan={4}>
+                            {!roster ? (
+                              <p className="muted game-expand-empty">Не удалось загрузить составы команд</p>
+                            ) : !hasRoster ? (
+                              <p className="muted game-expand-empty">
+                                Нет сохранённого распределения команд для этого события (или команды не заполнены).
+                              </p>
+                            ) : (
+                              <div className="game-roster">
+                                <div className="game-roster-col">
+                                  <p className="muted game-roster-title">{`Команда ${row.team1}`}</p>
+                                  <ul className="game-roster-list">
+                                    {team1Players.length ? (
+                                      team1Players.map((p) => <li key={`t1-${key}-${p.userID}`}>{playerDisplayName(p)}</li>)
+                                    ) : (
+                                      <li className="muted">Пусто</li>
+                                    )}
+                                  </ul>
+                                </div>
+                                <div className="game-roster-col">
+                                  <p className="muted game-roster-title">{`Команда ${row.team2}`}</p>
+                                  <ul className="game-roster-list">
+                                    {team2Players.length ? (
+                                      team2Players.map((p) => <li key={`t2-${key}-${p.userID}`}>{playerDisplayName(p)}</li>)
+                                    ) : (
+                                      <li className="muted">Пусто</li>
+                                    )}
+                                  </ul>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
   function renderContent() {
     if (!loading && groups.length === 0) {
       return (
@@ -5981,6 +6261,16 @@ export default function App() {
           )
         }
         return renderHistory()
+      case 'games':
+        if (!can('events_read')) {
+          return (
+            <section className="content-card">
+              <h3>Недостаточно прав</h3>
+              <p className="muted">Раздел «Игры» недоступен.</p>
+            </section>
+          )
+        }
+        return renderGames()
       case 'event_templates':
         if (!can('event_templates_manage')) {
           return (

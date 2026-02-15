@@ -9,6 +9,8 @@ import type {
   EventView,
   EventBilling,
   EventSetRow,
+  GroupGameRow,
+  GameRosterResponse,
   GroupDebtor,
   Group,
   GroupDebtSummary,
@@ -462,6 +464,22 @@ export async function publishEventSetRowsForInstance(chatID: number, instanceID:
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
+}
+
+export async function fetchGroupGames(chatID: number): Promise<GroupGameRow[]> {
+  const res = await fetch(`/api/groups/${chatID}/games`)
+  return parseResponse<GroupGameRow[]>(res)
+}
+
+export async function fetchGameRoster(
+  chatID: number,
+  instanceID: number,
+  team1: 'A' | 'B' | 'C',
+  team2: 'A' | 'B' | 'C',
+): Promise<GameRosterResponse> {
+  const qs = new URLSearchParams({ team1, team2 })
+  const res = await fetch(`/api/groups/${chatID}/games/${instanceID}/roster?${qs.toString()}`)
+  return parseResponse<GameRosterResponse>(res)
 }
 
 export async function publishEventBillingDebtorsForInstance(chatID: number, instanceID: number, userIDs: number[]) {

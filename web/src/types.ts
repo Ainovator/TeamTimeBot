@@ -209,6 +209,24 @@ export type EventSetRow = {
   score2: number
 }
 
+export type GroupGameRow = {
+  instanceID: number
+  ordinal: number
+  eventName: string
+  startAt: string
+  team1: 'A' | 'B' | 'C'
+  score1: number
+  team2: 'A' | 'B' | 'C'
+  score2: number
+}
+
+export type GameRosterResponse = {
+  team1: 'A' | 'B' | 'C'
+  team2: 'A' | 'B' | 'C'
+  team1Players: TeamSplitPlayer[]
+  team2Players: TeamSplitPlayer[]
+}
+
 export type GroupDebtSummary = {
   totalDebt: number
   unpaidRows: number

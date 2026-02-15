@@ -183,6 +183,24 @@ type EventSetRow struct {
 	Score2  int    `json:"score2"`
 }
 
+type GroupGameRow struct {
+	InstanceID uint64    `json:"instanceID"`
+	Ordinal    int       `json:"ordinal"`
+	EventName  string    `json:"eventName"`
+	StartAt    time.Time `json:"startAt"`
+	Team1      string    `json:"team1"`
+	Score1     int       `json:"score1"`
+	Team2      string    `json:"team2"`
+	Score2     int       `json:"score2"`
+}
+
+type GameRosterResponse struct {
+	Team1        string            `json:"team1"`
+	Team2        string            `json:"team2"`
+	Team1Players []TeamSplitPlayer `json:"team1Players"`
+	Team2Players []TeamSplitPlayer `json:"team2Players"`
+}
+
 type GroupDebtSummary struct {
 	TotalDebt  float64 `json:"totalDebt"`
 	UnpaidRows int64   `json:"unpaidRows"`
@@ -1454,11 +1472,11 @@ func (s *Store) recalculateEventSettlementByInstanceTx(ctx context.Context, tx *
 		amountDue := perPerson * float64(p.Seats)
 
 		updates := map[string]interface{}{
-			"username":    p.Username,
-			"first_name":  p.FirstName,
-			"last_name":   p.LastName,
-			"amount_due":  amountDue,
-			"updated_at":  gorm.Expr("NOW()"),
+			"username":   p.Username,
+			"first_name": p.FirstName,
+			"last_name":  p.LastName,
+			"amount_due": amountDue,
+			"updated_at": gorm.Expr("NOW()"),
 		}
 
 		if _, ok := existingByUser[uid]; ok {
@@ -2706,6 +2724,101 @@ func (s *Store) GetEventInstanceHeader(ctx context.Context, chatID int64, instan
 		return "", time.Time{}, err
 	}
 	return strings.TrimSpace(row.EventName), row.LocalDate, nil
+}
+
+func (s *Store) ListGroupGames(ctx context.Context, chatID int64) ([]GroupGameRow, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	type row struct {
+		InstanceID uint64
+		Ordinal    int
+		EventName  string
+		StartAt    time.Time
+		Team1      string
+		Score1     int
+		Team2      string
+		Score2     int
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_instance_set_rows eis").
+		Select("eis.instance_id, eis.ordinal, COALESCE(NULLIF(ei.event_name, ''), '') AS event_name, ei.planned_start_at AS start_at, eis.team1, eis.score1, eis.team2, eis.score2").
+		Joins("JOIN event_instances ei ON ei.id = eis.instance_id").
+		Where("eis.group_id = ? AND ei.group_id = ? AND ei.is_active = TRUE", group.ID, group.ID).
+		Order("ei.planned_start_at DESC, eis.instance_id DESC, eis.ordinal ASC").
+		Limit(250).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	out := make([]GroupGameRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, GroupGameRow{
+			InstanceID: r.InstanceID,
+			Ordinal:    r.Ordinal,
+			EventName:  strings.TrimSpace(r.EventName),
+			StartAt:    r.StartAt,
+			Team1:      strings.TrimSpace(r.Team1),
+			Score1:     r.Score1,
+			Team2:      strings.TrimSpace(r.Team2),
+			Score2:     r.Score2,
+		})
+	}
+	return out, nil
+}
+
+func (s *Store) GetGameRosterByInstance(ctx context.Context, chatID int64, instanceID uint64, team1, team2 string) (*GameRosterResponse, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	type instRow struct {
+		EventID    uint64
+		PollPostID *uint64
+	}
+	var inst instRow
+	if err := s.db.WithContext(ctx).
+		Table("event_instances").
+		Select("event_id, poll_post_id").
+		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, group.ID).
+		Take(&inst).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("event instance not found")
+		}
+		return nil, err
+	}
+
+	t1 := strings.TrimSpace(team1)
+	t2 := strings.TrimSpace(team2)
+	out := &GameRosterResponse{
+		Team1:        t1,
+		Team2:        t2,
+		Team1Players: []TeamSplitPlayer{},
+		Team2Players: []TeamSplitPlayer{},
+	}
+	if inst.PollPostID == nil || *inst.PollPostID == 0 {
+		return out, nil
+	}
+
+	state, err := s.GetEventTeamSplitState(ctx, chatID, inst.EventID, *inst.PollPostID)
+	if err != nil || state == nil {
+		return out, nil
+	}
+	for _, p := range state.Players {
+		if strings.TrimSpace(p.Team) == t1 {
+			out.Team1Players = append(out.Team1Players, p)
+			continue
+		}
+		if strings.TrimSpace(p.Team) == t2 {
+			out.Team2Players = append(out.Team2Players, p)
+			continue
+		}
+	}
+	return out, nil
 }
 
 func (s *Store) GetGroupDebtSummary(ctx context.Context, chatID int64) (*GroupDebtSummary, error) {

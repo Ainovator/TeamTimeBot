@@ -1089,6 +1089,80 @@ h4 {
   gap: 8px;
 }
 
+.games-table {
+  table-layout: fixed;
+}
+
+.games-table th:nth-child(4),
+.games-table td:nth-child(4) {
+  width: 180px;
+}
+
+.games-table th:nth-child(2),
+.games-table td:nth-child(2) {
+  width: 88px;
+}
+
+.game-row {
+  cursor: pointer;
+}
+
+.game-score {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(95, 136, 214, 0.32);
+  background: rgba(19, 31, 52, 0.55);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight: 750;
+}
+
+.game-caret {
+  font-size: 16px;
+  color: rgba(230, 237, 248, 0.9);
+}
+
+.games-expand-row td {
+  padding: 0;
+}
+
+.game-expand-empty {
+  margin: 12px;
+}
+
+.game-roster {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 12px;
+  border-top: 1px solid rgba(45, 64, 102, 0.65);
+  background: rgba(10, 18, 36, 0.25);
+}
+
+.game-roster-col {
+  border: 1px solid rgba(95, 136, 214, 0.2);
+  background: rgba(19, 31, 52, 0.35);
+  border-radius: 12px;
+  padding: 10px 10px 8px;
+}
+
+.game-roster-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+.game-roster-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+}
+
+.game-roster-list li {
+  font-size: 13px;
+}
+
 .set-row-main {
   display: flex;
   align-items: center;
@@ -2513,6 +2587,10 @@ button:disabled {
     gap: 2px;
     min-width: 0;
     flex: 1;
+  }
+
+  .game-roster {
+    grid-template-columns: 1fr;
   }
 
   .mobile-topbar-title {
