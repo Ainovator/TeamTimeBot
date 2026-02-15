@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="320" viewBox="0 0 980 320">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111c31"/>
+      <stop offset="1" stop-color="#0f1728"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5ea3ff"/>
+      <stop offset="1" stop-color="#d85f7a"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="980" height="320" rx="20" fill="url(#bg)" stroke="#2d4066"/>
+
+  <g fill="none" stroke="#2d4066" stroke-width="2">
+    <path d="M130 170 H 850"/>
+  </g>
+  <g fill="none" stroke="url(#accent)" stroke-width="4" stroke-linecap="round" opacity="0.85">
+    <path d="M150 170 H 830"/>
+  </g>
+
+  <g font-family="Manrope, sans-serif" font-size="14" fill="#e6edf8">
+    <g>
+      <circle cx="170" cy="170" r="20" fill="#13213a" stroke="#2d4066"/>
+      <text x="170" y="175" text-anchor="middle" font-weight="700">1</text>
+      <text x="170" y="215" text-anchor="middle" fill="#9eb1d1">В голосовании</text>
+    </g>
+    <g>
+      <circle cx="410" cy="170" r="20" fill="#13213a" stroke="#2d4066"/>
+      <text x="410" y="175" text-anchor="middle" font-weight="700">2</text>
+      <text x="410" y="215" text-anchor="middle" fill="#9eb1d1">На распределении</text>
+    </g>
+    <g>
+      <circle cx="650" cy="170" r="20" fill="#13213a" stroke="#2d4066"/>
+      <text x="650" y="175" text-anchor="middle" font-weight="700">3</text>
+      <text x="650" y="215" text-anchor="middle" fill="#9eb1d1">На проверке</text>
+    </g>
+    <g>
+      <circle cx="850" cy="170" r="20" fill="#13213a" stroke="#2d4066"/>
+      <text x="850" y="175" text-anchor="middle" font-weight="700">4</text>
+      <text x="850" y="215" text-anchor="middle" fill="#9eb1d1">Завершено</text>
+    </g>
+  </g>
+
+  <g font-family="Manrope, sans-serif" font-size="12" fill="#9eb1d1">
+    <text x="60" y="56">Статусы меняются автоматически: до -30 мин к старту, затем распределение, после окончания проверка оплат.</text>
+    <text x="60" y="74">Админ может удалить лишний голос, пересчитать оплату и закрыть тренировку отметками оплат.</text>
+  </g>
+</svg>

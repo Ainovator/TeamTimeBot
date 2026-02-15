@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="320" viewBox="0 0 980 320">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111c31"/>
+      <stop offset="1" stop-color="#0f1728"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5ea3ff" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#2e76dc" stop-opacity="0.12"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="980" height="320" rx="20" fill="url(#bg)" stroke="#2d4066"/>
+  <rect x="50" y="60" width="420" height="200" rx="18" fill="#13213a" stroke="#2d4066"/>
+  <rect x="510" y="60" width="420" height="200" rx="18" fill="#13213a" stroke="#2d4066"/>
+
+  <g font-family="Manrope, sans-serif" font-size="13" fill="#9eb1d1">
+    <text x="70" y="92">Шаблон голосования</text>
+    <text x="530" y="92">Шаблон события</text>
+  </g>
+
+  <g>
+    <rect x="70" y="110" width="330" height="14" rx="7" fill="#9ab1d8" opacity="0.28"/>
+    <rect x="70" y="140" width="360" height="36" rx="12" fill="url(#chip)" stroke="#2d4066"/>
+    <rect x="70" y="186" width="360" height="36" rx="12" fill="url(#chip)" stroke="#2d4066"/>
+    <rect x="70" y="232" width="240" height="18" rx="9" fill="#d85f7a" opacity="0.18"/>
+  </g>
+
+  <g>
+    <rect x="530" y="110" width="240" height="14" rx="7" fill="#9ab1d8" opacity="0.26"/>
+    <rect x="530" y="140" width="380" height="36" rx="12" fill="rgba(45,191,143,0.12)" stroke="#2d4066"/>
+    <rect x="530" y="186" width="380" height="36" rx="12" fill="rgba(216,95,122,0.12)" stroke="#2d4066"/>
+    <rect x="530" y="232" width="180" height="18" rx="9" fill="#5ea3ff" opacity="0.18"/>
+  </g>
+
+  <path d="M470 160 C 495 160, 495 160, 510 160" fill="none" stroke="#5ea3ff" stroke-opacity="0.5" stroke-width="4" stroke-linecap="round"/>
+  <path d="M470 200 C 495 200, 495 200, 510 200" fill="none" stroke="#d85f7a" stroke-opacity="0.35" stroke-width="4" stroke-linecap="round"/>
+</svg>
+

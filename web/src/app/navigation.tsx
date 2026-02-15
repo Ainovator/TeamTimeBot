@@ -106,4 +106,17 @@ export const sections: SectionItem[] = [
       </Icon>
     ),
   },
+  {
+    id: 'docs',
+    title: 'Документация',
+    subtitle: 'Полный workflow',
+    icon: (
+      <Icon>
+        <path
+          d="M7 3h10a2 2 0 0 1 2 2v16a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v15h10V5H7Zm2 3h6v2H9V8Zm0 4h6v2H9v-2Zm0 4h6v2H9v-2Z"
+          fill="currentColor"
+        />
+      </Icon>
+    ),
+  },
 ]

@@ -104,6 +104,19 @@ import type {
 } from './types'
 
 const initialRoute = parseRoute(window.location.pathname)
+
+const docsNavItems: Array<{ id: string; title: string }> = [
+  { id: 'docs-quickstart', title: 'Быстрый старт' },
+  { id: 'docs-templates-polls', title: 'Шаблоны голосований' },
+  { id: 'docs-templates-events', title: 'Шаблоны событий' },
+  { id: 'docs-workflow', title: 'Жизненный цикл тренировки' },
+  { id: 'docs-votes', title: 'Голоса и учёт' },
+  { id: 'docs-teams', title: 'Команды и распределение' },
+  { id: 'docs-sets', title: 'Партии (сеты)' },
+  { id: 'docs-billing', title: 'Оплата и перерасчёт' },
+  { id: 'docs-debts', title: 'Задолженности' },
+  { id: 'docs-roles', title: 'Роли и доступы' },
+]
 declare global {
   interface Window {
     onTelegramAuth?: (payload: {
@@ -348,6 +361,7 @@ export default function App() {
     return sections.filter((s) => {
       if (s.id === 'overview') return isAdmin
       if (s.id === 'billing') return isAdmin
+      if (s.id === 'docs') return true
       if (s.id === 'events') return can('events_read')
       if (s.id === 'polls') return can('polls_read')
       if (s.id === 'profile') return can('profile_read')
@@ -364,6 +378,16 @@ export default function App() {
     }
     return map
   }, [templates])
+
+  const [docsSideNavVisible, setDocsSideNavVisible] = useState(false)
+  const [docsActiveAnchor, setDocsActiveAnchor] = useState<string>(docsNavItems[0]?.id ?? 'docs-quickstart')
+  const [docsSideNavCollapsed, setDocsSideNavCollapsed] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('docsSideNavCollapsed') === '1'
+    } catch {
+      return false
+    }
+  })
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === activeEventID) ?? null,
     [events, activeEventID],
@@ -979,6 +1003,57 @@ export default function App() {
       cancelled = true
     }
   }, [activeSection, activeChatID, activeHistoryEventID, success])
+
+  useEffect(() => {
+    if (activeSection !== 'docs') {
+      setDocsSideNavVisible(false)
+      return
+    }
+    let cancelled = false
+    const toc = document.querySelector('.docs-toc')
+    if (!toc) {
+      return
+    }
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (cancelled) return
+        const e = entries[0]
+        // Show the side nav when the main TOC is not visible.
+        setDocsSideNavVisible(!e.isIntersecting)
+      },
+      { threshold: 0.05 },
+    )
+    io.observe(toc)
+
+    const sectionEls = docsNavItems
+      .map((it) => document.getElementById(it.id))
+      .filter((el): el is HTMLElement => Boolean(el))
+
+    const sectionIO = new IntersectionObserver(
+      (entries) => {
+        if (cancelled) return
+        const visible = entries
+          .filter((x) => x.isIntersecting)
+          .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0))
+        if (visible.length > 0) {
+          const id = (visible[0].target as HTMLElement).id
+          if (id) setDocsActiveAnchor(id)
+        }
+      },
+      // Consider section active when its heading reaches upper half.
+      { threshold: [0.15, 0.35, 0.55] },
+    )
+    for (const el of sectionEls) {
+      sectionIO.observe(el)
+    }
+
+    return () => {
+      cancelled = true
+      io.disconnect()
+      sectionIO.disconnect()
+    }
+  }, [activeSection])
 
   useEffect(() => {
     if (activeSection !== 'polls' || activeChatID === null) {
@@ -2507,6 +2582,847 @@ export default function App() {
       return `@${d.username}`
     }
     return `ID ${d.userID}`
+  }
+
+  function scrollDocsTo(id: string) {
+    const el = document.getElementById(id)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  function toggleDocsSideNav(next: boolean) {
+    setDocsSideNavCollapsed(next)
+    try {
+      window.localStorage.setItem('docsSideNavCollapsed', next ? '1' : '0')
+    } catch {
+      // ignore
+    }
+  }
+
+  function renderDocs() {
+    if (activeChatID === null) {
+      return <section className="content-card">Выбери организацию</section>
+    }
+
+    return (
+      <section className="docs-page">
+        <section className="docs-hero">
+          <div className="docs-hero-text">
+            <p className="docs-kicker">TeamTime Console</p>
+            <h2>Документация</h2>
+            <p className="muted">
+              Полный workflow продукта: от шаблонов и публикаций до распределения команд, партий, расчёта оплаты и контроля задолженностей.
+            </p>
+            <div className="docs-hero-actions">
+              <button type="button" className="btn-secondary" onClick={() => scrollDocsTo('docs-quickstart')}>
+                Быстрый старт
+              </button>
+              <button type="button" onClick={() => scrollDocsTo('docs-workflow')}>
+                Посмотреть workflow
+              </button>
+            </div>
+          </div>
+          <div className="docs-hero-figure" aria-hidden="true">
+            <img src="/docs/hero.svg" alt="" />
+          </div>
+        </section>
+
+        <section className="docs-toc">
+          <div className="docs-toc-head">
+            <h3>Оглавление</h3>
+            <p className="muted">Кликни по пункту, чтобы перейти к разделу.</p>
+          </div>
+          <div className="docs-toc-grid">
+            {docsNavItems.map(({ id, title }) => (
+              <button key={id} type="button" className="docs-toc-item" onClick={() => scrollDocsTo(id)}>
+                <span>{title}</span>
+                <span className="docs-toc-arrow" aria-hidden="true">
+                  →
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {docsSideNavCollapsed ? (
+          <button
+            type="button"
+            className="docs-sidenav-toggle docs-sidenav-fab"
+            aria-label="Показать боковую навигацию документации"
+            onClick={() => toggleDocsSideNav(false)}
+          >
+            <span className="hamburger" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+          </button>
+        ) : null}
+
+        <aside
+          className={docsSideNavVisible && !docsSideNavCollapsed ? 'docs-sidenav show' : 'docs-sidenav'}
+          aria-label="Навигация по документации"
+        >
+          <div className="docs-sidenav-head">
+            <div>
+              <strong>Документация</strong>
+            </div>
+            <button
+              type="button"
+              className="docs-sidenav-toggle"
+              aria-label="Скрыть боковую навигацию документации"
+              onClick={() => toggleDocsSideNav(true)}
+            >
+              <span className="hamburger" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+            </button>
+          </div>
+          <div className="docs-sidenav-list">
+            {docsNavItems.map((it) => (
+              <button
+                key={`side-${it.id}`}
+                type="button"
+                className={docsActiveAnchor === it.id ? 'docs-sidenav-item active' : 'docs-sidenav-item'}
+                onClick={() => scrollDocsTo(it.id)}
+              >
+                {it.title}
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <section id="docs-quickstart" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Быстрый старт</h3>
+            <p className="muted">Минимальный путь, чтобы провести первую тренировку с голосованием и оплатой.</p>
+          </div>
+          <div className="docs-grid">
+            <article className="docs-card">
+              <h4>1) Создай шаблон голосования</h4>
+              <p className="muted">
+                В разделе <strong>Шаблоны голосований</strong> задай вопрос и варианты ответов.
+              </p>
+              <ul className="docs-list">
+                <li>Отметь варианты, которые участвуют в учёте посещения.</li>
+                <li>Если нужно, настрой веса вариантов (например, +2 места).</li>
+              </ul>
+            </article>
+            <article className="docs-card">
+              <h4>2) Создай шаблон события</h4>
+              <p className="muted">
+                В разделе <strong>Шаблоны событий</strong> настрой расписание, публикацию и стоимость.
+              </p>
+              <ul className="docs-list">
+                <li>Привяжи созданный шаблон голосования.</li>
+                <li>Укажи стоимость тренировки и настройки расчёта.</li>
+              </ul>
+            </article>
+            <article className="docs-card">
+              <h4>3) Проведи тренировку</h4>
+              <p className="muted">
+                В <strong>События</strong> открой нужную тренировку, проверь голоса, распределение и оплату.
+              </p>
+              <ul className="docs-list">
+                <li>При необходимости удали лишний голос (например, игрок не пришёл).</li>
+                <li>Нажми «Сформировать расчёт» и сохрани оплаты.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="docs-templates-polls" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Шаблоны голосований</h3>
+            <p className="muted">Здесь задаётся вопрос и набор вариантов, которые дальше используются в тренировках.</p>
+          </div>
+          <div className="docs-media">
+            <div className="docs-ui-preview docs-ui-preview-compact" aria-label="Пример шаблона голосования">
+              <div className="template-head">
+                <h4>Шаблон голосования</h4>
+                <button type="button" className="btn-secondary" disabled>
+                  Создать шаблон
+                </button>
+              </div>
+              <form className="form-grid">
+                <h4>Название</h4>
+                <input value="Регистрация на тренировку" disabled />
+                <h4>Вопрос</h4>
+                <input value="Сколько человек придёт?" disabled />
+                <h4>Варианты</h4>
+                <div className="option-list">
+                  <div className="option-row">
+                    <input value="+1 (приду)" disabled />
+                    <label className="option-weight">
+                      <span>K</span>
+                      <input type="number" value={1} disabled />
+                    </label>
+                    <label className="option-accounting">
+                      <input type="checkbox" checked readOnly />
+                      <span>Учёт</span>
+                    </label>
+                    <button type="button" className="icon-btn danger" disabled>
+                      -
+                    </button>
+                  </div>
+                  <div className="option-row">
+                    <input value="+2 (я и друг)" disabled />
+                    <label className="option-weight">
+                      <span>K</span>
+                      <input type="number" value={2} disabled />
+                    </label>
+                    <label className="option-accounting">
+                      <input type="checkbox" checked readOnly />
+                      <span>Учёт</span>
+                    </label>
+                    <button type="button" className="icon-btn danger" disabled>
+                      -
+                    </button>
+                  </div>
+                  <div className="option-row">
+                    <input value="Не смогу" disabled />
+                    <label className="option-weight">
+                      <span>K</span>
+                      <input type="number" value={1} disabled />
+                    </label>
+                    <label className="option-accounting">
+                      <input type="checkbox" readOnly />
+                      <span>Учёт</span>
+                    </label>
+                    <button type="button" className="icon-btn danger" disabled>
+                      -
+                    </button>
+                  </div>
+                </div>
+                <button type="button" className="icon-btn add" disabled>
+                  +
+                </button>
+                <div className="split-forms">
+                  <button type="button" disabled>
+                    Сохранить шаблон
+                  </button>
+                  <button type="button" className="btn-danger" disabled>
+                    Удалить шаблон
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+          <div className="docs-callout">
+            <strong>Важно:</strong> в расчёт оплаты попадают только те варианты, которые помечены как «учёт».
+          </div>
+        </section>
+
+        <section id="docs-templates-events" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Шаблоны событий</h3>
+            <p className="muted">Расписание, публикации, стоимость и настройки расчёта для тренировки. Ниже описано, за что отвечает каждая настройка.</p>
+          </div>
+          <div className="docs-grid docs-grid-2">
+            <article className="docs-card">
+              <h4>Расписание</h4>
+              <p className="muted">Когда старт и конец, а также когда публикуется голосование.</p>
+            </article>
+            <article className="docs-card">
+              <h4>Стоимость</h4>
+              <p className="muted">Используется для «на человека» и перерасчёта при изменении состава.</p>
+            </article>
+          </div>
+
+          <div className="docs-setting-table">
+            <div className="docs-setting-row docs-setting-head">
+              <div>Настройка</div>
+              <div>Что делает</div>
+              <div>На что влияет</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Название</strong>
+                <small className="muted">имя события</small>
+              </div>
+              <div>Название тренировки/мероприятия, отображается в консоли и в публикациях.</div>
+              <div>Списки событий, сообщения в Telegram, отчёты.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Тип события</strong>
+                <small className="muted">тренировка / мероприятие</small>
+              </div>
+              <div>Категория события для фильтров и аналитики.</div>
+              <div>Фильтры в разделе «События», отображение в истории.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>День недели</strong>
+                <small className="muted">когда проходит</small>
+              </div>
+              <div>Определяет день проведения события по локальной таймзоне группы.</div>
+              <div>Планирование экземпляров, расчёт «следующей даты».</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Начало</strong>
+                <small className="muted">время старта</small>
+              </div>
+              <div>Время начала тренировки.</div>
+              <div>Переход статусов, отображение «Дата начала».</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Окончание</strong>
+                <small className="muted">время конца</small>
+              </div>
+              <div>Время окончания тренировки.</div>
+              <div>Переход на «На проверке» после окончания, отображение «Дата окончания».</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Шаблон голосования</strong>
+                <small className="muted">привязка</small>
+              </div>
+              <div>Какой шаблон использовать для публикации опроса.</div>
+              <div>Список вариантов, учёт (counted options), веса вариантов.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>День публикации опроса</strong>
+                <small className="muted">pollPublishWeekday</small>
+              </div>
+              <div>В какой день недели публиковать голосование (можно отличать от дня тренировки).</div>
+              <div>Автопубликация опроса, когда начинается сбор голосов.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Время публикации опроса</strong>
+                <small className="muted">pollPublishTime</small>
+              </div>
+              <div>Во сколько публиковать голосование.</div>
+              <div>Автопубликация опроса, «окно голосования».</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Публикации активны</strong>
+                <small className="muted">publishEnabled</small>
+              </div>
+              <div>Глобальный переключатель авто-публикаций для этого события.</div>
+              <div>Автопубликация опросов/уведомлений, появление события в расписании.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Анонс</strong>
+                <small className="muted">announcementEnabled</small>
+              </div>
+              <div>Включает/выключает сообщение-анонс перед тренировкой (если настроено).</div>
+              <div>Отправку анонса в группу Telegram.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Текст анонса</strong>
+                <small className="muted">announcementText</small>
+              </div>
+              <div>Текст, который будет отправлен в группу как анонс.</div>
+              <div>Контент сообщения, формат публикации.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>За сколько минут</strong>
+                <small className="muted">announcementLeadMinutes</small>
+              </div>
+              <div>За какое время до начала тренировки отправлять анонс.</div>
+              <div>Тайминг анонса.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Автораспределение команд</strong>
+                <small className="muted">teamsAutoSplit</small>
+              </div>
+              <div>Если включено, система может автоматически распределять игроков по командам (по рейтингу/правилам).</div>
+              <div>Вкладку «Распределение», кнопки автосплита и расчёт баланса.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Публиковать список команд</strong>
+                <small className="muted">teamsPublishList</small>
+              </div>
+              <div>Определяет, будет ли публиковаться состав команд в группу.</div>
+              <div>Кнопку/действие «Опубликовать состав» и текст публикации.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Размер команды</strong>
+                <small className="muted">teamSize</small>
+              </div>
+              <div>Целевое количество игроков в команде (используется в распределении).</div>
+              <div>Автораспределение, подсказки по заполнению команд.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Минимум голосов для проведения</strong>
+                <small className="muted">minVotesToHold</small>
+              </div>
+              <div>Минимальный порог “учтённых” голосов, чтобы тренировка считалась состоявшейся.</div>
+              <div>Логику статусов и уведомлений об отмене (если включено).</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Отмена: за сколько минут</strong>
+                <small className="muted">cancelLeadMinutes</small>
+              </div>
+              <div>За сколько минут до начала проверять порог голосов и при необходимости отменять.</div>
+              <div>Переход в «Не состоялось» и/или уведомления.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Уведомлять об отмене</strong>
+                <small className="muted">cancelNotifyEnabled</small>
+              </div>
+              <div>Включает сообщение в группу, если тренировка отменена по порогу голосов.</div>
+              <div>Отправку уведомления в Telegram.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Стоимость</strong>
+                <small className="muted">costAmount</small>
+              </div>
+              <div>Сумма, которая делится на количество учтённых “мест” (с учётом весов) и даёт «на человека».</div>
+              <div>Расчёт оплат, задолженности, публикации расчёта.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Расчёт включен</strong>
+                <small className="muted">settlementEnabled</small>
+              </div>
+              <div>Глобальный переключатель, делать ли расчёт оплаты для события.</div>
+              <div>Доступность вкладки «Оплата» и публикаций расчёта.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Публиковать расчёт до</strong>
+                <small className="muted">settlementPublishBefore</small>
+              </div>
+              <div>Если включено, можно публиковать расчёт до тренировки (предварительный).</div>
+              <div>Тайминг публикации и сценарий “предоплаты”.</div>
+            </div>
+
+            <div className="docs-setting-row">
+              <div>
+                <strong>Публиковать расчёт после</strong>
+                <small className="muted">settlementPublishAfter</small>
+              </div>
+              <div>Если включено, можно публиковать расчёт после тренировки.</div>
+              <div>Сценарий “оплата по факту”, контроль задолженностей.</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="docs-workflow" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Жизненный цикл тренировки</h3>
+            <p className="muted">Статус меняется автоматически по времени начала/окончания тренировки и по состоянию оплат.</p>
+          </div>
+          <div className="docs-media">
+            <img className="docs-figure" src="/docs/workflow.svg" alt="" />
+          </div>
+          <div className="docs-grid docs-grid-2">
+            <article className="docs-card">
+              <h4>В голосовании</h4>
+              <p className="muted">
+                Активный сбор голосов. Длится до момента <strong>за 30 минут до старта</strong> (старт распределения).
+              </p>
+              <ul className="docs-list">
+                <li>В этот период Telegram-изменения (поставили/сняли голос) учитываются автоматически.</li>
+                <li>В расчёты и распределение попадают только «учтённые» варианты из шаблона голосования.</li>
+              </ul>
+            </article>
+            <article className="docs-card">
+              <h4>На распределении</h4>
+              <p className="muted">
+                Начинается <strong>за 30 минут до старта</strong> и длится до <strong>времени окончания</strong>.
+              </p>
+              <ul className="docs-list">
+                <li>В этот момент «окно голосования» закрыто: поздние изменения из Telegram больше не меняют учёт.</li>
+                <li>Админ распределяет игроков по командам, сохраняет и при необходимости публикует состав.</li>
+              </ul>
+            </article>
+            <article className="docs-card">
+              <h4>На проверке</h4>
+              <p className="muted">Этап контроля оплат после окончания тренировки.</p>
+              <ul className="docs-list">
+                <li>Появляется после окончания, если есть <strong>неоплаченные</strong> суммы по расчёту.</li>
+                <li>Админ может пересчитать «Сформировать расчёт» (если менялись голоса) и сохранить оплаты.</li>
+              </ul>
+            </article>
+            <article className="docs-card">
+              <h4>Завершено</h4>
+              <p className="muted">Финальный статус: долгов по расчёту не осталось.</p>
+              <ul className="docs-list">
+                <li>Ставится автоматически после окончания, если неоплаченных сумм нет.</li>
+                <li>Также станет «Завершено», когда все оплаты отмечены.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="docs-votes" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Голоса и учёт</h3>
+            <p className="muted">Внутри тренировки доступна вкладка «Голоса» со списком выборов.</p>
+          </div>
+          <div className="docs-callout">
+            <strong>Админская правка:</strong> можно удалить конкретный голос кнопкой «−». Это приведёт к перерасчёту оплаты для тренировки.
+          </div>
+        </section>
+
+        <section id="docs-teams" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Команды и распределение</h3>
+            <p className="muted">Кто попадает в распределение и как работает автораспределение.</p>
+          </div>
+          <div className="docs-media">
+            <img className="docs-figure" src="/docs/teams.svg" alt="" />
+          </div>
+          <div className="docs-grid docs-grid-2">
+            <article className="docs-card">
+              <h4>Кто участвует</h4>
+              <p className="muted">Распределение строится на базе «учтённых» вариантов голосования.</p>
+              <ul className="docs-list">
+                <li>Берутся только варианты, отмеченные как <strong>учёт</strong> в шаблоне голосования.</li>
+                <li>У каждого варианта может быть <strong>вес</strong>: он добавляет «места» (например, +2).</li>
+                <li>Если у голоса есть дополнительные места, создаются «гости» как отдельные слоты.</li>
+              </ul>
+            </article>
+            <article className="docs-card">
+              <h4>Рейтинг игрока</h4>
+              <p className="muted">Нужен для баланса сил команд.</p>
+              <ul className="docs-list">
+                <li>Рейтинг считается как <strong>среднее</strong> по навыкам игрока.</li>
+                <li>Если у игрока нет оценок, используется нейтральная база <strong>5.0</strong>.</li>
+                <li>Гостевые слоты всегда идут с рейтингом <strong>5.0</strong>.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div className="docs-callout">
+            <strong>Важно:</strong> автораспределение не “угадывает идеал”, оно даёт устойчивую базу, которую можно вручную донастроить drag-and-drop и сохранить.
+          </div>
+
+          <div className="docs-grid docs-grid-2">
+            <article className="docs-card">
+              <h4>Сколько команд и вместимость</h4>
+              <p className="muted">Система сама определяет A/B или A/B/C.</p>
+              <ul className="docs-list">
+                <li>По умолчанию распределяем в <strong>2 команды</strong>: A и B.</li>
+                <li>Команда C появляется, если игроков <strong>больше 14</strong> или если ранее уже была сохранена команда C.</li>
+                <li>Вместимость команд считается равномерно: разница максимум 1 игрок.</li>
+              </ul>
+            </article>
+            <article className="docs-card">
+              <h4>Как выбирается команда (встроенный алгоритм)</h4>
+              <p className="muted">Алгоритм пытается минимизировать дисбаланс рейтингов и учесть роли/связи.</p>
+              <ul className="docs-list">
+                <li>Сначала распределяются <strong>связующие</strong> (setter), затем <strong>либеро</strong>, затем все остальные.</li>
+                <li>Внутри каждой группы игроки идут по убыванию рейтинга.</li>
+                <li>Для каждого игрока выбирается команда с “лучшей” метрикой с учётом текущей силы, ролей и связей.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div className="docs-grid docs-grid-2">
+            <article className="docs-card">
+              <h4>Роли (player type)</h4>
+              <p className="muted">Роли учитываются, чтобы не сложить всех ключевых игроков в одну команду.</p>
+              <ul className="docs-list">
+                <li>Поддерживаются роли типа <strong>setter</strong> и <strong>libero</strong> (если выставлены игрокам в профиле).</li>
+                <li>Алгоритм добавляет штраф за перекос по ролям, чтобы распределять их равномернее.</li>
+              </ul>
+            </article>
+            <article className="docs-card">
+              <h4>Связи игроков</h4>
+              <p className="muted">Связи влияют на выбор команды через штрафы/бонусы.</p>
+              <ul className="docs-list">
+                <li><strong>prefer_together</strong>: стараемся держать вместе (штраф если в разных командах, бонус если в одной).</li>
+                <li><strong>avoid_together</strong>: стараемся разводить по разным командам (штраф если попали вместе).</li>
+                <li>Вес связи усиливает эффект.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div className="docs-callout">
+            <strong>Расширенный режим:</strong> если задан переменный окружения <strong>TEAM_SPLIT_SERVICE_URL</strong>, система сначала пробует внешний сервис распределения и при недоступности откатывается на встроенный алгоритм.
+          </div>
+        </section>
+
+        <section id="docs-sets" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Партии (сеты)</h3>
+            <p className="muted">Фиксируй счёт партий и публикуй результаты в группу.</p>
+          </div>
+          <div className="docs-grid">
+            <article className="docs-card">
+              <h4>2–3 команды</h4>
+              <p className="muted">Для каждой партии выбирается, какие команды играют, и задаётся счёт.</p>
+            </article>
+            <article className="docs-card">
+              <h4>Публикация</h4>
+              <p className="muted">Один клик, чтобы отправить итог по партиям в Telegram-группу.</p>
+            </article>
+            <article className="docs-card">
+              <h4>История</h4>
+              <p className="muted">Данные хранятся построчно, чтобы потом строить статистику.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="docs-billing" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Оплата и перерасчёт</h3>
+            <p className="muted">Вкладка «Оплата» показывает начисления и позволяет отметить оплативших.</p>
+          </div>
+          <div className="docs-callout">
+            <strong>Сформировать расчёт</strong> всегда пересчитывает стоимость на основании актуальных «учтённых» голосов (с учётом весов и настроек).
+          </div>
+          <div className="docs-media">
+            <div className="docs-ui-preview" aria-label="Пример вкладки оплаты">
+              <div className="template-head">
+                <h4>Оплата события</h4>
+              </div>
+              <div className="detail-grid">
+                <div>
+                  <span>Дата расчёта</span>
+                  <strong>20.02.2026, 19:00</strong>
+                </div>
+                <div>
+                  <span>Участников</span>
+                  <strong>12</strong>
+                </div>
+                <div>
+                  <span>На человека</span>
+                  <strong>350.00 ₽</strong>
+                </div>
+                <div>
+                  <span>Оплачено</span>
+                  <strong>7</strong>
+                </div>
+                <div>
+                  <span>Не оплачено</span>
+                  <strong>5</strong>
+                </div>
+                <div>
+                  <span>Долг по событию</span>
+                  <strong>1750.00 ₽</strong>
+                </div>
+              </div>
+              <div className="table-wrap table-wrap-spaced">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Игрок</th>
+                      <th>Сумма</th>
+                      <th className="col-center">Оплатил</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Михаил Козлов</td>
+                      <td>350.00 ₽</td>
+                      <td className="col-center">
+                        <label className="toggle-field toggle-field-only">
+                          <input type="checkbox" checked readOnly />
+                        </label>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Анна Смирнова</td>
+                      <td>350.00 ₽</td>
+                      <td className="col-center">
+                        <label className="toggle-field toggle-field-only">
+                          <input type="checkbox" readOnly />
+                        </label>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>@player_nick</td>
+                      <td>700.00 ₽</td>
+                      <td className="col-center">
+                        <label className="toggle-field toggle-field-only">
+                          <input type="checkbox" readOnly />
+                        </label>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="manual-controls">
+                <button type="button" className="btn-secondary" disabled>
+                  Опубликовать расчёт
+                </button>
+                <button type="button" className="btn-secondary" disabled>
+                  Сформировать расчет
+                </button>
+                <button type="button" disabled>
+                  Сохранить оплаты
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="docs-debts" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Задолженности</h3>
+            <p className="muted">Список игроков, кто должен деньги, с деревом тренировок. Есть публикация в группу с чекбоксами.</p>
+          </div>
+          <div className="docs-media">
+            <div className="docs-ui-preview docs-ui-preview-compact" aria-label="Пример вкладки задолженностей">
+              <div className="template-head">
+                <h4>Задолженности</h4>
+                <button type="button" disabled>
+                  Опубликовать
+                </button>
+              </div>
+
+              <div className="table-wrap">
+                <table className="table billing-debtors-table">
+                  <colgroup>
+                    <col style={{ width: '44%' }} />
+                    <col style={{ width: '28%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '8%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Игрок</th>
+                      <th>Реальное ФИО</th>
+                      <th className="col-center">Долг за все тренировки</th>
+                      <th className="col-center">Публиковать</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="member-row">
+                      <td>
+                        <div className="person-cell">
+                          <strong>Михаил Дмитриевич</strong>
+                          <span>@iamjq1</span>
+                        </div>
+                      </td>
+                      <td>Михаил Козлов</td>
+                      <td className="col-center">
+                        <span className="badge badge-debt debt-badge">4000.00 ₽</span>
+                      </td>
+                      <td className="col-center">
+                        <label className="toggle-field toggle-field-only">
+                          <input type="checkbox" checked readOnly />
+                        </label>
+                      </td>
+                    </tr>
+
+                    <tr className="billing-expand-row">
+                      <td colSpan={4}>
+                        <div className="list-block debt-trainings" style={{ marginTop: 10 }}>
+                          <div className="billing-training-row clickable tree-first">
+                            <div className="billing-training-info">
+                              <div className="tree-gutter" aria-hidden="true">
+                                <span className="tree-elbow" />
+                              </div>
+                              <div className="billing-training-text">
+                                <strong>Волейбол в пятницу</strong>
+                                <p className="muted">20.02.2026, 19:00</p>
+                              </div>
+                            </div>
+                            <div className="billing-training-debt">
+                              <span className="badge badge-debt debt-badge">4000.00 ₽</span>
+                            </div>
+                            <div className="billing-training-spacer" aria-hidden="true" />
+                          </div>
+                          <div className="billing-training-row clickable tree-last">
+                            <div className="billing-training-info">
+                              <div className="tree-gutter" aria-hidden="true">
+                                <span className="tree-elbow" />
+                              </div>
+                              <div className="billing-training-text">
+                                <strong>Тренировка в воскресенье</strong>
+                                <p className="muted">23.02.2026, 11:00</p>
+                              </div>
+                            </div>
+                            <div className="billing-training-debt">
+                              <span className="badge badge-debt debt-badge">0.00 ₽</span>
+                            </div>
+                            <div className="billing-training-spacer" aria-hidden="true" />
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+
+                    <tr className="member-row">
+                      <td>
+                        <div className="person-cell">
+                          <strong>@player_nick</strong>
+                          <span>ID 123456</span>
+                        </div>
+                      </td>
+                      <td>-</td>
+                      <td className="col-center">
+                        <span className="badge badge-debt debt-badge">700.00 ₽</span>
+                      </td>
+                      <td className="col-center">
+                        <label className="toggle-field toggle-field-only">
+                          <input type="checkbox" checked readOnly />
+                        </label>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="docs-roles" className="docs-section">
+          <div className="docs-section-head">
+            <h3>Роли и доступы</h3>
+            <p className="muted">Админ видит больше разделов и может выполнять действия, влияющие на расчёты и публикации.</p>
+          </div>
+          <div className="docs-grid docs-grid-2">
+            <article className="docs-card">
+              <h4>Администратор</h4>
+              <p className="muted">Управляет шаблонами, правами, расчётами, публикациями и ручными корректировками.</p>
+            </article>
+            <article className="docs-card">
+              <h4>Участник</h4>
+              <p className="muted">Видит профиль и историю, в рамках выданных прав.</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="docs-footer">
+          <p className="muted">Версия документации привязана к текущей версии консоли.</p>
+        </section>
+      </section>
+    )
   }
 
   function renderBilling() {
@@ -5085,6 +6001,8 @@ export default function App() {
           )
         }
         return renderProfile()
+      case 'docs':
+        return renderDocs()
       default:
         return null
     }
