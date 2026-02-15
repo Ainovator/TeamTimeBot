@@ -1134,6 +1134,20 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		}
 	}
 
+	if len(parts) == 2 && parts[0] == "history" && r.Method == http.MethodDelete {
+		instanceID, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid instance id")
+			return
+		}
+		if err := s.store.DeleteEventInstance(r.Context(), chatID, instanceID); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
 	if len(parts) == 1 {
 		eventID, err := strconv.ParseUint(parts[0], 10, 64)
 		if err != nil {

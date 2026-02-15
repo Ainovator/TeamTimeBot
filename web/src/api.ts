@@ -253,6 +253,13 @@ export async function createEventInstance(chatID: number, eventID: number, paylo
   return parseResponse<{ instanceID: number }>(res)
 }
 
+export async function deleteEventInstance(chatID: number, instanceID: number): Promise<void> {
+  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}`, {
+    method: 'DELETE',
+  })
+  await parseResponse<{ status: string }>(res)
+}
+
 export async function updateEventDetails(
   chatID: number,
   eventID: number,

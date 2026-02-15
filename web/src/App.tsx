@@ -1,13 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import {
+  import {
   activateEventPublications,
   archiveEvent,
   bindEvent,
   assignGroupRole,
   createEvent,
-  createEventInstance,
-  createTemplate,
-  deactivateEventPublications,
+	  createEventInstance,
+	  createTemplate,
+	  deleteEventInstance,
+	  deactivateEventPublications,
   deleteTemplate,
   fetchAuthConfig,
   fetchAuthMe,
@@ -47,7 +48,7 @@ import {
   updateEventDetails,
   updateTemplate,
   logoutAuth,
-} from './api'
+	} from './api'
 import { announcementLeadLabel, announcementLeadOptions, clockMinutes, ensureList, formatMoney, toHourMinute, weekdayLabel, weekdayOptions } from './app/constants'
 import { sections } from './app/navigation'
 import { buildRoutePath, makeOrgKey, parseRoute, type RouteState, type Section } from './app/router'
@@ -1966,6 +1967,34 @@ export default function App() {
     }
   }
 
+  async function onDeleteEventInstanceForTest() {
+    if (activeChatID === null || activeHistoryEventID === null) {
+      return
+    }
+    const confirmed = window.confirm(
+      'Удалить это событие целиком?\n\nБудут удалены: голосование, голоса, распределение, расчёт/оплата и отметки публикаций.\n\nДействие необратимо.',
+    )
+    if (!confirmed) {
+      return
+    }
+    await runAction(
+      async () => {
+        await deleteEventInstance(activeChatID, activeHistoryEventID)
+        await reloadActiveOrganization(activeChatID, { silent: true })
+        navigateTo({
+          chatID: activeChatID,
+          section: 'events',
+          historyEventID: null,
+          templateView: 'list',
+          templateName: null,
+          eventView: 'list',
+          eventID: null,
+        })
+      },
+      'Событие удалено',
+    )
+  }
+
   async function onSaveBilling() {
     if (activeChatID === null || activeHistoryEventID === null || !eventBilling) {
       return
@@ -3638,16 +3667,21 @@ export default function App() {
 
         {!eventHistoryLoading && !selectedHistoryEvent ? <p className="muted">Событие не найдено</p> : null}
 
-        {selectedHistoryEvent ? (
-          <section className="team-split-board">
-            <div className="team-split-head">
-              <div>
-                <strong>Распределение по командам: {selectedHistoryEvent.name}</strong>
-                <p className="muted">
-                  Статус: {historyStatusLabel(selectedHistoryEvent.status)} · Долг: {formatMoney(selectedHistoryEvent.debtAmount ?? 0)}
-                </p>
-              </div>
-            </div>
+	        {selectedHistoryEvent ? (
+	          <section className="team-split-board">
+	            <div className="team-split-head">
+	              <div>
+	                <strong>Распределение по командам: {selectedHistoryEvent.name}</strong>
+	                <p className="muted">
+	                  Статус: {historyStatusLabel(selectedHistoryEvent.status)} · Долг: {formatMoney(selectedHistoryEvent.debtAmount ?? 0)}
+	                </p>
+	              </div>
+	              <div className="list-actions">
+	                <button type="button" className="btn-danger" onClick={() => void onDeleteEventInstanceForTest()}>
+	                  Удалить событие
+	                </button>
+	              </div>
+	            </div>
 
             <div className="history-tabs">
               <button
