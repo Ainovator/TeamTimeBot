@@ -135,6 +135,7 @@ export default function App() {
   const [selectedMemberSkills, setSelectedMemberSkills] = useState<MemberSkillProfile | null>(null)
   const [memberSkillDraft, setMemberSkillDraft] = useState<Record<string, string>>({})
   const [memberPlayerTypeDraft, setMemberPlayerTypeDraft] = useState<'' | 'attacker' | 'setter' | 'libero'>('')
+  const [memberRealNameDraft, setMemberRealNameDraft] = useState('')
   const [memberRelations, setMemberRelations] = useState<PlayerRelation[]>([])
   const [memberRelationDraft, setMemberRelationDraft] = useState({
     otherUserID: '',
@@ -155,6 +156,7 @@ export default function App() {
     question: '',
     options: ['', ''],
     counted: [false, false],
+    weights: [1, 1],
   })
   const [eventForm, setEventForm] = useState({
     name: '',
@@ -185,6 +187,7 @@ export default function App() {
     question: '',
     options: ['', ''],
     counted: [false, false],
+    weights: [1, 1],
   })
   const [templateEditorLoading, setTemplateEditorLoading] = useState(false)
   const [templateEditorError, setTemplateEditorError] = useState('')
@@ -338,9 +341,10 @@ export default function App() {
         return true
       }
       const name = fullName(member).toLowerCase()
+      const realName = (member.realName || '').toLowerCase()
       const username = (member.username || '').toLowerCase()
       const id = String(member.userTelegramID)
-      return name.includes(query) || username.includes(query) || id.includes(query)
+      return name.includes(query) || realName.includes(query) || username.includes(query) || id.includes(query)
     })
   }, [memberSkillProfiles, members, membersSearch, membersTypeFilter])
   const selectedHistoryEvent = useMemo(
@@ -744,7 +748,7 @@ export default function App() {
 
   useEffect(() => {
     if (activeSection !== 'templates' || activeTemplateView !== 'edit' || !activeTemplateName || activeChatID === null) {
-      setTemplateEditor({ name: '', question: '', options: ['', ''], counted: [false, false] })
+      setTemplateEditor({ name: '', question: '', options: ['', ''], counted: [false, false], weights: [1, 1] })
       setTemplateEditorError('')
       return
     }
@@ -759,11 +763,18 @@ export default function App() {
           return
         }
         const preparedOptions = ensureAtLeastTwoOptions(template.options)
+        const preparedWeights = (() => {
+          const w = Array.isArray(template.optionWeights) ? [...template.optionWeights] : []
+          while (w.length < preparedOptions.length) w.push(1)
+          if (w.length > preparedOptions.length) return w.slice(0, preparedOptions.length)
+          return w.map((x) => (Number.isFinite(x) && x > 0 ? Math.floor(x) : 1))
+        })()
         setTemplateEditor({
           name: template.name,
           question: template.question,
           options: preparedOptions,
           counted: preparedOptions.map((_, idx) => template.countedOptions.includes(idx)),
+          weights: preparedWeights,
         })
       })
       .catch((err) => {
@@ -1250,7 +1261,7 @@ export default function App() {
       return
     }
     const nextTemplateName = templateForm.name.trim()
-    const payload = buildTemplatePayload(templateForm.options, templateForm.counted)
+    const payload = buildTemplatePayload(templateForm.options, templateForm.counted, templateForm.weights)
     if (payload.options.length < 2) {
       setError('Для шаблона нужно минимум 2 варианта')
       return
@@ -1262,10 +1273,11 @@ export default function App() {
           question: templateForm.question.trim(),
           options: payload.options,
           countedOptions: payload.countedOptions,
+          optionWeights: payload.optionWeights,
         }),
       'Шаблон сохранен',
     )
-    setTemplateForm({ name: '', question: '', options: ['', ''], counted: [false, false] })
+    setTemplateForm({ name: '', question: '', options: ['', ''], counted: [false, false], weights: [1, 1] })
     navigateTo(
       {
         chatID: activeChatID,
@@ -1298,8 +1310,18 @@ export default function App() {
     })
   }
 
+  function updateTemplateFormWeight(index: number, value: string) {
+    const parsed = Number.parseInt(value, 10)
+    const nextWeight = Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+    setTemplateForm((prev) => {
+      const next = [...prev.weights]
+      next[index] = nextWeight
+      return { ...prev, weights: next }
+    })
+  }
+
   function addTemplateFormOption() {
-    setTemplateForm((prev) => ({ ...prev, options: [...prev.options, ''], counted: [...prev.counted, false] }))
+    setTemplateForm((prev) => ({ ...prev, options: [...prev.options, ''], counted: [...prev.counted, false], weights: [...prev.weights, 1] }))
   }
 
   function removeTemplateFormOption(index: number) {
@@ -1311,6 +1333,7 @@ export default function App() {
         ...prev,
         options: prev.options.filter((_, i) => i !== index),
         counted: prev.counted.filter((_, i) => i !== index),
+        weights: prev.weights.filter((_, i) => i !== index),
       }
     })
   }
@@ -1323,8 +1346,18 @@ export default function App() {
     })
   }
 
+  function updateTemplateEditorWeight(index: number, value: string) {
+    const parsed = Number.parseInt(value, 10)
+    const nextWeight = Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+    setTemplateEditor((prev) => {
+      const next = [...prev.weights]
+      next[index] = nextWeight
+      return { ...prev, weights: next }
+    })
+  }
+
   function addTemplateEditorOption() {
-    setTemplateEditor((prev) => ({ ...prev, options: [...prev.options, ''], counted: [...prev.counted, false] }))
+    setTemplateEditor((prev) => ({ ...prev, options: [...prev.options, ''], counted: [...prev.counted, false], weights: [...prev.weights, 1] }))
   }
 
   function removeTemplateEditorOption(index: number) {
@@ -1336,6 +1369,7 @@ export default function App() {
         ...prev,
         options: prev.options.filter((_, i) => i !== index),
         counted: prev.counted.filter((_, i) => i !== index),
+        weights: prev.weights.filter((_, i) => i !== index),
       }
     })
   }
@@ -1361,7 +1395,7 @@ export default function App() {
     if (activeChatID === null || !activeTemplateName) {
       return
     }
-    const payload = buildTemplatePayload(templateEditor.options, templateEditor.counted)
+    const payload = buildTemplatePayload(templateEditor.options, templateEditor.counted, templateEditor.weights)
     if (payload.options.length < 2) {
       setError('Для шаблона нужно минимум 2 варианта')
       return
@@ -1375,6 +1409,7 @@ export default function App() {
         question: templateEditor.question.trim(),
         options: payload.options,
         countedOptions: payload.countedOptions,
+        optionWeights: payload.optionWeights,
       })
 
       await reloadActiveOrganization(activeChatID)
@@ -2041,6 +2076,7 @@ export default function App() {
       }
       setMemberSkillDraft(draft)
       setMemberPlayerTypeDraft(profile.playerType || '')
+      setMemberRealNameDraft(profile.realName || '')
       setSelectedMemberSkills(profile)
       setMemberRelations(relations)
       setMemberRelationDraft({
@@ -2088,7 +2124,10 @@ export default function App() {
     }
     setMemberSkillError('')
     try {
-      await updateMemberProfile(activeChatID, selectedMemberSkills.userTelegramID, { playerType: memberPlayerTypeDraft })
+      await updateMemberProfile(activeChatID, selectedMemberSkills.userTelegramID, {
+        playerType: memberPlayerTypeDraft,
+        realName: memberRealNameDraft,
+      })
       await updateMemberSkills(activeChatID, selectedMemberSkills.userTelegramID, payload)
       const refreshed = await fetchMemberSkills(activeChatID, selectedMemberSkills.userTelegramID)
       const nextDraft: Record<string, string> = {}
@@ -2097,6 +2136,7 @@ export default function App() {
       }
       setMemberSkillDraft(nextDraft)
       setMemberPlayerTypeDraft(refreshed.playerType || '')
+      setMemberRealNameDraft(refreshed.realName || '')
       setSelectedMemberSkills(refreshed)
       setMemberSkillProfiles((prev) => ({ ...prev, [refreshed.userTelegramID]: refreshed }))
       setSuccess('Профиль игрока сохранен')
@@ -2274,6 +2314,17 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="form-grid form-grid-3" style={{ marginTop: 16 }}>
+                <label className="field" style={{ gridColumn: '1 / -1' }}>
+                  <span>Реальное имя</span>
+                  <input
+                    placeholder="Например: Иван Иванов"
+                    value={memberRealNameDraft}
+                    onChange={(e) => setMemberRealNameDraft(e.target.value)}
+                  />
+                </label>
+              </div>
+
               <div className="skill-slider-grid">
                 <div className="player-type-block">
                   <div className="player-type-head">
@@ -2445,6 +2496,7 @@ export default function App() {
               <thead>
                 <tr>
                   <th>Игрок</th>
+                  <th>Реальное имя</th>
                   <th>Тип игрока</th>
                   <th>Характеристики</th>
                   <th>Средняя</th>
@@ -2459,6 +2511,7 @@ export default function App() {
                         <span>ID: {member.userTelegramID}</span>
                       </div>
                     </td>
+                    <td>{member.realName?.trim() ? member.realName : <span className="muted">—</span>}</td>
                     <td>
                       <span className="skill-chip">
                         {playerTypeLabel((memberSkillProfiles[member.userTelegramID]?.playerType || member.playerType || '') as '' | 'attacker' | 'setter' | 'libero')}
@@ -2547,6 +2600,16 @@ export default function App() {
                     onChange={(e) => updateTemplateEditorOption(index, e.target.value)}
                     placeholder={`Вариант ${index + 1}`}
                   />
+                  <label className="option-weight">
+                    <span>K</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={templateEditor.weights[index] ?? 1}
+                      onChange={(e) => updateTemplateEditorWeight(index, e.target.value)}
+                    />
+                  </label>
                   <label className="option-accounting">
                     <input
                       type="checkbox"
@@ -2629,6 +2692,16 @@ export default function App() {
                   value={option}
                   onChange={(e) => updateTemplateFormOption(index, e.target.value)}
                 />
+                <label className="option-weight">
+                  <span>K</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={templateForm.weights[index] ?? 1}
+                    onChange={(e) => updateTemplateFormWeight(index, e.target.value)}
+                  />
+                </label>
                 <label className="option-accounting">
                   <input
                     type="checkbox"

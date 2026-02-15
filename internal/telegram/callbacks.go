@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -631,11 +632,11 @@ func HandleCallback(bot *tele.Bot, store *postgres.Store, callback tele.Callback
 		}
 		perPerson := 0.0
 		if participants > 0 {
-			perPerson = total / float64(participants)
+			perPerson = math.Ceil(total / float64(participants))
 		}
 
 		text := fmt.Sprintf(
-			"Тестовый расчет для события \"%s\"\nПоследний опрос: #%d (%s)\nУчитываем варианты: %s\nУчастников: %d\nСтоимость события: %.2f ₽\nНа человека: %.2f ₽",
+			"Тестовый расчет для события \"%s\"\nПоследний опрос: #%d (%s)\nУчитываем варианты: %s\nМест: %d\nСтоимость события: %.2f ₽\nЦена за место: %.0f ₽",
 			selected.Name,
 			post.ID,
 			post.PublishedAt.Format("02.01.2006 15:04"),

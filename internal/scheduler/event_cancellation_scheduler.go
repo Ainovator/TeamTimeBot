@@ -77,14 +77,35 @@ func (s *EventCancellationScheduler) tick(ctx context.Context) {
 			var countedOptions []int
 			_ = json.Unmarshal(inst.PollCountedOptions, &countedOptions)
 			if len(countedOptions) > 0 {
+				var optionWeights []int
+				_ = json.Unmarshal(inst.PollOptionWeights, &optionWeights)
+
 				choices := make([]string, 0, len(countedOptions))
+				weightByChoice := make(map[string]int, len(countedOptions))
 				for _, idx := range countedOptions {
-					choices = append(choices, fmt.Sprintf("option_%d", idx))
+					choice := fmt.Sprintf("option_%d", idx)
+					choices = append(choices, choice)
+					w := 1
+					if idx >= 0 && idx < len(optionWeights) {
+						w = optionWeights[idx]
+					}
+					if w <= 0 {
+						w = 1
+					}
+					weightByChoice[choice] = w
 				}
-				countedVotes, err = s.store.CountVotesForPostChoices(ctx, *inst.PollPostID, choices)
+
+				byChoice, err := s.store.CountVotesForPostChoicesByChoice(ctx, *inst.PollPostID, choices)
 				if err != nil {
 					log.Printf("event_cancellation: count votes failed for event %d: %v", inst.EventID, err)
 					continue
+				}
+				for choice, c := range byChoice {
+					w := weightByChoice[choice]
+					if w <= 0 {
+						w = 1
+					}
+					countedVotes += c * w
 				}
 			}
 		}
@@ -94,7 +115,7 @@ func (s *EventCancellationScheduler) tick(ctx context.Context) {
 		}
 
 		message := fmt.Sprintf(
-			"Событие \"%s\" отменено.\nНедостаточно подтверждений: %d из %d.\nПлановое начало: %s (%s)",
+			"Событие \"%s\" отменено.\nНедостаточно подтверждений: %d из %d мест.\nПлановое начало: %s (%s)",
 			inst.EventName,
 			countedVotes,
 			inst.MinVotesToHold,

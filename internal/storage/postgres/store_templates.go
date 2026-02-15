@@ -31,6 +31,39 @@ func (s *Store) UpsertPollTemplateWithCounted(
 	options []string,
 	countedOptions []int,
 ) (*PollTemplate, error) {
+	weights := make([]int, 0, len(options))
+	for range options {
+		weights = append(weights, 1)
+	}
+	return s.UpsertPollTemplateWithCountedAndWeights(ctx, chatID, name, question, options, countedOptions, weights)
+}
+
+func normalizeOptionWeights(optionsLen int, weights []int) []int {
+	if optionsLen <= 0 {
+		return []int{}
+	}
+	out := make([]int, optionsLen)
+	for i := 0; i < optionsLen; i++ {
+		w := 1
+		if i < len(weights) {
+			w = weights[i]
+		}
+		if w <= 0 {
+			w = 1
+		}
+		out[i] = w
+	}
+	return out
+}
+
+func (s *Store) UpsertPollTemplateWithCountedAndWeights(
+	ctx context.Context,
+	chatID int64,
+	name, question string,
+	options []string,
+	countedOptions []int,
+	optionWeights []int,
+) (*PollTemplate, error) {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
 		return nil, err
@@ -67,12 +100,19 @@ func (s *Store) UpsertPollTemplateWithCounted(
 		return nil, err
 	}
 
+	normalizedWeights := normalizeOptionWeights(len(sanitizedOptions), optionWeights)
+	weightsPayload, err := json.Marshal(normalizedWeights)
+	if err != nil {
+		return nil, err
+	}
+
 	template := PollTemplate{
 		GroupID:        group.ID,
 		Name:           name,
 		Question:       question,
 		Options:        datatypes.JSON(payload),
 		CountedOptions: datatypes.JSON(countedPayload),
+		OptionWeights:  datatypes.JSON(weightsPayload),
 		IsActive:       true,
 	}
 
@@ -86,6 +126,7 @@ func (s *Store) UpsertPollTemplateWithCounted(
 				"question":        question,
 				"options":         datatypes.JSON(payload),
 				"counted_options": datatypes.JSON(countedPayload),
+				"option_weights":  datatypes.JSON(weightsPayload),
 				"is_active":       true,
 				"updated_at":      gorm.Expr("NOW()"),
 			}),
@@ -250,10 +291,11 @@ func (s *Store) GetTemplateByName(ctx context.Context, chatID int64, name string
 		Question       string
 		Options        datatypes.JSON
 		CountedOptions datatypes.JSON
+		OptionWeights  datatypes.JSON
 	}
 	if err := s.db.WithContext(ctx).
 		Table("poll_templates").
-		Select("name, question, options, counted_options").
+		Select("name, question, options, counted_options, COALESCE(option_weights, '[]'::jsonb) AS option_weights").
 		Where("group_id = ? AND name = ? AND is_active = TRUE", group.ID, name).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -270,12 +312,15 @@ func (s *Store) GetTemplateByName(ctx context.Context, chatID int64, name string
 	if err := json.Unmarshal(row.CountedOptions, &countedOptions); err != nil {
 		return nil, err
 	}
+	var optionWeights []int
+	_ = json.Unmarshal(row.OptionWeights, &optionWeights)
 
 	return &TemplateDetails{
 		Name:           row.Name,
 		Question:       row.Question,
 		Options:        options,
 		CountedOptions: normalizeCountedOptionIndexes(len(options), countedOptions),
+		OptionWeights:  normalizeOptionWeights(len(options), optionWeights),
 	}, nil
 }
 
@@ -298,6 +343,21 @@ func (s *Store) UpdateTemplateByNameWithCounted(
 	currentName, newName, question string,
 	options []string,
 	countedOptions []int,
+) (*TemplateDetails, error) {
+	weights := make([]int, 0, len(options))
+	for range options {
+		weights = append(weights, 1)
+	}
+	return s.UpdateTemplateByNameWithCountedAndWeights(ctx, chatID, currentName, newName, question, options, countedOptions, weights)
+}
+
+func (s *Store) UpdateTemplateByNameWithCountedAndWeights(
+	ctx context.Context,
+	chatID int64,
+	currentName, newName, question string,
+	options []string,
+	countedOptions []int,
+	optionWeights []int,
 ) (*TemplateDetails, error) {
 	// Prevent renaming of system templates to avoid breaking integrations
 	// that rely on a stable name.
@@ -344,6 +404,12 @@ func (s *Store) UpdateTemplateByNameWithCounted(
 		return nil, err
 	}
 
+	normalizedWeights := normalizeOptionWeights(len(sanitizedOptions), optionWeights)
+	weightsPayload, err := json.Marshal(normalizedWeights)
+	if err != nil {
+		return nil, err
+	}
+
 	var result TemplateDetails
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var template PollTemplate
@@ -373,6 +439,7 @@ func (s *Store) UpdateTemplateByNameWithCounted(
 				"question":        question,
 				"options":         datatypes.JSON(payload),
 				"counted_options": datatypes.JSON(countedPayload),
+				"option_weights":  datatypes.JSON(weightsPayload),
 				"is_active":       true,
 				"updated_at":      gorm.Expr("NOW()"),
 			}).Error; err != nil {
@@ -384,10 +451,11 @@ func (s *Store) UpdateTemplateByNameWithCounted(
 			Question       string
 			Options        datatypes.JSON
 			CountedOptions datatypes.JSON
+			OptionWeights  datatypes.JSON
 		}
 		if err := tx.
 			Table("poll_templates").
-			Select("name, question, options, counted_options").
+			Select("name, question, options, counted_options, COALESCE(option_weights, '[]'::jsonb) AS option_weights").
 			Where("id = ?", template.ID).
 			First(&row).Error; err != nil {
 			return err
@@ -401,12 +469,15 @@ func (s *Store) UpdateTemplateByNameWithCounted(
 		if err := json.Unmarshal(row.CountedOptions, &parsedCounted); err != nil {
 			return err
 		}
+		var parsedWeights []int
+		_ = json.Unmarshal(row.OptionWeights, &parsedWeights)
 
 		result = TemplateDetails{
 			Name:           row.Name,
 			Question:       row.Question,
 			Options:        parsedOptions,
 			CountedOptions: normalizeCountedOptionIndexes(len(parsedOptions), parsedCounted),
+			OptionWeights:  normalizeOptionWeights(len(parsedOptions), parsedWeights),
 		}
 		return nil
 	})

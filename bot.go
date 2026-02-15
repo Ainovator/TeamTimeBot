@@ -164,6 +164,7 @@ func (b *Bot) SendPollWithMeta(recipient Recipient, question string, options []s
 		Question            string   `json:"question"`
 		Options             []string `json:"options"`
 		IsAnonymous         bool     `json:"is_anonymous"`
+		AllowsMultiple      bool     `json:"allows_multiple_answers,omitempty"`
 		ReplyToMessageID    int      `json:"reply_to_message_id,omitempty"`
 		DisableNotification bool     `json:"disable_notification,omitempty"`
 	}{
@@ -171,6 +172,8 @@ func (b *Bot) SendPollWithMeta(recipient Recipient, question string, options []s
 		Question:    question,
 		Options:     options,
 		IsAnonymous: false,
+		// Let users pick multiple options (e.g. "I'm coming" + "+1").
+		AllowsMultiple: true,
 	}
 
 	if sendOptions != nil {

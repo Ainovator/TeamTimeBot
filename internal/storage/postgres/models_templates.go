@@ -13,6 +13,7 @@ type PollTemplate struct {
 	Question       string         `gorm:"not null"`
 	Options        datatypes.JSON `gorm:"type:jsonb;not null"`
 	CountedOptions datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'"`
+	OptionWeights  datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'"`
 	IsActive       bool           `gorm:"not null;default:true"`
 	CreatedAt      time.Time      `gorm:"not null;default:now()"`
 	UpdatedAt      time.Time      `gorm:"not null;default:now()"`

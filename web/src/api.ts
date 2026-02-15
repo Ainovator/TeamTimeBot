@@ -132,7 +132,7 @@ export async function updateMemberSkills(chatID: number, userTelegramID: number,
 export async function updateMemberProfile(
   chatID: number,
   userTelegramID: number,
-  payload: { playerType: '' | 'attacker' | 'setter' | 'libero' },
+  payload: { playerType: '' | 'attacker' | 'setter' | 'libero'; realName?: string },
 ) {
   const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/profile`, {
     method: 'PUT',
@@ -175,7 +175,7 @@ export async function deleteMemberRelation(
 
 export async function createTemplate(
   chatID: number,
-  payload: { name: string; question: string; options: string[]; countedOptions: number[] },
+  payload: { name: string; question: string; options: string[]; countedOptions: number[]; optionWeights: number[] },
 ) {
   const res = await fetch(`/api/groups/${chatID}/templates`, {
     method: 'POST',
@@ -200,7 +200,7 @@ export async function fetchTemplate(chatID: number, templateName: string): Promi
 export async function updateTemplate(
   chatID: number,
   templateName: string,
-  payload: { name: string; question: string; options: string[]; countedOptions: number[] },
+  payload: { name: string; question: string; options: string[]; countedOptions: number[]; optionWeights: number[] },
 ) {
   const res = await fetch(`/api/groups/${chatID}/templates/${encodeURIComponent(templateName)}`, {
     method: 'PUT',

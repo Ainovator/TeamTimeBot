@@ -24,23 +24,19 @@ func HandlePollAnswer(store *postgres.Store, answer tele.PollAnswer) {
 		return
 	}
 
-	choice := "none"
-	if len(answer.OptionIDs) > 0 {
-		parts := make([]string, 0, len(answer.OptionIDs))
-		for _, idx := range answer.OptionIDs {
-			parts = append(parts, fmt.Sprintf("option_%d", idx))
-		}
-		choice = strings.Join(parts, ",")
+	choices := make([]string, 0, len(answer.OptionIDs))
+	for _, idx := range answer.OptionIDs {
+		choices = append(choices, fmt.Sprintf("option_%d", idx))
 	}
 
-	if err := store.UpsertEventPollVote(
+	if err := store.ReplaceEventPollVotes(
 		context.Background(),
 		post.ID,
 		int64(answer.User.ID),
 		answer.User.Username,
 		answer.User.FirstName,
 		answer.User.LastName,
-		choice,
+		choices,
 		"poll",
 		time.Now().UTC(),
 	); err != nil {

@@ -39,6 +39,7 @@ type GroupMember struct {
 	ID             uint64    `gorm:"primaryKey"`
 	GroupID        uint64    `gorm:"not null;index;uniqueIndex:ux_group_member"`
 	UserTelegramID int64     `gorm:"not null;uniqueIndex:ux_group_member"`
+	RealName       string    `gorm:"not null;default:''"`
 	PlayerType     string    `gorm:"not null;default:''"`
 	Role           string    `gorm:"not null;default:member"`
 	Status         string    `gorm:"not null;default:active"`

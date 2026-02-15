@@ -3,6 +3,7 @@ export type TemplateFormState = {
   question: string
   options: string[]
   counted: boolean[]
+  weights: number[]
 }
 
 export function ensureAtLeastTwoOptions(options: string[]): string[] {
@@ -18,6 +19,7 @@ export function ensureAtLeastTwoTemplateState(state: TemplateFormState): Templat
     ...state,
     options: [...state.options],
     counted: [...state.counted],
+    weights: [...state.weights],
   }
   while (next.options.length < 2) {
     next.options.push('')
@@ -28,12 +30,23 @@ export function ensureAtLeastTwoTemplateState(state: TemplateFormState): Templat
   if (next.counted.length > next.options.length) {
     next.counted = next.counted.slice(0, next.options.length)
   }
+  while (next.weights.length < next.options.length) {
+    next.weights.push(1)
+  }
+  if (next.weights.length > next.options.length) {
+    next.weights = next.weights.slice(0, next.options.length)
+  }
   return next
 }
 
-export function buildTemplatePayload(options: string[], countedFlags: boolean[]): { options: string[]; countedOptions: number[] } {
+export function buildTemplatePayload(
+  options: string[],
+  countedFlags: boolean[],
+  weights: number[],
+): { options: string[]; countedOptions: number[]; optionWeights: number[] } {
   const cleanedOptions: string[] = []
   const countedOptions: number[] = []
+  const optionWeights: number[] = []
   for (let i = 0; i < options.length; i += 1) {
     const value = options[i].trim()
     if (!value) {
@@ -44,6 +57,8 @@ export function buildTemplatePayload(options: string[], countedFlags: boolean[])
     if (countedFlags[i]) {
       countedOptions.push(nextIndex)
     }
+    const w = Number.isFinite(weights[i]) ? weights[i] : 1
+    optionWeights.push(w > 0 ? Math.floor(w) : 1)
   }
-  return { options: cleanedOptions, countedOptions }
+  return { options: cleanedOptions, countedOptions, optionWeights }
 }

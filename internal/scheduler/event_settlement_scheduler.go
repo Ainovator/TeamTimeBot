@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"strings"
 	"time"
 
 	tele "gopkg.in/telebot.v4"
@@ -97,33 +99,50 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 		eventStartLocal := inst.PlannedStartAt.In(loc)
 		eventEndLocal := inst.PlannedEndAt.In(loc)
 
-		var participants int
-		var perPerson float64
+		var seats int
+		var pricePerSeat float64
 		var postID *uint64
+		var payers []postgres.PollSeatCountItem
 		dataLoaded := false
 		loadData := func() bool {
 			if dataLoaded {
 				return true
 			}
-			participants = 0
-			perPerson = 0
+			seats = 0
+			pricePerSeat = 0
 			postID = nil
+			payers = nil
 
 			if inst.PollPostID != nil {
 				postID = inst.PollPostID
 				var countedOptions []int
 				_ = json.Unmarshal(inst.PollCountedOptions, &countedOptions)
 				if len(countedOptions) > 0 {
+					var optionWeights []int
+					_ = json.Unmarshal(inst.PollOptionWeights, &optionWeights)
+
 					choices := make([]string, 0, len(countedOptions))
+					weightByChoice := make(map[string]int, len(countedOptions))
 					for _, idx := range countedOptions {
-						choices = append(choices, fmt.Sprintf("option_%d", idx))
+						choice := fmt.Sprintf("option_%d", idx)
+						choices = append(choices, choice)
+						w := 1
+						if idx >= 0 && idx < len(optionWeights) {
+							w = optionWeights[idx]
+						}
+						if w <= 0 {
+							w = 1
+						}
+						weightByChoice[choice] = w
 					}
-					count, err := s.store.CountVotesForPostChoices(ctx, *inst.PollPostID, choices)
+
+					items, totalSeats, err := s.store.ListSeatCountsForPostChoices(ctx, *inst.PollPostID, choices, weightByChoice)
 					if err != nil {
 						log.Printf("event_settlement: count votes failed for event %d: %v", event.EventID, err)
 						return false
 					}
-					participants = count
+					payers = items
+					seats = totalSeats
 				}
 			}
 
@@ -131,11 +150,36 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 			if inst.CostAmount != nil {
 				totalAmount = *inst.CostAmount
 			}
-			if participants > 0 {
-				perPerson = totalAmount / float64(participants)
+			if seats > 0 {
+				pricePerSeat = math.Ceil(totalAmount / float64(seats))
 			}
 			dataLoaded = true
 			return true
+		}
+
+		buildMessage := func(prefix string) string {
+			if seats == 0 {
+				return fmt.Sprintf("%s \"%s\" за %s\nПока нет голосов для расчета.", prefix, inst.EventName, localDate.Format("02.01.2006"))
+			}
+			var b strings.Builder
+			b.WriteString(fmt.Sprintf("%s \"%s\" за %s\n", prefix, inst.EventName, localDate.Format("02.01.2006")))
+			b.WriteString(fmt.Sprintf("Мест: %d\n", seats))
+			b.WriteString(fmt.Sprintf("Цена за место: %.0f ₽\n\n", pricePerSeat))
+			for _, p := range payers {
+				if p.Seats <= 0 {
+					continue
+				}
+				name := strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
+				if name == "" && strings.TrimSpace(p.Username) != "" {
+					name = "@" + strings.TrimSpace(p.Username)
+				}
+				if name == "" {
+					name = fmt.Sprintf("id:%d", p.UserID)
+				}
+				amount := pricePerSeat * float64(p.Seats)
+				b.WriteString(fmt.Sprintf("%s — %.0f ₽\n", name, amount))
+			}
+			return strings.TrimSpace(b.String())
 		}
 
 		if inst.SettlementPublishBefore && !nowLocal.Before(eventStartLocal) && nowLocal.Before(eventEndLocal) {
@@ -145,20 +189,7 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 				continue
 			}
 			if !sentBefore && loadData() {
-				message := fmt.Sprintf(
-					"Предварительный расчет \"%s\" за %s\nУчастников: %d\nСтоимость на человека: %.2f ₽",
-					inst.EventName,
-					localDate.Format("02.01.2006"),
-					participants,
-					perPerson,
-				)
-				if participants == 0 {
-					message = fmt.Sprintf(
-						"Предварительный расчет \"%s\" за %s\nПока нет голосов для расчета.",
-						inst.EventName,
-						localDate.Format("02.01.2006"),
-					)
-				}
+				message := buildMessage("Предварительный расчет")
 				chat := tele.Chat{ID: event.ChatID, Type: tele.ChatGroup}
 				if err := s.bot.SendMessage(chat, message, nil); err != nil {
 					log.Printf("event_settlement: send before summary failed for event %d chat %d: %v", event.EventID, event.ChatID, err)
@@ -192,7 +223,7 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 				if inst.CostAmount != nil {
 					totalAmount = *inst.CostAmount
 				}
-				if err := s.store.CreateEventSettlement(ctx, event.GroupID, event.EventID, &instanceID, postID, localDate, totalAmount, participants, perPerson); err != nil {
+				if err := s.store.CreateEventSettlement(ctx, event.GroupID, event.EventID, &instanceID, postID, localDate, totalAmount, seats, pricePerSeat); err != nil {
 					log.Printf("event_settlement: create settlement failed for event %d: %v", event.EventID, err)
 					continue
 				}
@@ -201,20 +232,7 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 				}
 			}
 
-			message := fmt.Sprintf(
-				"Итоги тренировки \"%s\" за %s\nУчастников: %d\nСтоимость на человека: %.2f ₽",
-				inst.EventName,
-				localDate.Format("02.01.2006"),
-				participants,
-				perPerson,
-			)
-			if participants == 0 {
-				message = fmt.Sprintf(
-					"Итоги тренировки \"%s\" за %s\nНет голосов, стоимость на человека не рассчитана.",
-					inst.EventName,
-					localDate.Format("02.01.2006"),
-				)
-			}
+			message := buildMessage("Итоги тренировки")
 			chat := tele.Chat{ID: event.ChatID, Type: tele.ChatGroup}
 			if err := s.bot.SendMessage(chat, message, nil); err != nil {
 				log.Printf("event_settlement: send after summary failed for event %d chat %d: %v", event.EventID, event.ChatID, err)

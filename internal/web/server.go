@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -662,7 +663,8 @@ func (s *Server) handleMemberRoutes(w http.ResponseWriter, r *http.Request, chat
 			return
 		}
 		var req struct {
-			PlayerType string `json:"playerType"`
+			PlayerType string  `json:"playerType"`
+			RealName   *string `json:"realName,omitempty"`
 		}
 		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -671,6 +673,12 @@ func (s *Server) handleMemberRoutes(w http.ResponseWriter, r *http.Request, chat
 		if err := s.store.UpdateMemberPlayerType(r.Context(), chatID, userTelegramID, req.PlayerType); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
+		}
+		if req.RealName != nil {
+			if err := s.store.UpdateMemberRealName(r.Context(), chatID, userTelegramID, *req.RealName); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		return
@@ -757,6 +765,7 @@ func (s *Server) handleTemplateRoutes(w http.ResponseWriter, r *http.Request, ch
 			Question       string   `json:"question"`
 			Options        []string `json:"options"`
 			CountedOptions []int    `json:"countedOptions"`
+			OptionWeights  []int    `json:"optionWeights"`
 		}
 		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -766,13 +775,14 @@ func (s *Server) handleTemplateRoutes(w http.ResponseWriter, r *http.Request, ch
 			writeErrorMessage(w, http.StatusBadRequest, "need at least 2 options")
 			return
 		}
-		if _, err := s.store.UpsertPollTemplateWithCounted(
+		if _, err := s.store.UpsertPollTemplateWithCountedAndWeights(
 			r.Context(),
 			chatID,
 			strings.TrimSpace(req.Name),
 			strings.TrimSpace(req.Question),
 			sanitizeOptions(req.Options),
 			req.CountedOptions,
+			req.OptionWeights,
 		); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -803,6 +813,7 @@ func (s *Server) handleTemplateRoutes(w http.ResponseWriter, r *http.Request, ch
 				Question       string   `json:"question"`
 				Options        []string `json:"options"`
 				CountedOptions []int    `json:"countedOptions"`
+				OptionWeights  []int    `json:"optionWeights"`
 			}
 			if err := decodeJSON(r, &req); err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -817,7 +828,7 @@ func (s *Server) handleTemplateRoutes(w http.ResponseWriter, r *http.Request, ch
 				writeErrorMessage(w, http.StatusBadRequest, "need at least 2 options")
 				return
 			}
-			updated, err := s.store.UpdateTemplateByNameWithCounted(
+			updated, err := s.store.UpdateTemplateByNameWithCountedAndWeights(
 				r.Context(),
 				chatID,
 				templateName,
@@ -825,6 +836,7 @@ func (s *Server) handleTemplateRoutes(w http.ResponseWriter, r *http.Request, ch
 				strings.TrimSpace(req.Question),
 				options,
 				req.CountedOptions,
+				req.OptionWeights,
 			)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
@@ -1738,7 +1750,7 @@ func (s *Server) publishSettlementNow(ctx context.Context, chatID int64, eventID
 	if strings.TrimSpace(event.PollTemplate) == "" {
 		return errors.New("no poll template is bound to event")
 	}
-	countedOptions, err := s.store.GetEventTemplateCountedOptions(ctx, eventID)
+	countedOptions, optionWeights, err := s.store.GetEventTemplateCountedOptionsAndWeights(ctx, eventID)
 	if err != nil {
 		return err
 	}
@@ -1755,10 +1767,20 @@ func (s *Server) publishSettlementNow(ctx context.Context, chatID int64, eventID
 	}
 
 	choices := make([]string, 0, len(countedOptions))
+	weightByChoice := make(map[string]int, len(countedOptions))
 	for _, idx := range countedOptions {
-		choices = append(choices, fmt.Sprintf("option_%d", idx))
+		choice := fmt.Sprintf("option_%d", idx)
+		choices = append(choices, choice)
+		w := 1
+		if idx >= 0 && idx < len(optionWeights) {
+			w = optionWeights[idx]
+		}
+		if w <= 0 {
+			w = 1
+		}
+		weightByChoice[choice] = w
 	}
-	participants, err := s.store.CountVotesForPostChoices(ctx, post.ID, choices)
+	payers, seats, err := s.store.ListSeatCountsForPostChoices(ctx, post.ID, choices, weightByChoice)
 	if err != nil {
 		return err
 	}
@@ -1767,19 +1789,34 @@ func (s *Server) publishSettlementNow(ctx context.Context, chatID int64, eventID
 	if event.CostAmount != nil {
 		totalAmount = *event.CostAmount
 	}
-	perPerson := 0.0
-	if participants > 0 {
-		perPerson = totalAmount / float64(participants)
+	pricePerSeat := 0.0
+	if seats > 0 {
+		pricePerSeat = math.Ceil(totalAmount / float64(seats))
 	}
 
-	message := fmt.Sprintf(
-		"Итоги тренировки \"%s\"\nУчастников: %d\nСтоимость на человека: %.2f ₽",
-		event.Name,
-		participants,
-		perPerson,
-	)
-	if participants == 0 {
+	var message string
+	if seats == 0 {
 		message = fmt.Sprintf("Итоги тренировки \"%s\"\nНет голосов для расчета.", event.Name)
+	} else {
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("Итоги тренировки \"%s\"\n", event.Name))
+		b.WriteString(fmt.Sprintf("Мест: %d\n", seats))
+		b.WriteString(fmt.Sprintf("Цена за место: %.0f ₽\n\n", pricePerSeat))
+		for _, p := range payers {
+			if p.Seats <= 0 {
+				continue
+			}
+			name := strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
+			if name == "" && strings.TrimSpace(p.Username) != "" {
+				name = "@" + strings.TrimSpace(p.Username)
+			}
+			if name == "" {
+				name = fmt.Sprintf("id:%d", p.UserID)
+			}
+			amount := pricePerSeat * float64(p.Seats)
+			b.WriteString(fmt.Sprintf("%s — %.0f ₽\n", name, amount))
+		}
+		message = strings.TrimSpace(b.String())
 	}
 
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"math"
 	"net/http"
 	"os"
@@ -71,6 +73,7 @@ type TemplateDetails struct {
 	Question       string   `json:"question"`
 	Options        []string `json:"options"`
 	CountedOptions []int    `json:"countedOptions"`
+	OptionWeights  []int    `json:"optionWeights"`
 }
 
 type EventView struct {
@@ -268,6 +271,7 @@ type GroupMemberView struct {
 	Username       string    `json:"username"`
 	FirstName      string    `json:"firstName"`
 	LastName       string    `json:"lastName"`
+	RealName       string    `json:"realName"`
 	PlayerType     string    `json:"playerType"`
 	Role           string    `json:"role"`
 	Status         string    `json:"status"`
@@ -292,6 +296,7 @@ type MemberSkillProfile struct {
 	Username       string             `json:"username"`
 	FirstName      string             `json:"firstName"`
 	LastName       string             `json:"lastName"`
+	RealName       string             `json:"realName"`
 	PlayerType     string             `json:"playerType"`
 	Skills         []MemberSkillValue `json:"skills"`
 }
@@ -447,6 +452,40 @@ func parsePollOptionChoice(choice string) (int, bool) {
 	return idx, true
 }
 
+func normalizeOptionWeightsLen(optionsLen int, weights []int) []int {
+	if optionsLen <= 0 {
+		return []int{}
+	}
+	out := make([]int, optionsLen)
+	for i := 0; i < optionsLen; i++ {
+		w := 1
+		if i < len(weights) {
+			w = weights[i]
+		}
+		if w <= 0 {
+			w = 1
+		}
+		out[i] = w
+	}
+	return out
+}
+
+func guestSlotUserID(postID uint64, userID int64, ordinal int) int64 {
+	// Stable synthetic negative IDs so guest slots can be saved in event_team_assignments.
+	// Collisions are extremely unlikely and acceptable for this use-case.
+	//
+	// IMPORTANT: must fit into JS Number safely (<= 2^53-1) because the web UI sends userID as a number.
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(fmt.Sprintf("%d:%d:%d", postID, userID, ordinal)))
+	// Keep within 52 bits so abs(userID) < 2^53 and round-trips safely through JSON/JS.
+	const safeMask = (uint64(1) << 52) - 1
+	v := int64(h.Sum64()&safeMask) + 1
+	if v == 0 {
+		v = 1
+	}
+	return -v
+}
+
 func parseClockTime(value string) (int, int, error) {
 	layouts := []string{"15:04:05", "15:04"}
 	for _, layout := range layouts {
@@ -560,6 +599,7 @@ func ensureEventInstanceTx(
 		PollQuestion            string
 		PollOptions             datatypes.JSON
 		PollCountedOptions      datatypes.JSON
+		PollOptionWeights       datatypes.JSON
 	}
 	var snap snapshotRow
 	if err := tx.WithContext(ctx).
@@ -588,7 +628,8 @@ func ensureEventInstanceTx(
 			COALESCE(pt.name, '') AS poll_template_name,
 			COALESCE(pt.question, '') AS poll_question,
 			COALESCE(pt.options, '[]'::jsonb) AS poll_options,
-			COALESCE(pt.counted_options, '[]'::jsonb) AS poll_counted_options
+			COALESCE(pt.counted_options, '[]'::jsonb) AS poll_counted_options,
+			COALESCE(pt.option_weights, '[]'::jsonb) AS poll_option_weights
 		`).
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE", eventID, groupID).
@@ -607,6 +648,7 @@ func ensureEventInstanceTx(
 		snap.PollQuestion = pollTemplateOverride.Question
 		snap.PollOptions = pollTemplateOverride.Options
 		snap.PollCountedOptions = pollTemplateOverride.CountedOptions
+		snap.PollOptionWeights = pollTemplateOverride.OptionWeights
 	}
 
 	record["event_name"] = snap.Name
@@ -633,6 +675,7 @@ func ensureEventInstanceTx(
 	record["poll_question"] = snap.PollQuestion
 	record["poll_options"] = snap.PollOptions
 	record["poll_counted_options"] = snap.PollCountedOptions
+	record["poll_option_weights"] = snap.PollOptionWeights
 
 	if err := tx.WithContext(ctx).Table("event_instances").
 		Clauses(clause.OnConflict{
@@ -927,20 +970,33 @@ func (s *Store) CreateEventPollPostForInstance(
 	return &post, nil
 }
 
-func (s *Store) UpsertEventPollVote(
+func (s *Store) ReplaceEventPollVotes(
 	ctx context.Context,
 	postID uint64,
 	userID int64,
-	username, firstName, lastName, choice, source string,
+	username, firstName, lastName string,
+	choices []string,
+	source string,
 	votedAt time.Time,
 ) error {
 	if postID == 0 || userID == 0 {
 		return errors.New("post_id and user_id are required")
 	}
-	choice = strings.TrimSpace(choice)
-	if choice == "" {
-		return errors.New("choice is required")
+
+	uniq := make([]string, 0, len(choices))
+	seen := make(map[string]struct{}, len(choices))
+	for _, c := range choices {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		seen[c] = struct{}{}
+		uniq = append(uniq, c)
 	}
+
 	source = strings.TrimSpace(source)
 	if source == "" {
 		source = "inline"
@@ -972,33 +1028,31 @@ func (s *Store) UpsertEventPollVote(
 			return err
 		}
 
-		vote := EventPollVote{
-			PostID:    postID,
-			UserID:    userID,
-			Username:  username,
-			FirstName: firstName,
-			LastName:  lastName,
-			Choice:    choice,
-			Source:    source,
-			VotedAt:   votedAt.UTC(),
+		// Telegram can send updates with empty OptionIDs (user removed vote).
+		// In this case we just clear all choices for this user.
+		if err := tx.Table("event_poll_votes").
+			Where("post_id = ? AND user_id = ?", postID, userID).
+			Delete(&EventPollVote{}).Error; err != nil {
+			return err
 		}
-		return tx.
-			Clauses(clause.OnConflict{
-				Columns: []clause.Column{
-					{Name: "post_id"},
-					{Name: "user_id"},
-				},
-				DoUpdates: clause.Assignments(map[string]interface{}{
-					"username":   vote.Username,
-					"first_name": vote.FirstName,
-					"last_name":  vote.LastName,
-					"choice":     vote.Choice,
-					"source":     vote.Source,
-					"voted_at":   vote.VotedAt,
-					"updated_at": gorm.Expr("NOW()"),
-				}),
-			}).
-			Create(&vote).Error
+		if len(uniq) == 0 {
+			return nil
+		}
+
+		votes := make([]EventPollVote, 0, len(uniq))
+		for _, c := range uniq {
+			votes = append(votes, EventPollVote{
+				PostID:    postID,
+				UserID:    userID,
+				Username:  username,
+				FirstName: firstName,
+				LastName:  lastName,
+				Choice:    c,
+				Source:    source,
+				VotedAt:   votedAt.UTC(),
+			})
+		}
+		return tx.Create(&votes).Error
 	})
 }
 
@@ -1295,6 +1349,7 @@ type EventInstanceSnapshotView struct {
 	SettlementPublishAfter  bool
 
 	PollCountedOptions datatypes.JSON
+	PollOptionWeights  datatypes.JSON
 }
 
 func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID uint64, eventID uint64, localDate time.Time) (*EventInstanceSnapshotView, error) {
@@ -1317,6 +1372,7 @@ func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID
 		SettlementPublishBefore bool
 		SettlementPublishAfter  bool
 		PollCountedOptions      datatypes.JSON
+		PollOptionWeights       datatypes.JSON
 	}
 	var r row
 	err := s.db.WithContext(ctx).
@@ -1339,7 +1395,8 @@ func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID
 			ei.settlement_enabled,
 			ei.settlement_publish_before,
 			ei.settlement_publish_after,
-			COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options
+			COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options,
+			COALESCE(ei.poll_option_weights, '[]'::jsonb) AS poll_option_weights
 		`).
 		Joins("JOIN telegram_groups g ON g.id = ei.group_id").
 		Where("ei.group_id = ? AND ei.event_id = ? AND ei.local_date = ? AND ei.is_active = TRUE AND g.is_active = TRUE", groupID, eventID, localDate.Format("2006-01-02")).
@@ -1369,6 +1426,7 @@ func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID
 		SettlementPublishBefore: r.SettlementPublishBefore,
 		SettlementPublishAfter:  r.SettlementPublishAfter,
 		PollCountedOptions:      r.PollCountedOptions,
+		PollOptionWeights:       r.PollOptionWeights,
 	}, nil
 }
 
@@ -1390,6 +1448,7 @@ func (s *Store) ListEventInstancesForCancellation(ctx context.Context, nowUTC ti
 		CancelLeadMinutes   int
 		CancelNotifyEnabled bool
 		PollCountedOptions  datatypes.JSON
+		PollOptionWeights   datatypes.JSON
 	}
 	var rows []row
 	if err := s.db.WithContext(ctx).
@@ -1408,7 +1467,8 @@ func (s *Store) ListEventInstancesForCancellation(ctx context.Context, nowUTC ti
 			ei.min_votes_to_hold,
 			ei.cancel_lead_minutes,
 			ei.cancel_notify_enabled,
-			COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options
+			COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options,
+			COALESCE(ei.poll_option_weights, '[]'::jsonb) AS poll_option_weights
 		`).
 		Joins("JOIN telegram_groups g ON g.id = ei.group_id").
 		Where(`
@@ -1441,6 +1501,7 @@ func (s *Store) ListEventInstancesForCancellation(ctx context.Context, nowUTC ti
 			CancelLeadMinutes:   r.CancelLeadMinutes,
 			CancelNotifyEnabled: r.CancelNotifyEnabled,
 			PollCountedOptions:  r.PollCountedOptions,
+			PollOptionWeights:   r.PollOptionWeights,
 		})
 	}
 	return out, nil
@@ -1599,28 +1660,32 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 
 	var options []string
 	var counted []int
+	var weights []int
 	if settlement.InstanceID != nil {
 		var snap struct {
 			Options        datatypes.JSON
 			CountedOptions datatypes.JSON
+			OptionWeights  datatypes.JSON
 		}
 		if err := tx.WithContext(ctx).
 			Table("event_instances").
-			Select("COALESCE(poll_options, '[]'::jsonb) AS options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options").
+			Select("COALESCE(poll_options, '[]'::jsonb) AS options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, COALESCE(poll_option_weights, '[]'::jsonb) AS option_weights").
 			Where("id = ?", *settlement.InstanceID).
 			Take(&snap).Error; err != nil {
 			return err
 		}
 		_ = json.Unmarshal(snap.Options, &options)
 		_ = json.Unmarshal(snap.CountedOptions, &counted)
+		_ = json.Unmarshal(snap.OptionWeights, &weights)
 	} else {
 		var template struct {
 			Options        datatypes.JSON
 			CountedOptions datatypes.JSON
+			OptionWeights  datatypes.JSON
 		}
 		if err := tx.WithContext(ctx).
 			Table("event_poll_posts epp").
-			Select("COALESCE(pt.options, '[]'::jsonb) AS options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+			Select("COALESCE(pt.options, '[]'::jsonb) AS options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights").
 			Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 			Where("epp.id = ?", *settlement.PostID).
 			Take(&template).Error; err != nil {
@@ -1628,15 +1693,27 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 		}
 		_ = json.Unmarshal(template.Options, &options)
 		_ = json.Unmarshal(template.CountedOptions, &counted)
+		_ = json.Unmarshal(template.OptionWeights, &weights)
 	}
 	counted = normalizeCountedOptionIndexes(len(options), counted)
+	weights = normalizeOptionWeightsLen(len(options), weights)
 	if len(counted) == 0 {
 		return nil
 	}
 
 	choices := make([]string, 0, len(counted))
+	weightByChoice := make(map[string]int, len(counted))
 	for _, idx := range counted {
-		choices = append(choices, "option_"+strconv.Itoa(idx))
+		choice := "option_" + strconv.Itoa(idx)
+		choices = append(choices, choice)
+		w := 1
+		if idx >= 0 && idx < len(weights) {
+			w = weights[idx]
+		}
+		if w <= 0 {
+			w = 1
+		}
+		weightByChoice[choice] = w
 	}
 
 	type voteRow struct {
@@ -1644,24 +1721,56 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 		Username  string
 		FirstName string
 		LastName  string
+		Choice    string
 	}
 	var rows []voteRow
 	if err := tx.WithContext(ctx).
 		Table("event_poll_votes").
-		Select("DISTINCT user_id, COALESCE(username, '') AS username, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name").
+		Select("user_id, COALESCE(username, '') AS username, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name, choice").
 		Where("post_id = ? AND choice IN ?", *settlement.PostID, choices).
 		Scan(&rows).Error; err != nil {
 		return err
 	}
 
+	// Compute seats per payer.
+	type payer struct {
+		UserID    int64
+		Username  string
+		FirstName string
+		LastName  string
+		Seats     int
+	}
+	payers := make(map[int64]*payer, len(rows))
 	for _, row := range rows {
+		p, ok := payers[row.UserID]
+		if !ok {
+			p = &payer{
+				UserID:    row.UserID,
+				Username:  strings.TrimSpace(row.Username),
+				FirstName: strings.TrimSpace(row.FirstName),
+				LastName:  strings.TrimSpace(row.LastName),
+				Seats:     0,
+			}
+			payers[row.UserID] = p
+		}
+		w := weightByChoice[strings.TrimSpace(row.Choice)]
+		if w <= 0 {
+			w = 1
+		}
+		p.Seats += w
+	}
+
+	for _, p := range payers {
+		if p.Seats <= 0 {
+			continue
+		}
 		rec := map[string]interface{}{
 			"settlement_id": settlementID,
-			"user_id":       row.UserID,
-			"username":      strings.TrimSpace(row.Username),
-			"first_name":    strings.TrimSpace(row.FirstName),
-			"last_name":     strings.TrimSpace(row.LastName),
-			"amount_due":    settlement.AmountPerPerson,
+			"user_id":       p.UserID,
+			"username":      p.Username,
+			"first_name":    p.FirstName,
+			"last_name":     p.LastName,
+			"amount_due":    settlement.AmountPerPerson * float64(p.Seats),
 			"is_paid":       false,
 		}
 		if err := tx.WithContext(ctx).
@@ -1884,11 +1993,12 @@ func (s *Store) EnsureEventBillingByInstance(ctx context.Context, chatID int64, 
 		CostAmount     *float64
 		PollOptions    datatypes.JSON
 		CountedOptions datatypes.JSON
+		OptionWeights  datatypes.JSON
 		Status         string
 	}
 	if err := s.db.WithContext(ctx).
 		Table("event_instances").
-		Select("id, group_id, event_id, local_date, poll_post_id, cost_amount, COALESCE(poll_options, '[]'::jsonb) AS poll_options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, status").
+		Select("id, group_id, event_id, local_date, poll_post_id, cost_amount, COALESCE(poll_options, '[]'::jsonb) AS poll_options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, COALESCE(poll_option_weights, '[]'::jsonb) AS option_weights, status").
 		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, group.ID).
 		Take(&inst).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1907,17 +2017,38 @@ func (s *Store) EnsureEventBillingByInstance(ctx context.Context, chatID int64, 
 	_ = json.Unmarshal(inst.PollOptions, &options)
 	var counted []int
 	_ = json.Unmarshal(inst.CountedOptions, &counted)
+	var weights []int
+	_ = json.Unmarshal(inst.OptionWeights, &weights)
 	counted = normalizeCountedOptionIndexes(len(options), counted)
+	weights = normalizeOptionWeightsLen(len(options), weights)
 	if len(counted) == 0 {
 		return nil, errors.New("template has no options marked with accounting flag")
 	}
 	choices := make([]string, 0, len(counted))
+	weightByChoice := make(map[string]int, len(counted))
 	for _, idx := range counted {
-		choices = append(choices, "option_"+strconv.Itoa(idx))
+		choice := "option_" + strconv.Itoa(idx)
+		choices = append(choices, choice)
+		w := 1
+		if idx >= 0 && idx < len(weights) {
+			w = weights[idx]
+		}
+		if w <= 0 {
+			w = 1
+		}
+		weightByChoice[choice] = w
 	}
-	participants, err := s.CountVotesForPostChoices(ctx, *inst.PollPostID, choices)
+	byChoice, err := s.CountVotesForPostChoicesByChoice(ctx, *inst.PollPostID, choices)
 	if err != nil {
 		return nil, err
+	}
+	participants := 0
+	for choice, c := range byChoice {
+		w := weightByChoice[choice]
+		if w <= 0 {
+			w = 1
+		}
+		participants += c * w
 	}
 
 	totalAmount := 4000.0
@@ -1926,7 +2057,7 @@ func (s *Store) EnsureEventBillingByInstance(ctx context.Context, chatID int64, 
 	}
 	perPerson := 0.0
 	if participants > 0 {
-		perPerson = totalAmount / float64(participants)
+		perPerson = math.Ceil(totalAmount / float64(participants))
 	}
 
 	// If settlement already exists, return it (and ensure missing payment rows exist).
@@ -2178,31 +2309,39 @@ func (s *Store) GetEventTemplateDetails(ctx context.Context, chatID int64, event
 }
 
 func (s *Store) GetEventTemplateCountedOptions(ctx context.Context, eventID uint64) ([]int, error) {
+	counted, _, err := s.GetEventTemplateCountedOptionsAndWeights(ctx, eventID)
+	return counted, err
+}
+
+func (s *Store) GetEventTemplateCountedOptionsAndWeights(ctx context.Context, eventID uint64) ([]int, []int, error) {
 	var row struct {
 		TemplateOptions datatypes.JSON
 		CountedOptions  datatypes.JSON
+		OptionWeights   datatypes.JSON
 	}
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("pt.options AS template_options, pt.counted_options").
+		Select("pt.options AS template_options, pt.counted_options, COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights").
 		Joins("JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.id = ? AND ge.is_active = TRUE AND pt.is_active = TRUE", eventID).
 		Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return []int{}, nil
+			return []int{}, []int{}, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 
 	var options []string
 	if err := json.Unmarshal(row.TemplateOptions, &options); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var counted []int
 	if err := json.Unmarshal(row.CountedOptions, &counted); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return normalizeCountedOptionIndexes(len(options), counted), nil
+	var weights []int
+	_ = json.Unmarshal(row.OptionWeights, &weights)
+	return normalizeCountedOptionIndexes(len(options), counted), normalizeOptionWeightsLen(len(options), weights), nil
 }
 
 func (s *Store) ReplaceEventCountedOptions(ctx context.Context, chatID int64, eventID uint64, optionIndexes []int) error {
@@ -2283,6 +2422,120 @@ func (s *Store) CountVotesForPostChoices(ctx context.Context, postID uint64, cho
 		return 0, err
 	}
 	return int(count), nil
+}
+
+func (s *Store) CountVotesForPostChoicesByChoice(ctx context.Context, postID uint64, choices []string) (map[string]int, error) {
+	if postID == 0 {
+		return nil, errors.New("post_id is required")
+	}
+	filtered := make([]string, 0, len(choices))
+	for _, c := range choices {
+		c = strings.TrimSpace(c)
+		if c != "" {
+			filtered = append(filtered, c)
+		}
+	}
+	out := map[string]int{}
+	if len(filtered) == 0 {
+		return out, nil
+	}
+	type row struct {
+		Choice string
+		Count  int64
+	}
+	var rows []row
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_votes").
+		Select("choice, COUNT(*) AS count").
+		Where("post_id = ? AND choice IN ?", postID, filtered).
+		Group("choice").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[strings.TrimSpace(r.Choice)] = int(r.Count)
+	}
+	return out, nil
+}
+
+type PollSeatCountItem struct {
+	UserID    int64
+	Username  string
+	FirstName string
+	LastName  string
+	Seats     int
+}
+
+func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64, choices []string, weightByChoice map[string]int) ([]PollSeatCountItem, int, error) {
+	if postID == 0 {
+		return nil, 0, errors.New("post_id is required")
+	}
+	filtered := make([]string, 0, len(choices))
+	for _, c := range choices {
+		c = strings.TrimSpace(c)
+		if c != "" {
+			filtered = append(filtered, c)
+		}
+	}
+	if len(filtered) == 0 {
+		return []PollSeatCountItem{}, 0, nil
+	}
+
+	type voteRow struct {
+		UserID    int64
+		Username  string
+		FirstName string
+		LastName  string
+		Choice    string
+	}
+	var rows []voteRow
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_votes ev").
+		Select("ev.user_id, COALESCE(tu.username, ev.username, '') AS username, COALESCE(tu.first_name, ev.first_name, '') AS first_name, COALESCE(tu.last_name, ev.last_name, '') AS last_name, ev.choice").
+		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = ev.user_id").
+		Where("ev.post_id = ? AND ev.choice IN ?", postID, filtered).
+		Order("ev.voted_at ASC, ev.user_id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	byUser := make(map[int64]*PollSeatCountItem, len(rows))
+	totalSeats := 0
+	for _, r := range rows {
+		item, ok := byUser[r.UserID]
+		if !ok {
+			item = &PollSeatCountItem{
+				UserID:    r.UserID,
+				Username:  strings.TrimSpace(r.Username),
+				FirstName: strings.TrimSpace(r.FirstName),
+				LastName:  strings.TrimSpace(r.LastName),
+				Seats:     0,
+			}
+			byUser[r.UserID] = item
+		}
+		w := 1
+		if weightByChoice != nil {
+			if ww, ok := weightByChoice[strings.TrimSpace(r.Choice)]; ok && ww > 0 {
+				w = ww
+			}
+		}
+		item.Seats += w
+		totalSeats += w
+	}
+
+	out := make([]PollSeatCountItem, 0, len(byUser))
+	for _, v := range byUser {
+		out = append(out, *v)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		li := strings.ToLower(strings.TrimSpace(out[i].FirstName + " " + out[i].LastName + " " + out[i].Username))
+		lj := strings.ToLower(strings.TrimSpace(out[j].FirstName + " " + out[j].LastName + " " + out[j].Username))
+		if li != lj {
+			return li < lj
+		}
+		return out[i].UserID < out[j].UserID
+	})
+	return out, totalSeats, nil
 }
 
 func (s *Store) UpdateEventCostAmount(ctx context.Context, chatID int64, eventID uint64, costAmount *float64) error {
@@ -2448,11 +2701,12 @@ func (s *Store) ListEventPollHistory(ctx context.Context, chatID int64, eventID 
 		Question          string
 		TemplateOptions   datatypes.JSON
 		CountedOptions    datatypes.JSON
+		OptionWeights     datatypes.JSON
 	}
 	var rows []row
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("epp.id AS post_id, epp.telegram_message_id, COALESCE(epp.telegram_poll_id, '') AS telegram_poll_id, epp.status, epp.published_at, COALESCE(pt.question, '') AS question, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+		Select("epp.id AS post_id, epp.telegram_message_id, COALESCE(epp.telegram_poll_id, '') AS telegram_poll_id, epp.status, epp.published_at, COALESCE(pt.question, '') AS question, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 		Where("epp.group_id = ? AND epp.event_id = ?", group.ID, eventID).
 		Order("epp.published_at DESC, epp.id DESC").
@@ -2466,25 +2720,46 @@ func (s *Store) ListEventPollHistory(ctx context.Context, chatID int64, eventID 
 		_ = json.Unmarshal(r.TemplateOptions, &options)
 		var counted []int
 		_ = json.Unmarshal(r.CountedOptions, &counted)
+		var weights []int
+		_ = json.Unmarshal(r.OptionWeights, &weights)
 		counted = normalizeCountedOptionIndexes(len(options), counted)
+		weights = normalizeOptionWeightsLen(len(options), weights)
 
 		var totalVotes int64
 		if err := s.db.WithContext(ctx).
 			Table("event_poll_votes").
+			Select("COUNT(DISTINCT user_id)").
 			Where("post_id = ?", r.PostID).
-			Count(&totalVotes).Error; err != nil {
+			Scan(&totalVotes).Error; err != nil {
 			return nil, err
 		}
 
 		countedVotes := 0
 		if len(counted) > 0 {
 			choices := make([]string, 0, len(counted))
+			weightByChoice := make(map[string]int, len(counted))
 			for _, idx := range counted {
-				choices = append(choices, "option_"+strconv.Itoa(idx))
+				choice := "option_" + strconv.Itoa(idx)
+				choices = append(choices, choice)
+				w := 1
+				if idx >= 0 && idx < len(weights) {
+					w = weights[idx]
+				}
+				if w <= 0 {
+					w = 1
+				}
+				weightByChoice[choice] = w
 			}
-			countedVotes, err = s.CountVotesForPostChoices(ctx, r.PostID, choices)
+			byChoice, err := s.CountVotesForPostChoicesByChoice(ctx, r.PostID, choices)
 			if err != nil {
 				return nil, err
+			}
+			for choice, c := range byChoice {
+				w := weightByChoice[choice]
+				if w <= 0 {
+					w = 1
+				}
+				countedVotes += c * w
 			}
 		}
 
@@ -2536,11 +2811,12 @@ func (s *Store) ListEventPollHistoryByInstance(ctx context.Context, chatID int64
 		Question          string
 		TemplateOptions   datatypes.JSON
 		CountedOptions    datatypes.JSON
+		OptionWeights     datatypes.JSON
 	}
 	var rows []row
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("epp.id AS post_id, epp.telegram_message_id, COALESCE(epp.telegram_poll_id, '') AS telegram_poll_id, epp.status, epp.published_at, COALESCE(pt.question, '') AS question, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+		Select("epp.id AS post_id, epp.telegram_message_id, COALESCE(epp.telegram_poll_id, '') AS telegram_poll_id, epp.status, epp.published_at, COALESCE(pt.question, '') AS question, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 		Where("epp.group_id = ? AND epp.instance_id = ?", group.ID, instanceID).
 		Order("epp.published_at DESC, epp.id DESC").
@@ -2554,25 +2830,46 @@ func (s *Store) ListEventPollHistoryByInstance(ctx context.Context, chatID int64
 		_ = json.Unmarshal(r.TemplateOptions, &options)
 		var counted []int
 		_ = json.Unmarshal(r.CountedOptions, &counted)
+		var weights []int
+		_ = json.Unmarshal(r.OptionWeights, &weights)
 		counted = normalizeCountedOptionIndexes(len(options), counted)
+		weights = normalizeOptionWeightsLen(len(options), weights)
 
 		var totalVotes int64
 		if err := s.db.WithContext(ctx).
 			Table("event_poll_votes").
+			Select("COUNT(DISTINCT user_id)").
 			Where("post_id = ?", r.PostID).
-			Count(&totalVotes).Error; err != nil {
+			Scan(&totalVotes).Error; err != nil {
 			return nil, err
 		}
 
 		countedVotes := 0
 		if len(counted) > 0 {
 			choices := make([]string, 0, len(counted))
+			weightByChoice := make(map[string]int, len(counted))
 			for _, idx := range counted {
-				choices = append(choices, "option_"+strconv.Itoa(idx))
+				choice := "option_" + strconv.Itoa(idx)
+				choices = append(choices, choice)
+				w := 1
+				if idx >= 0 && idx < len(weights) {
+					w = weights[idx]
+				}
+				if w <= 0 {
+					w = 1
+				}
+				weightByChoice[choice] = w
 			}
-			countedVotes, err = s.CountVotesForPostChoices(ctx, r.PostID, choices)
+			byChoice, err := s.CountVotesForPostChoicesByChoice(ctx, r.PostID, choices)
 			if err != nil {
 				return nil, err
+			}
+			for choice, c := range byChoice {
+				w := weightByChoice[choice]
+				if w <= 0 {
+					w = 1
+				}
+				countedVotes += c * w
 			}
 		}
 
@@ -2618,6 +2915,7 @@ func (s *Store) ListGroupPollsByChatID(ctx context.Context, chatID int64) ([]Gro
 		PublishedAt       time.Time
 		TemplateOptions   datatypes.JSON
 		CountedOptions    datatypes.JSON
+		OptionWeights     datatypes.JSON
 	}
 	var rows []row
 	if err := s.db.WithContext(ctx).
@@ -2635,7 +2933,8 @@ func (s *Store) ListGroupPollsByChatID(ctx context.Context, chatID int64) ([]Gro
 			epp.status,
 			epp.published_at,
 			COALESCE(pt.options, '[]'::jsonb) AS template_options,
-			COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options
+			COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options,
+			COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights
 		`).
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 		Joins("LEFT JOIN group_events ge ON ge.id = epp.event_id").
@@ -2652,25 +2951,46 @@ func (s *Store) ListGroupPollsByChatID(ctx context.Context, chatID int64) ([]Gro
 		_ = json.Unmarshal(r.TemplateOptions, &options)
 		var counted []int
 		_ = json.Unmarshal(r.CountedOptions, &counted)
+		var weights []int
+		_ = json.Unmarshal(r.OptionWeights, &weights)
 		counted = normalizeCountedOptionIndexes(len(options), counted)
+		weights = normalizeOptionWeightsLen(len(options), weights)
 
 		var totalVotes int64
 		if err := s.db.WithContext(ctx).
 			Table("event_poll_votes").
+			Select("COUNT(DISTINCT user_id)").
 			Where("post_id = ?", r.PostID).
-			Count(&totalVotes).Error; err != nil {
+			Scan(&totalVotes).Error; err != nil {
 			return nil, err
 		}
 
 		countedVotes := 0
 		if len(counted) > 0 {
 			choices := make([]string, 0, len(counted))
+			weightByChoice := make(map[string]int, len(counted))
 			for _, idx := range counted {
-				choices = append(choices, "option_"+strconv.Itoa(idx))
+				choice := "option_" + strconv.Itoa(idx)
+				choices = append(choices, choice)
+				w := 1
+				if idx >= 0 && idx < len(weights) {
+					w = weights[idx]
+				}
+				if w <= 0 {
+					w = 1
+				}
+				weightByChoice[choice] = w
 			}
-			countedVotes, err = s.CountVotesForPostChoices(ctx, r.PostID, choices)
+			byChoice, err := s.CountVotesForPostChoicesByChoice(ctx, r.PostID, choices)
 			if err != nil {
 				return nil, err
+			}
+			for choice, c := range byChoice {
+				w := weightByChoice[choice]
+				if w <= 0 {
+					w = 1
+				}
+				countedVotes += c * w
 			}
 		}
 
@@ -2785,14 +3105,17 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 
 	type postRow struct {
 		PostID          uint64
+		InstanceID      *uint64
 		TemplateOptions datatypes.JSON
 		CountedOptions  datatypes.JSON
+		OptionWeights   datatypes.JSON
 	}
 	var post postRow
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("epp.id AS post_id, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+		Select("epp.id AS post_id, epp.instance_id, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(ei.poll_option_weights, pt.option_weights, '[]'::jsonb) AS option_weights").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Joins("LEFT JOIN event_instances ei ON ei.id = epp.instance_id").
 		Where("epp.id = ? AND epp.group_id = ? AND epp.event_id = ?", postID, group.ID, eventID).
 		Take(&post).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -2809,7 +3132,10 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 	if err := json.Unmarshal(post.CountedOptions, &counted); err != nil {
 		return nil, err
 	}
+	var weights []int
+	_ = json.Unmarshal(post.OptionWeights, &weights)
 	counted = normalizeCountedOptionIndexes(len(options), counted)
+	weights = normalizeOptionWeightsLen(len(options), weights)
 	if len(counted) == 0 {
 		return &EventTeamSplitState{
 			EventID: eventID,
@@ -2819,63 +3145,194 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 		}, nil
 	}
 	choiceSet := make(map[string]struct{}, len(counted))
+	weightByChoice := make(map[string]int, len(counted))
 	for _, idx := range counted {
-		choiceSet["option_"+strconv.Itoa(idx)] = struct{}{}
+		key := "option_" + strconv.Itoa(idx)
+		choiceSet[key] = struct{}{}
+		if idx >= 0 && idx < len(weights) && weights[idx] > 0 {
+			weightByChoice[key] = weights[idx]
+		} else {
+			weightByChoice[key] = 1
+		}
 	}
 
-	type voteRow struct {
-		UserID    int64
-		Username  string
-		FirstName string
-		LastName  string
-		Choice    string
-		Rating    *float64
-		Team      string
-		Position  *int
-	}
-	var rows []voteRow
-	if err := s.db.WithContext(ctx).
-		Table("event_poll_votes ev").
-		Select("ev.user_id, COALESCE(tu.username, ev.username, '') AS username, COALESCE(tu.first_name, ev.first_name, '') AS first_name, COALESCE(tu.last_name, ev.last_name, '') AS last_name, ev.choice, rs.rating, COALESCE(eta.team, 'unassigned') AS team, eta.position").
-		Joins("JOIN event_poll_posts epp ON epp.id = ev.post_id").
-		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = ev.user_id").
-		Joins("LEFT JOIN event_team_sessions ets ON ets.post_id = ev.post_id").
-		Joins("LEFT JOIN event_team_assignments eta ON eta.session_id = ets.id AND eta.user_id = ev.user_id").
-		Joins("LEFT JOIN (SELECT user_telegram_id, AVG(score)::float8 AS rating FROM group_member_skills WHERE group_id = ? GROUP BY user_telegram_id) rs ON rs.user_telegram_id = ev.user_id", group.ID).
-		Where("ev.post_id = ? AND ev.choice IN ?", postID, keysOfMap(choiceSet)).
-		Order("COALESCE(eta.team, 'unassigned') ASC, COALESCE(eta.position, 0) ASC, ev.voted_at ASC").
-		Scan(&rows).Error; err != nil {
+	seatItems, _, err := s.ListSeatCountsForPostChoices(ctx, postID, keysOfMap(choiceSet), weightByChoice)
+	if err != nil {
 		return nil, err
 	}
+	if len(seatItems) == 0 {
+		return &EventTeamSplitState{
+			EventID: eventID,
+			PostID:  postID,
+			Players: []TeamSplitPlayer{},
+			Chance:  calculateTeamChance(nil),
+		}, nil
+	}
 
-	players := make([]TeamSplitPlayer, 0, len(rows))
-	for idx, row := range rows {
-		choiceIdx, _ := parsePollOptionChoice(row.Choice)
-		choiceLabel := row.Choice
+	// Load a single representative counted choice per user (for UI label). If the user voted multiple counted options,
+	// we just pick the latest one.
+	type userChoiceRow struct {
+		UserID int64
+		Choice string
+	}
+	var choiceRows []userChoiceRow
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_votes ev").
+		Select("DISTINCT ON (ev.user_id) ev.user_id, ev.choice").
+		Where("ev.post_id = ? AND ev.choice IN ?", postID, keysOfMap(choiceSet)).
+		Order("ev.user_id ASC, ev.voted_at DESC").
+		Scan(&choiceRows).Error; err != nil {
+		return nil, err
+	}
+	choiceByUser := make(map[int64]string, len(choiceRows))
+	for _, r := range choiceRows {
+		choiceByUser[r.UserID] = strings.TrimSpace(r.Choice)
+	}
+
+	// Load saved assignments (including synthetic guest IDs).
+	type sessionRow struct {
+		ID uint64
+	}
+	var session sessionRow
+	sessionID := uint64(0)
+	if err := s.db.WithContext(ctx).
+		Table("event_team_sessions").
+		Select("id").
+		Where("post_id = ?", postID).
+		Take(&session).Error; err == nil {
+		sessionID = session.ID
+	}
+	type assignRow struct {
+		UserID   int64
+		Team     string
+		Position int
+	}
+	assignments := map[int64]assignRow{}
+	if sessionID != 0 {
+		var as []assignRow
+		if err := s.db.WithContext(ctx).
+			Table("event_team_assignments").
+			Select("user_id, team, position").
+			Where("session_id = ?", sessionID).
+			Scan(&as).Error; err != nil {
+			return nil, err
+		}
+		for _, a := range as {
+			assignments[a.UserID] = assignRow{
+				UserID:   a.UserID,
+				Team:     normalizeTeamValue(a.Team),
+				Position: a.Position,
+			}
+		}
+	}
+
+	// Load ratings for real users; guests will inherit their owner's rating.
+	userIDs := make([]int64, 0, len(seatItems))
+	for _, it := range seatItems {
+		userIDs = append(userIDs, it.UserID)
+	}
+	type ratingRow struct {
+		UserID int64
+		Rating float64
+	}
+	var ratingRows []ratingRow
+	if err := s.db.WithContext(ctx).
+		Table("group_member_skills").
+		Select("user_telegram_id AS user_id, AVG(score)::float8 AS rating").
+		Where("group_id = ? AND user_telegram_id IN ?", group.ID, userIDs).
+		Group("user_telegram_id").
+		Scan(&ratingRows).Error; err != nil {
+		return nil, err
+	}
+	ratingByUser := make(map[int64]float64, len(ratingRows))
+	for _, r := range ratingRows {
+		ratingByUser[r.UserID] = r.Rating
+	}
+
+	players := make([]TeamSplitPlayer, 0, len(seatItems))
+	nextPos := 0
+	for _, it := range seatItems {
+		choice := choiceByUser[it.UserID]
+		choiceIdx, _ := parsePollOptionChoice(choice)
+		choiceLabel := choice
 		if choiceIdx >= 0 && choiceIdx < len(options) {
 			choiceLabel = options[choiceIdx]
 		}
 		rating := 5.0
-		if row.Rating != nil {
-			rating = *row.Rating
+		if rr, ok := ratingByUser[it.UserID]; ok && rr > 0 {
+			rating = rr
 		}
-		pos := idx
-		if row.Position != nil {
-			pos = *row.Position
+
+		team := "unassigned"
+		pos := nextPos
+		if a, ok := assignments[it.UserID]; ok {
+			team = normalizeTeamValue(a.Team)
+			pos = a.Position
 		}
 		players = append(players, TeamSplitPlayer{
-			UserID:      row.UserID,
-			Username:    row.Username,
-			FirstName:   row.FirstName,
-			LastName:    row.LastName,
-			Choice:      row.Choice,
+			UserID:      it.UserID,
+			Username:    it.Username,
+			FirstName:   it.FirstName,
+			LastName:    it.LastName,
+			Choice:      choice,
 			ChoiceIndex: choiceIdx,
 			ChoiceLabel: choiceLabel,
 			Rating:      rating,
-			Team:        normalizeTeamValue(row.Team),
+			Team:        team,
 			Position:    pos,
 		})
+		nextPos++
+
+		// Add guest slots for extra seats.
+		guestCount := it.Seats - 1
+		if guestCount < 0 {
+			guestCount = 0
+		}
+		for gi := 1; gi <= guestCount; gi++ {
+			guestID := guestSlotUserID(postID, it.UserID, gi)
+			gTeam := "unassigned"
+			gPos := nextPos
+			if a, ok := assignments[guestID]; ok {
+				gTeam = normalizeTeamValue(a.Team)
+				gPos = a.Position
+			}
+
+			display := strings.TrimSpace(strings.TrimSpace(it.FirstName + " " + it.LastName))
+			if display == "" && strings.TrimSpace(it.Username) != "" {
+				display = "@" + strings.TrimSpace(it.Username)
+			}
+			if display == "" {
+				display = "ID " + strconv.FormatInt(it.UserID, 10)
+			}
+
+			players = append(players, TeamSplitPlayer{
+				UserID:      guestID,
+				Username:    "",
+				FirstName:   "Гость",
+				LastName:    fmt.Sprintf("(+1 от %s)", display),
+				Choice:      choice,
+				ChoiceIndex: choiceIdx,
+				ChoiceLabel: "Гость (+1)",
+				Rating:      rating,
+				Team:        gTeam,
+				Position:    gPos,
+			})
+			nextPos++
+		}
 	}
+
+	// Stable ordering for UI: by team/position, then by user id.
+	sort.Slice(players, func(i, j int) bool {
+		ti := normalizeTeamValue(players[i].Team)
+		tj := normalizeTeamValue(players[j].Team)
+		if ti != tj {
+			return ti < tj
+		}
+		if players[i].Position != players[j].Position {
+			return players[i].Position < players[j].Position
+		}
+		return players[i].UserID < players[j].UserID
+	})
 
 	return &EventTeamSplitState{
 		EventID: eventID,
@@ -2886,15 +3343,24 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 }
 
 func (s *Store) SaveEventTeamSplit(ctx context.Context, chatID int64, eventID, postID uint64, updates []TeamSplitAssignmentInput) error {
-	state, err := s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
-	if err != nil {
-		return err
-	}
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
 		return err
 	}
 
+	// Validate that the post belongs to this group/event.
+	var exists int64
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts").
+		Where("id = ? AND group_id = ? AND event_id = ?", postID, group.ID, eventID).
+		Count(&exists).Error; err != nil {
+		return err
+	}
+	if exists == 0 {
+		return errors.New("poll post not found")
+	}
+
+	// Deduplicate by user_id and normalize team values. Negative user IDs are allowed (synthetic guest slots).
 	byUser := make(map[int64]TeamSplitAssignmentInput, len(updates))
 	for _, item := range updates {
 		if item.UserID == 0 {
@@ -2907,17 +3373,11 @@ func (s *Store) SaveEventTeamSplit(ctx context.Context, chatID int64, eventID, p
 		}
 	}
 
-	nextPlayers := make([]TeamSplitPlayer, 0, len(state.Players))
-	for idx, player := range state.Players {
-		if upd, ok := byUser[player.UserID]; ok {
-			player.Team = upd.Team
-			player.Position = upd.Position
-		} else {
-			player.Team = "unassigned"
-			player.Position = idx
-		}
-		nextPlayers = append(nextPlayers, player)
+	userIDs := make([]int64, 0, len(byUser))
+	for uid := range byUser {
+		userIDs = append(userIDs, uid)
 	}
+	sort.Slice(userIDs, func(i, j int) bool { return userIDs[i] < userIDs[j] })
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var session EventTeamSession
@@ -2935,14 +3395,13 @@ func (s *Store) SaveEventTeamSplit(ctx context.Context, chatID int64, eventID, p
 			}
 		}
 
-		userIDs := make([]int64, 0, len(nextPlayers))
-		for _, player := range nextPlayers {
-			userIDs = append(userIDs, player.UserID)
+		for _, uid := range userIDs {
+			upd := byUser[uid]
 			row := map[string]interface{}{
 				"session_id": session.ID,
-				"user_id":    player.UserID,
-				"team":       normalizeTeamValue(player.Team),
-				"position":   player.Position,
+				"user_id":    upd.UserID,
+				"team":       normalizeTeamValue(upd.Team),
+				"position":   upd.Position,
 			}
 			if err := tx.Table("event_team_assignments").
 				Clauses(clause.OnConflict{

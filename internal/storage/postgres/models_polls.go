@@ -22,12 +22,12 @@ func (EventPollPost) TableName() string {
 
 type EventPollVote struct {
 	ID        uint64 `gorm:"primaryKey"`
-	PostID    uint64 `gorm:"not null;index;uniqueIndex:ux_post_user_vote"`
-	UserID    int64  `gorm:"not null;uniqueIndex:ux_post_user_vote"`
+	PostID    uint64 `gorm:"not null;index;uniqueIndex:ux_post_user_choice"`
+	UserID    int64  `gorm:"not null;uniqueIndex:ux_post_user_choice;index"`
 	Username  string
 	FirstName string
 	LastName  string
-	Choice    string    `gorm:"not null"`
+	Choice    string    `gorm:"not null;uniqueIndex:ux_post_user_choice;index"`
 	Source    string    `gorm:"not null;default:inline"`
 	VotedAt   time.Time `gorm:"not null;default:now()"`
 	CreatedAt time.Time `gorm:"not null;default:now()"`

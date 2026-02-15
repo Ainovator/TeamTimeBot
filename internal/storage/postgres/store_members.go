@@ -20,7 +20,7 @@ func (s *Store) ListGroupMembersByChatID(ctx context.Context, chatID int64) ([]G
 	var rows []GroupMemberView
 	if err := s.db.WithContext(ctx).
 		Table("group_members gm").
-		Select("gm.user_telegram_id, COALESCE(tu.username, '') AS username, COALESCE(tu.first_name, '') AS first_name, COALESCE(tu.last_name, '') AS last_name, COALESCE(gm.player_type, '') AS player_type, gm.role, gm.status, gm.last_seen_at, COALESCE(gra.role_code, '') AS app_role_code, COALESCE(gr.title, '') AS app_role_title").
+		Select("gm.user_telegram_id, COALESCE(tu.username, '') AS username, COALESCE(tu.first_name, '') AS first_name, COALESCE(tu.last_name, '') AS last_name, COALESCE(gm.real_name, '') AS real_name, COALESCE(gm.player_type, '') AS player_type, gm.role, gm.status, gm.last_seen_at, COALESCE(gra.role_code, '') AS app_role_code, COALESCE(gr.title, '') AS app_role_title").
 		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = gm.user_telegram_id").
 		Joins("LEFT JOIN group_role_assignments gra ON gra.group_id = gm.group_id AND gra.user_telegram_id = gm.user_telegram_id AND gra.is_active = TRUE").
 		Joins("LEFT JOIN group_roles gr ON gr.group_id = gm.group_id AND gr.code = gra.role_code AND gr.is_active = TRUE").
@@ -56,11 +56,12 @@ func (s *Store) GetMemberSkillProfile(ctx context.Context, chatID int64, userTel
 		Username       string
 		FirstName      string
 		LastName       string
+		RealName       string
 		PlayerType     string
 	}
 	if err := s.db.WithContext(ctx).
 		Table("group_members gm").
-		Select("gm.user_telegram_id, COALESCE(tu.username, '') AS username, COALESCE(tu.first_name, '') AS first_name, COALESCE(tu.last_name, '') AS last_name, COALESCE(gm.player_type, '') AS player_type").
+		Select("gm.user_telegram_id, COALESCE(tu.username, '') AS username, COALESCE(tu.first_name, '') AS first_name, COALESCE(tu.last_name, '') AS last_name, COALESCE(gm.real_name, '') AS real_name, COALESCE(gm.player_type, '') AS player_type").
 		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = gm.user_telegram_id").
 		Where("gm.group_id = ? AND gm.user_telegram_id = ? AND gm.is_active = TRUE", group.ID, userTelegramID).
 		Take(&member).Error; err != nil {
@@ -100,9 +101,36 @@ func (s *Store) GetMemberSkillProfile(ctx context.Context, chatID int64, userTel
 		Username:       member.Username,
 		FirstName:      member.FirstName,
 		LastName:       member.LastName,
+		RealName:       member.RealName,
 		PlayerType:     member.PlayerType,
 		Skills:         skills,
 	}, nil
+}
+
+func (s *Store) UpdateMemberRealName(ctx context.Context, chatID int64, userTelegramID int64, realName string) error {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	realName = strings.TrimSpace(realName)
+	if len(realName) > 120 {
+		return errors.New("real name is too long")
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&GroupMember{}).
+		Where("group_id = ? AND user_telegram_id = ? AND is_active = TRUE", group.ID, userTelegramID).
+		Updates(map[string]interface{}{
+			"real_name":  realName,
+			"updated_at": gorm.Expr("NOW()"),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("member not found")
+	}
+	return nil
 }
 
 func (s *Store) UpdateMemberPlayerType(ctx context.Context, chatID int64, userTelegramID int64, playerType string) error {

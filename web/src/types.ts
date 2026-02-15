@@ -45,6 +45,7 @@ export type TemplateDetails = {
   question: string
   options: string[]
   countedOptions: number[]
+  optionWeights: number[]
 }
 
 export type ScheduleView = {
@@ -218,6 +219,7 @@ export type GroupMember = {
   username: string
   firstName: string
   lastName: string
+  realName: string
   playerType: '' | 'attacker' | 'setter' | 'libero'
   role: string
   status: string
@@ -240,6 +242,7 @@ export type MemberSkillProfile = {
   username: string
   firstName: string
   lastName: string
+  realName: string
   playerType: '' | 'attacker' | 'setter' | 'libero'
   skills: MemberSkillValue[]
 }
