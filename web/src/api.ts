@@ -134,7 +134,7 @@ export async function updateMemberSkills(chatID: number, userTelegramID: number,
 export async function updateMemberProfile(
   chatID: number,
   userTelegramID: number,
-  payload: { playerType: '' | 'attacker' | 'setter' | 'libero'; realName?: string },
+  payload: { playerType: '' | 'attacker' | 'setter' | 'libero' | 'central'; realName?: string },
 ) {
   const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/profile`, {
     method: 'PUT',

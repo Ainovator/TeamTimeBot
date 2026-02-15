@@ -41,6 +41,19 @@ export const sections: SectionItem[] = [
     ),
   },
   {
+    id: 'members',
+    title: 'Игроки',
+    subtitle: 'Участники группы',
+    icon: (
+      <Icon>
+        <path
+          d="M16 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-8 2a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-6 1.7-6 4v2h12v-2c0-2.3-2.7-4-6-4Zm8-2c-.7 0-1.3.1-1.9.3 1.2.9 1.9 2.1 1.9 3.7v2h8v-2c0-2.3-2.7-4-6-4Z"
+          fill="currentColor"
+        />
+      </Icon>
+    ),
+  },
+  {
     id: 'templates',
     title: 'Шаблоны голосований',
     subtitle: 'Справочник шаблонов',

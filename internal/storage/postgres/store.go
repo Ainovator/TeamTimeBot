@@ -441,6 +441,8 @@ func normalizePlayerType(value string) (string, bool) {
 		return "setter", true
 	case "libero":
 		return "libero", true
+	case "central":
+		return "central", true
 	default:
 		return "", false
 	}

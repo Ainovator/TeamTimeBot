@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f355e"/>
+      <stop offset="0.52" stop-color="#101a32"/>
+      <stop offset="1" stop-color="#0a1020"/>
+    </linearGradient>
+    <radialGradient id="light" cx="40%" cy="26%" r="70%">
+      <stop offset="0" stop-color="#2dbf8f" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#2dbf8f" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2dbf8f" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#5ea3ff" stop-opacity="0.14"/>
+    </linearGradient>
+    <filter id="grain" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.92" numOctaves="2" stitchTiles="stitch" />
+      <feColorMatrix type="matrix" values="
+        1 0 0 0 0
+        0 1 0 0 0
+        0 0 1 0 0
+        0 0 0 0.08 0"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+  <rect width="1200" height="1200" fill="url(#light)"/>
+  <g opacity="0.9">
+    <path d="M-60 980 C 140 800, 290 720, 520 650 C 780 570, 930 450, 1260 250" fill="none" stroke="url(#sweep)" stroke-width="120" stroke-linecap="round"/>
+    <path d="M-60 1060 C 170 880, 330 795, 570 720 C 850 630, 1010 500, 1260 320" fill="none" stroke="rgba(83,129,214,0.12)" stroke-width="160" stroke-linecap="round"/>
+  </g>
+  <!-- Abstract low-dive silhouette -->
+  <g transform="translate(220 520) rotate(8)" opacity="0.92">
+    <circle cx="210" cy="110" r="52" fill="rgba(230,237,248,0.16)"/>
+    <path d="M220 175 C 290 210, 350 265, 400 345" fill="none" stroke="rgba(230,237,248,0.14)" stroke-width="54" stroke-linecap="round"/>
+    <path d="M260 240 C 350 220, 455 215, 590 230" fill="none" stroke="rgba(230,237,248,0.12)" stroke-width="44" stroke-linecap="round"/>
+    <path d="M350 320 C 450 380, 560 445, 720 520" fill="none" stroke="rgba(230,237,248,0.11)" stroke-width="50" stroke-linecap="round"/>
+  </g>
+  <rect width="1200" height="1200" filter="url(#grain)" opacity="0.9"/>
+</svg>
+

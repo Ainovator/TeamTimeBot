@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#27416f"/>
+      <stop offset="0.55" stop-color="#101b33"/>
+      <stop offset="1" stop-color="#0a1020"/>
+    </linearGradient>
+    <radialGradient id="light" cx="52%" cy="24%" r="70%">
+      <stop offset="0" stop-color="#ffd0dc" stop-opacity="0.35"/>
+      <stop offset="0.5" stop-color="#ff7aa7" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bars" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff7aa7" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#5ea3ff" stop-opacity="0.14"/>
+    </linearGradient>
+    <filter id="grain" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.88" numOctaves="2" stitchTiles="stitch" />
+      <feColorMatrix type="matrix" values="
+        1 0 0 0 0
+        0 1 0 0 0
+        0 0 1 0 0
+        0 0 0 0.08 0"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="1200" fill="url(#bg)"/>
+  <rect width="1200" height="1200" fill="url(#light)"/>
+  <g opacity="0.95">
+    <path d="M-50 860 C 220 740, 410 700, 610 645 C 860 575, 1030 470, 1270 350" fill="none" stroke="url(#bars)" stroke-width="120" stroke-linecap="round"/>
+    <path d="M-50 955 C 250 820, 450 780, 670 725 C 930 655, 1090 545, 1270 450" fill="none" stroke="rgba(94,163,255,0.14)" stroke-width="160" stroke-linecap="round"/>
+  </g>
+  <!-- Abstract block silhouette -->
+  <g transform="translate(420 260)" opacity="0.92">
+    <circle cx="220" cy="110" r="56" fill="rgba(230,237,248,0.16)"/>
+    <path d="M220 180 C 190 245, 190 330, 220 410" fill="none" stroke="rgba(230,237,248,0.14)" stroke-width="58" stroke-linecap="round"/>
+    <path d="M205 230 C 150 200, 105 165, 70 120" fill="none" stroke="rgba(230,237,248,0.12)" stroke-width="44" stroke-linecap="round"/>
+    <path d="M235 230 C 290 200, 345 165, 405 115" fill="none" stroke="rgba(230,237,248,0.12)" stroke-width="44" stroke-linecap="round"/>
+    <path d="M175 430 C 145 545, 150 650, 180 770" fill="none" stroke="rgba(230,237,248,0.11)" stroke-width="54" stroke-linecap="round"/>
+    <path d="M265 430 C 295 550, 295 655, 265 770" fill="none" stroke="rgba(230,237,248,0.11)" stroke-width="54" stroke-linecap="round"/>
+  </g>
+  <rect width="1200" height="1200" filter="url(#grain)" opacity="0.9"/>
+</svg>
+

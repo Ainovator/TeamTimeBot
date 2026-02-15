@@ -69,7 +69,7 @@ export function scoreColor(score: number | null): string {
   return `hsl(${hue} 70% 52%)`
 }
 
-export function playerTypeLabel(value: '' | 'attacker' | 'setter' | 'libero'): string {
+export function playerTypeLabel(value: '' | 'attacker' | 'setter' | 'libero' | 'central'): string {
   if (value === 'attacker') {
     return 'Атакующий'
   }
@@ -79,11 +79,14 @@ export function playerTypeLabel(value: '' | 'attacker' | 'setter' | 'libero'): s
   if (value === 'libero') {
     return 'Либеро'
   }
+  if (value === 'central') {
+    return 'Центральный'
+  }
   return 'Не выбран'
 }
 
 export const playerTypeCards: Array<{
-  value: 'attacker' | 'setter' | 'libero'
+  value: 'attacker' | 'setter' | 'libero' | 'central'
   title: string
   subtitle: string
   image: string
@@ -91,4 +94,5 @@ export const playerTypeCards: Array<{
   { value: 'attacker', title: 'Атакующий', subtitle: 'Сильная атака и завершение', image: '🏐' },
   { value: 'setter', title: 'Пасующий', subtitle: 'Розыгрыш и точный пас', image: '🎯' },
   { value: 'libero', title: 'Либеро', subtitle: 'Прием и защита', image: '🛡️' },
+  { value: 'central', title: 'Центральный', subtitle: 'Блок и игра у сетки', image: '🧱' },
 ]

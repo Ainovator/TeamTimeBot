@@ -245,7 +245,7 @@ export type GroupMember = {
   firstName: string
   lastName: string
   realName: string
-  playerType: '' | 'attacker' | 'setter' | 'libero'
+  playerType: '' | 'attacker' | 'setter' | 'libero' | 'central'
   role: string
   status: string
   lastSeenAt: string
@@ -268,7 +268,7 @@ export type MemberSkillProfile = {
   firstName: string
   lastName: string
   realName: string
-  playerType: '' | 'attacker' | 'setter' | 'libero'
+  playerType: '' | 'attacker' | 'setter' | 'libero' | 'central'
   skills: MemberSkillValue[]
 }
 

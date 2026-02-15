@@ -155,7 +155,7 @@ export default function App() {
   const [memberSkillProfiles, setMemberSkillProfiles] = useState<Record<number, MemberSkillProfile>>({})
   const [selectedMemberSkills, setSelectedMemberSkills] = useState<MemberSkillProfile | null>(null)
   const [memberSkillDraft, setMemberSkillDraft] = useState<Record<string, string>>({})
-  const [memberPlayerTypeDraft, setMemberPlayerTypeDraft] = useState<'' | 'attacker' | 'setter' | 'libero'>('')
+  const [memberPlayerTypeDraft, setMemberPlayerTypeDraft] = useState<'' | 'attacker' | 'setter' | 'libero' | 'central'>('')
   const [memberRealNameDraft, setMemberRealNameDraft] = useState('')
   const [memberRelations, setMemberRelations] = useState<PlayerRelation[]>([])
   const [memberRelationDraft, setMemberRelationDraft] = useState({
@@ -164,7 +164,7 @@ export default function App() {
     weight: '5',
   })
   const [membersSearch, setMembersSearch] = useState('')
-  const [membersTypeFilter, setMembersTypeFilter] = useState<'' | 'attacker' | 'setter' | 'libero'>('')
+  const [membersTypeFilter, setMembersTypeFilter] = useState<'' | 'attacker' | 'setter' | 'libero' | 'central'>('')
   const [memberSkillLoading, setMemberSkillLoading] = useState(false)
   const [memberSkillError, setMemberSkillError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -389,7 +389,7 @@ export default function App() {
     const query = membersSearch.trim().toLowerCase()
     return members.filter((member) => {
       const profile = memberSkillProfiles[member.userTelegramID]
-      const playerType = (profile?.playerType || member.playerType || '') as '' | 'attacker' | 'setter' | 'libero'
+      const playerType = (profile?.playerType || member.playerType || '') as '' | 'attacker' | 'setter' | 'libero' | 'central'
       if (membersTypeFilter !== '' && playerType !== membersTypeFilter) {
         return false
       }
@@ -2762,6 +2762,7 @@ export default function App() {
                         key={typeCard.value}
                         type="button"
                         className={`player-type-card ${memberPlayerTypeDraft === typeCard.value ? 'active' : ''}`}
+                        data-player-type={typeCard.value}
                         onClick={() => setMemberPlayerTypeDraft(typeCard.value)}
                       >
                         <div className="player-type-image" aria-hidden>
@@ -2894,16 +2895,17 @@ export default function App() {
               onChange={(e) => setMembersSearch(e.target.value)}
             />
           </label>
-          <label className="field">
+              <label className="field">
             <span>Тип игрока</span>
             <select
               value={membersTypeFilter}
-              onChange={(e) => setMembersTypeFilter(e.target.value as '' | 'attacker' | 'setter' | 'libero')}
+              onChange={(e) => setMembersTypeFilter(e.target.value as '' | 'attacker' | 'setter' | 'libero' | 'central')}
             >
               <option value="">Все типы</option>
               <option value="attacker">Атакующий</option>
               <option value="setter">Пасующий</option>
               <option value="libero">Либеро</option>
+              <option value="central">Центральный</option>
             </select>
           </label>
           <label className="field">
@@ -2939,7 +2941,14 @@ export default function App() {
                     <td>{member.realName?.trim() ? member.realName : <span className="muted">—</span>}</td>
                     <td>
                       <span className="skill-chip">
-                        {playerTypeLabel((memberSkillProfiles[member.userTelegramID]?.playerType || member.playerType || '') as '' | 'attacker' | 'setter' | 'libero')}
+                        {playerTypeLabel(
+                          (memberSkillProfiles[member.userTelegramID]?.playerType || member.playerType || '') as
+                            | ''
+                            | 'attacker'
+                            | 'setter'
+                            | 'libero'
+                            | 'central',
+                        )}
                       </span>
                     </td>
                     <td>
@@ -4191,6 +4200,8 @@ export default function App() {
 	                <strong>Распределение по командам: {selectedHistoryEvent.name}</strong>
 	                <p className="muted">
 	                  Статус: {historyStatusLabel(selectedHistoryEvent.status)} · Долг: {formatMoney(selectedHistoryEvent.debtAmount ?? 0)}
+	                  <br />
+	                  Начало: {formatDateTime(selectedHistoryEvent.nextStartAt)} · Окончание: {formatDateTime(selectedHistoryEvent.endAt)}
 	                </p>
 	              </div>
 	              <div className="list-actions">
