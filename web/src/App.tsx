@@ -1,4 +1,4 @@
-import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   activateEventPublications,
   archiveEvent,
@@ -185,6 +185,7 @@ export default function App() {
     weight: '5',
   })
   const [memberRelationPickerQuery, setMemberRelationPickerQuery] = useState('')
+  const [memberRelationPickerOpen, setMemberRelationPickerOpen] = useState(false)
   const [membersSearch, setMembersSearch] = useState('')
   const [membersTypeFilter, setMembersTypeFilter] = useState<'' | 'attacker' | 'setter' | 'libero' | 'central'>('')
   const [membersSortCriteria, setMembersSortCriteria] = useState<MembersSortCriterion[]>([])
@@ -328,6 +329,7 @@ export default function App() {
     danger: false,
     onConfirm: null,
   })
+  const memberRelationPickerRef = useRef<HTMLDivElement | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
   const [activePerms, setActivePerms] = useState<GroupPermissionsView | null>(null)
   const [groupRoles, setGroupRoles] = useState<GroupRoleView[]>([])
@@ -619,24 +621,35 @@ export default function App() {
     })
   }, [availableRelationMembers, memberSkillProfiles])
 
-  const relationMemberIDByLabel = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const item of relationMemberOptions) {
-      map.set(item.label.toLowerCase(), String(item.id))
-    }
-    return map
-  }, [relationMemberOptions])
-
-  useEffect(() => {
+  const selectedRelationMemberOption = useMemo(() => {
     const selectedID = Number(memberRelationDraft.otherUserID)
     if (!Number.isInteger(selectedID) || selectedID <= 0) {
+      return null
+    }
+    return relationMemberOptions.find((item) => item.id === selectedID) ?? null
+  }, [memberRelationDraft.otherUserID, relationMemberOptions])
+
+  const filteredRelationMemberOptions = useMemo(() => {
+    const query = memberRelationPickerQuery.trim().toLowerCase()
+    if (query === '') {
+      return relationMemberOptions
+    }
+    return relationMemberOptions.filter((item) => item.label.toLowerCase().includes(query) || String(item.id).includes(query))
+  }, [memberRelationPickerQuery, relationMemberOptions])
+
+  useEffect(() => {
+    if (!memberRelationPickerOpen) {
       return
     }
-    const option = relationMemberOptions.find((item) => item.id === selectedID)
-    if (option && memberRelationPickerQuery !== option.label) {
-      setMemberRelationPickerQuery(option.label)
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null
+      if (target && memberRelationPickerRef.current && !memberRelationPickerRef.current.contains(target)) {
+        setMemberRelationPickerOpen(false)
+      }
     }
-  }, [memberRelationDraft.otherUserID, memberRelationPickerQuery, relationMemberOptions])
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [memberRelationPickerOpen])
   const eventEditorDirty = useMemo(() => {
     if (!selectedEvent || activeSection !== 'event_templates' || activeEventView !== 'edit') {
       return false
@@ -2564,6 +2577,7 @@ export default function App() {
         weight: '5',
       })
       setMemberRelationPickerQuery('')
+      setMemberRelationPickerOpen(false)
       setMemberSkillProfiles((prev) => ({ ...prev, [profile.userTelegramID]: profile }))
     } catch (err) {
       setMemberSkillError((err as Error).message)
@@ -2656,24 +2670,13 @@ export default function App() {
 
   function onRelationMemberPickerChange(value: string) {
     setMemberRelationPickerQuery(value)
-    const normalized = value.trim().toLowerCase()
-    if (normalized === '') {
-      setMemberRelationDraft((prev) => ({ ...prev, otherUserID: '' }))
-      return
-    }
+  }
 
-    const byLabel = relationMemberIDByLabel.get(normalized)
-    if (byLabel) {
-      setMemberRelationDraft((prev) => ({ ...prev, otherUserID: byLabel }))
-      return
-    }
-
-    if (/^\d+$/.test(normalized) && availableRelationMembers.some((member) => String(member.userTelegramID) === normalized)) {
-      setMemberRelationDraft((prev) => ({ ...prev, otherUserID: normalized }))
-      return
-    }
-
-    setMemberRelationDraft((prev) => ({ ...prev, otherUserID: '' }))
+  function onRelationMemberSelect(optionID: number) {
+    const option = relationMemberOptions.find((item) => item.id === optionID)
+    setMemberRelationDraft((prev) => ({ ...prev, otherUserID: String(optionID) }))
+    setMemberRelationPickerQuery(option?.label || '')
+    setMemberRelationPickerOpen(false)
   }
 
   function relationUserName(relation: PlayerRelation) {
@@ -2721,6 +2724,7 @@ export default function App() {
       setMemberRelations(next)
       setMemberRelationDraft((prev) => ({ ...prev, otherUserID: '', weight: '5' }))
       setMemberRelationPickerQuery('')
+      setMemberRelationPickerOpen(false)
       setSuccess('Связь сохранена')
     } catch (err) {
       setMemberSkillError((err as Error).message)
@@ -2808,6 +2812,21 @@ export default function App() {
       return `@${d.username}`
     }
     return `ID ${d.userID}`
+  }
+
+  function pollVoteDisplayName(vote: GroupPollVoteItem): string {
+    const real = (vote.realName ?? '').trim()
+    if (real) {
+      return real
+    }
+    const full = `${vote.firstName ?? ''} ${vote.lastName ?? ''}`.trim()
+    if (full) {
+      return full
+    }
+    if (vote.username) {
+      return `@${vote.username}`
+    }
+    return `ID ${vote.userID}`
   }
 
   function scrollDocsTo(id: string) {
@@ -3934,20 +3953,62 @@ export default function App() {
               <section className="content-card relation-block">
                 <h4>Связи игрока</h4>
                 <div className="form-grid form-grid-3 relation-form-grid">
-                  <label className="field">
+                  <label className="field relation-member-field">
                     <span>Игрок</span>
-                    <input
-                      className="ui-select"
-                      list="relation-member-options"
-                      placeholder="Начни вводить ник, реальное имя или ID"
-                      value={memberRelationPickerQuery}
-                      onChange={(e) => onRelationMemberPickerChange(e.target.value)}
-                    />
-                    <datalist id="relation-member-options">
-                      {relationMemberOptions.map((option) => (
-                        <option key={option.id} value={option.label} />
-                      ))}
-                    </datalist>
+                    <div className={`relation-member-picker ${memberRelationPickerOpen ? 'open' : ''}`} ref={memberRelationPickerRef}>
+                      <button
+                        type="button"
+                        className={`relation-picker-trigger ${selectedRelationMemberOption ? '' : 'empty'}`}
+                        onClick={() => {
+                          setMemberRelationPickerOpen((prev) => !prev)
+                          setMemberRelationPickerQuery('')
+                        }}
+                        aria-haspopup="listbox"
+                        aria-expanded={memberRelationPickerOpen}
+                      >
+                        <span>{selectedRelationMemberOption?.label || 'Выбери игрока для связи'}</span>
+                        <span className="relation-picker-caret" aria-hidden="true">
+                          {memberRelationPickerOpen ? '▴' : '▾'}
+                        </span>
+                      </button>
+                      {memberRelationPickerOpen ? (
+                        <div className="relation-picker-dropdown">
+                          <div className="relation-picker-search">
+                            <input
+                              autoFocus
+                              placeholder="Поиск по реальному имени, нику или ID"
+                              value={memberRelationPickerQuery}
+                              onChange={(e) => onRelationMemberPickerChange(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                  setMemberRelationPickerOpen(false)
+                                }
+                                if (e.key === 'Enter' && filteredRelationMemberOptions.length > 0) {
+                                  e.preventDefault()
+                                  onRelationMemberSelect(filteredRelationMemberOptions[0].id)
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="relation-picker-options" role="listbox">
+                            {filteredRelationMemberOptions.length === 0 ? (
+                              <p className="relation-picker-empty muted">Игрок не найден</p>
+                            ) : (
+                              filteredRelationMemberOptions.map((option) => (
+                                <button
+                                  key={option.id}
+                                  type="button"
+                                  className={`relation-picker-option ${String(option.id) === memberRelationDraft.otherUserID ? 'active' : ''}`}
+                                  onClick={() => onRelationMemberSelect(option.id)}
+                                >
+                                  {option.label}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   </label>
                   <label className="field">
                     <span>Тип связи</span>
@@ -5722,10 +5783,7 @@ export default function App() {
                       <tbody>
                         {historyPollVotes.map((vote) => (
                           <tr key={`${vote.userID}-${vote.choice}-${vote.votedAt}`}>
-                            <td>
-                              {`${vote.firstName || ''} ${vote.lastName || ''}`.trim() ||
-                                (vote.username ? `@${vote.username}` : `ID ${vote.userID}`)}
-                            </td>
+                            <td>{pollVoteDisplayName(vote)}</td>
                             <td>{vote.choiceLabel || vote.choice}</td>
                             <td>{vote.counted ? 'да' : 'нет'}</td>
                             <td>{vote.source || '-'}</td>
@@ -5739,9 +5797,7 @@ export default function App() {
                                   aria-label="Удалить голос"
                                   onClick={() => {
                                     if (activeChatID === null || selectedHistoryPostID === null) return
-                                    const name =
-                                      `${vote.firstName || ''} ${vote.lastName || ''}`.trim() ||
-                                      (vote.username ? `@${vote.username}` : `ID ${vote.userID}`)
+                                    const name = pollVoteDisplayName(vote)
                                     setConfirmModal({
                                       open: true,
                                       title: 'Удалить голос игрока?',
@@ -6126,7 +6182,7 @@ export default function App() {
                         <tbody>
                           {eventBilling.players.map((player) => (
                             <tr key={player.userID}>
-                              <td>{`${player.firstName ?? ''} ${player.lastName ?? ''}`.trim() || (player.username ? `@${player.username}` : `ID ${player.userID}`)}</td>
+                              <td>{player.realName?.trim() || `${player.firstName ?? ''} ${player.lastName ?? ''}`.trim() || (player.username ? `@${player.username}` : `ID ${player.userID}`)}</td>
                               <td>{formatMoney(player.amountDue)}</td>
                               <td className="col-center">
                                 <label className="toggle-field toggle-field-only">
@@ -6259,9 +6315,7 @@ export default function App() {
                 <tbody>
                   {groupPollVotes.map((vote) => (
                     <tr key={vote.userID}>
-                      <td>
-                        {`${vote.firstName || ''} ${vote.lastName || ''}`.trim() || (vote.username ? `@${vote.username}` : `ID ${vote.userID}`)}
-                      </td>
+                      <td>{pollVoteDisplayName(vote)}</td>
                       <td>{vote.choiceLabel || vote.choice}</td>
                       <td>{vote.counted ? 'да' : 'нет'}</td>
                       <td>{vote.source || '-'}</td>

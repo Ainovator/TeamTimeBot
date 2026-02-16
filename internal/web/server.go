@@ -1990,7 +1990,10 @@ func (s *Server) publishSettlementNow(ctx context.Context, chatID int64, eventID
 			if p.Seats <= 0 {
 				continue
 			}
-			name := strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
+			name := strings.TrimSpace(p.RealName)
+			if name == "" {
+				name = strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
+			}
 			if name == "" && strings.TrimSpace(p.Username) != "" {
 				name = "@" + strings.TrimSpace(p.Username)
 			}
@@ -2179,6 +2182,9 @@ func (s *Server) publishEventSetRowsNow(ctx context.Context, chatID int64, insta
 }
 
 func billingPlayerDisplayName(p postgres.EventBillingParticipant) string {
+	if rn := strings.TrimSpace(p.RealName); rn != "" {
+		return rn
+	}
 	full := strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
 	if full != "" {
 		return full
@@ -2339,6 +2345,9 @@ func (s *Server) publishGroupDebtorsNow(ctx context.Context, chatID int64, inclu
 }
 
 func teamPlayerDisplayName(p postgres.TeamSplitPlayer) string {
+	if rn := strings.TrimSpace(p.RealName); rn != "" {
+		return rn
+	}
 	full := strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
 	if full != "" {
 		return full

@@ -120,6 +120,7 @@ export type GroupPollItem = {
 
 export type GroupPollVoteItem = {
   userID: number
+  realName: string
   username: string
   firstName: string
   lastName: string
@@ -133,6 +134,7 @@ export type GroupPollVoteItem = {
 
 export type TeamSplitPlayer = {
   userID: number
+  realName: string
   username: string
   firstName: string
   lastName: string
@@ -179,6 +181,7 @@ export type EventHistoryItem = {
 
 export type EventBillingPlayer = {
   userID: number
+  realName: string
   username: string
   firstName: string
   lastName: string

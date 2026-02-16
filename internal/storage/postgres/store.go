@@ -142,6 +142,7 @@ type EventHistoryItem struct {
 
 type EventBillingParticipant struct {
 	UserID    int64      `json:"userID"`
+	RealName  string     `json:"realName"`
 	Username  string     `json:"username"`
 	FirstName string     `json:"firstName"`
 	LastName  string     `json:"lastName"`
@@ -282,6 +283,7 @@ type GroupPollItem struct {
 
 type GroupPollVoteItem struct {
 	UserID      int64     `json:"userID"`
+	RealName    string    `json:"realName"`
 	Username    string    `json:"username"`
 	FirstName   string    `json:"firstName"`
 	LastName    string    `json:"lastName"`
@@ -295,6 +297,7 @@ type GroupPollVoteItem struct {
 
 type TeamSplitPlayer struct {
 	UserID      int64   `json:"userID"`
+	RealName    string  `json:"realName"`
 	Username    string  `json:"username"`
 	FirstName   string  `json:"firstName"`
 	LastName    string  `json:"lastName"`
@@ -2251,6 +2254,7 @@ func (s *Store) GetEventBilling(ctx context.Context, chatID int64, eventID uint6
 
 	type paymentRow struct {
 		UserID    int64
+		RealName  string
 		Username  string
 		FirstName string
 		LastName  string
@@ -2260,10 +2264,20 @@ func (s *Store) GetEventBilling(ctx context.Context, chatID int64, eventID uint6
 	}
 	var rows []paymentRow
 	if err := s.db.WithContext(ctx).
-		Table("event_settlement_payments").
-		Select("user_id, COALESCE(username, '') AS username, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name, amount_due, is_paid, paid_at").
-		Where("settlement_id = ?", settlement.ID).
-		Order("first_name ASC, last_name ASC, username ASC, user_id ASC").
+		Table("event_settlement_payments esp").
+		Select(`
+			esp.user_id,
+			COALESCE(gm.real_name, '') AS real_name,
+			COALESCE(esp.username, '') AS username,
+			COALESCE(esp.first_name, '') AS first_name,
+			COALESCE(esp.last_name, '') AS last_name,
+			esp.amount_due,
+			esp.is_paid,
+			esp.paid_at
+		`).
+		Joins("LEFT JOIN group_members gm ON gm.group_id = ? AND gm.user_telegram_id = esp.user_id AND gm.is_active = TRUE", group.ID).
+		Where("esp.settlement_id = ?", settlement.ID).
+		Order("COALESCE(gm.real_name, '') ASC, first_name ASC, last_name ASC, username ASC, esp.user_id ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -2275,6 +2289,7 @@ func (s *Store) GetEventBilling(ctx context.Context, chatID int64, eventID uint6
 	for _, row := range rows {
 		players = append(players, EventBillingParticipant{
 			UserID:    row.UserID,
+			RealName:  strings.TrimSpace(row.RealName),
 			Username:  row.Username,
 			FirstName: row.FirstName,
 			LastName:  row.LastName,
@@ -2353,6 +2368,7 @@ func (s *Store) GetEventBillingByInstance(ctx context.Context, chatID int64, ins
 
 	type paymentRow struct {
 		UserID    int64
+		RealName  string
 		Username  string
 		FirstName string
 		LastName  string
@@ -2362,10 +2378,20 @@ func (s *Store) GetEventBillingByInstance(ctx context.Context, chatID int64, ins
 	}
 	var rows []paymentRow
 	if err := s.db.WithContext(ctx).
-		Table("event_settlement_payments").
-		Select("user_id, COALESCE(username, '') AS username, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name, amount_due, is_paid, paid_at").
-		Where("settlement_id = ?", settlement.ID).
-		Order("first_name ASC, last_name ASC, username ASC, user_id ASC").
+		Table("event_settlement_payments esp").
+		Select(`
+			esp.user_id,
+			COALESCE(gm.real_name, '') AS real_name,
+			COALESCE(esp.username, '') AS username,
+			COALESCE(esp.first_name, '') AS first_name,
+			COALESCE(esp.last_name, '') AS last_name,
+			esp.amount_due,
+			esp.is_paid,
+			esp.paid_at
+		`).
+		Joins("LEFT JOIN group_members gm ON gm.group_id = ? AND gm.user_telegram_id = esp.user_id AND gm.is_active = TRUE", group.ID).
+		Where("esp.settlement_id = ?", settlement.ID).
+		Order("COALESCE(gm.real_name, '') ASC, first_name ASC, last_name ASC, username ASC, esp.user_id ASC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -2377,6 +2403,7 @@ func (s *Store) GetEventBillingByInstance(ctx context.Context, chatID int64, ins
 	for _, row := range rows {
 		players = append(players, EventBillingParticipant{
 			UserID:    row.UserID,
+			RealName:  strings.TrimSpace(row.RealName),
 			Username:  row.Username,
 			FirstName: row.FirstName,
 			LastName:  row.LastName,
@@ -3202,6 +3229,7 @@ func (s *Store) CountVotesForPostChoicesByChoice(ctx context.Context, postID uin
 
 type PollSeatCountItem struct {
 	UserID    int64
+	RealName  string
 	Username  string
 	FirstName string
 	LastName  string
@@ -3225,6 +3253,7 @@ func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64,
 
 	type voteRow struct {
 		UserID    int64
+		RealName  string
 		Username  string
 		FirstName string
 		LastName  string
@@ -3233,8 +3262,17 @@ func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64,
 	var rows []voteRow
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_votes ev").
-		Select("ev.user_id, COALESCE(tu.username, ev.username, '') AS username, COALESCE(tu.first_name, ev.first_name, '') AS first_name, COALESCE(tu.last_name, ev.last_name, '') AS last_name, ev.choice").
+		Select(`
+			ev.user_id,
+			COALESCE(gm.real_name, '') AS real_name,
+			COALESCE(tu.username, ev.username, '') AS username,
+			COALESCE(tu.first_name, ev.first_name, '') AS first_name,
+			COALESCE(tu.last_name, ev.last_name, '') AS last_name,
+			ev.choice
+		`).
 		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = ev.user_id").
+		Joins("JOIN event_poll_posts epp ON epp.id = ev.post_id").
+		Joins("LEFT JOIN group_members gm ON gm.group_id = epp.group_id AND gm.user_telegram_id = ev.user_id AND gm.is_active = TRUE").
 		Where("ev.post_id = ? AND ev.choice IN ?", postID, filtered).
 		Order("ev.voted_at ASC, ev.user_id ASC").
 		Scan(&rows).Error; err != nil {
@@ -3248,6 +3286,7 @@ func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64,
 		if !ok {
 			item = &PollSeatCountItem{
 				UserID:    r.UserID,
+				RealName:  strings.TrimSpace(r.RealName),
 				Username:  strings.TrimSpace(r.Username),
 				FirstName: strings.TrimSpace(r.FirstName),
 				LastName:  strings.TrimSpace(r.LastName),
@@ -3793,6 +3832,7 @@ func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, po
 
 	type voteRow struct {
 		UserID    int64
+		RealName  string
 		Username  string
 		FirstName string
 		LastName  string
@@ -3803,8 +3843,9 @@ func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, po
 	var rows []voteRow
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_votes ev").
-		Select("ev.user_id, COALESCE(tu.username, ev.username, '') AS username, COALESCE(tu.first_name, ev.first_name, '') AS first_name, COALESCE(tu.last_name, ev.last_name, '') AS last_name, ev.choice, ev.source, ev.voted_at").
+		Select("ev.user_id, COALESCE(gm.real_name, '') AS real_name, COALESCE(tu.username, ev.username, '') AS username, COALESCE(tu.first_name, ev.first_name, '') AS first_name, COALESCE(tu.last_name, ev.last_name, '') AS last_name, ev.choice, ev.source, ev.voted_at").
 		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = ev.user_id").
+		Joins("LEFT JOIN group_members gm ON gm.group_id = ? AND gm.user_telegram_id = ev.user_id AND gm.is_active = TRUE", group.ID).
 		Where("ev.post_id = ?", postID).
 		Order("ev.voted_at ASC, ev.user_id ASC").
 		Scan(&rows).Error; err != nil {
@@ -3825,6 +3866,7 @@ func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, po
 		_, countedChoice := countedChoices[row.Choice]
 		items = append(items, GroupPollVoteItem{
 			UserID:      row.UserID,
+			RealName:    strings.TrimSpace(row.RealName),
 			Username:    row.Username,
 			FirstName:   row.FirstName,
 			LastName:    row.LastName,
@@ -4013,6 +4055,7 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 		}
 		players = append(players, TeamSplitPlayer{
 			UserID:      it.UserID,
+			RealName:    strings.TrimSpace(it.RealName),
 			Username:    it.Username,
 			FirstName:   it.FirstName,
 			LastName:    it.LastName,
@@ -4049,6 +4092,7 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 
 			players = append(players, TeamSplitPlayer{
 				UserID:      guestID,
+				RealName:    "",
 				Username:    "",
 				FirstName:   "Гость",
 				LastName:    fmt.Sprintf("(+1 от %s)", display),

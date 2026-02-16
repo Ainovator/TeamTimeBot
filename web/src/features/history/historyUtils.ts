@@ -17,6 +17,10 @@ export function historyStatusLabel(status: EventHistoryItem['status']): string {
 }
 
 export function playerDisplayName(player: TeamSplitPlayer): string {
+  const real = (player.realName ?? '').trim()
+  if (real) {
+    return real
+  }
   const full = `${player.firstName ?? ''} ${player.lastName ?? ''}`.trim()
   if (full) {
     return full

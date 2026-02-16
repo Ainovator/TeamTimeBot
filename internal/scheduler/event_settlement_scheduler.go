@@ -169,7 +169,10 @@ func (s *EventSettlementScheduler) tick(ctx context.Context) {
 				if p.Seats <= 0 {
 					continue
 				}
-				name := strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
+				name := strings.TrimSpace(p.RealName)
+				if name == "" {
+					name = strings.TrimSpace(strings.TrimSpace(p.FirstName + " " + p.LastName))
+				}
 				if name == "" && strings.TrimSpace(p.Username) != "" {
 					name = "@" + strings.TrimSpace(p.Username)
 				}
