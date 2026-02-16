@@ -89,10 +89,18 @@ func (s *EventPollScheduler) tick(ctx context.Context) {
 			continue
 		}
 
-		localDate := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc)
-		fromUTC := localDate.UTC()
-		toUTC := localDate.Add(24 * time.Hour).UTC()
+		startHour, startMin, err := parseClockHourMinute(event.StartTime)
+		if err != nil {
+			log.Printf("event_poll: invalid start time %q for chat %d event %d: %v", event.StartTime, event.ChatID, event.EventID, err)
+			continue
+		}
+		targetStartLocal := nextWeekdayTimeLocal(nowLocal, event.StartWeekday, startHour, startMin)
+		targetEventDate := time.Date(targetStartLocal.Year(), targetStartLocal.Month(), targetStartLocal.Day(), 0, 0, 0, 0, loc)
+
 		if !testMode {
+			localDate := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc)
+			fromUTC := localDate.UTC()
+			toUTC := localDate.Add(24 * time.Hour).UTC()
 			existing, err := s.store.GetLatestEventPollPostForRange(ctx, event.EventID, fromUTC, toUTC)
 			if err != nil {
 				log.Printf("event_poll: lookup existing post failed for event %d: %v", event.EventID, err)
@@ -103,6 +111,31 @@ func (s *EventPollScheduler) tick(ctx context.Context) {
 					log.Printf("event_poll: skip event %d chat %d: already posted today (post_id=%d published_at=%s)", event.EventID, event.ChatID, existing.ID, existing.PublishedAt.Format(time.RFC3339))
 				}
 				continue
+			}
+
+			instance, err := s.store.GetEventInstanceSnapshotByEventDate(ctx, event.GroupID, event.EventID, targetEventDate)
+			if err != nil {
+				log.Printf("event_poll: lookup instance failed for event %d date %s: %v", event.EventID, targetEventDate.Format("2006-01-02"), err)
+				continue
+			}
+			if instance != nil {
+				if instance.PollPostID != nil {
+					if debug {
+						log.Printf("event_poll: skip event %d chat %d: instance %d date %s already has poll_post_id=%d", event.EventID, event.ChatID, instance.InstanceID, targetEventDate.Format("2006-01-02"), *instance.PollPostID)
+					}
+					continue
+				}
+				hasPollPost, err := s.store.HasEventPollPostForInstance(ctx, instance.InstanceID)
+				if err != nil {
+					log.Printf("event_poll: lookup poll post by instance failed for event %d instance %d: %v", event.EventID, instance.InstanceID, err)
+					continue
+				}
+				if hasPollPost {
+					if debug {
+						log.Printf("event_poll: skip event %d chat %d: instance %d date %s already has poll post", event.EventID, event.ChatID, instance.InstanceID, targetEventDate.Format("2006-01-02"))
+					}
+					continue
+				}
 			}
 		} else if debug {
 			log.Printf("event_poll: test_mode bypass: allow duplicate polls for event %d chat %d", event.EventID, event.ChatID)
@@ -149,4 +182,21 @@ func parseClockHourMinute(value string) (int, int, error) {
 		}
 	}
 	return 0, 0, err
+}
+
+func nextWeekdayTimeLocal(now time.Time, weekday int, hour int, minute int) time.Time {
+	if weekday < 1 || weekday > 7 {
+		return now
+	}
+	currentWeekday := isoWeekday(now.Weekday())
+	delta := weekday - currentWeekday
+	if delta < 0 {
+		delta += 7
+	}
+	candidateDate := now.AddDate(0, 0, delta)
+	candidate := time.Date(candidateDate.Year(), candidateDate.Month(), candidateDate.Day(), hour, minute, 0, 0, now.Location())
+	if !candidate.After(now) {
+		candidate = candidate.AddDate(0, 0, 7)
+	}
+	return candidate
 }

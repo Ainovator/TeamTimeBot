@@ -1690,6 +1690,20 @@ func (s *Store) GetLatestEventPollPost(ctx context.Context, eventID uint64) (*Ev
 	return &row, nil
 }
 
+func (s *Store) HasEventPollPostForInstance(ctx context.Context, instanceID uint64) (bool, error) {
+	if instanceID == 0 {
+		return false, errors.New("instance_id is required")
+	}
+	var count int64
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts").
+		Where("instance_id = ?", instanceID).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (s *Store) CountVotesForPostChoice(ctx context.Context, postID uint64, choice string) (int, error) {
 	var count int64
 	if err := s.db.WithContext(ctx).
