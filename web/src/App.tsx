@@ -5579,10 +5579,12 @@ export default function App() {
                       )
                       const selectedTouchPlayer =
                         draggedPlayerID !== null ? teamSplit.players.find((p) => p.userID === draggedPlayerID) ?? null : null
+                      const lineupLabel = (index: number) => (index < 6 ? String(index + 1) : 'З')
+                      const unassignedPlayers = teamSplit.players.filter((player) => player.team === 'unassigned')
                       const renderTeamColumn = (teamCode: ActiveTeamCode) => (
-                            <div
-                              className={`team-column ${draggedPlayerID !== null ? 'team-column-drop' : ''}`}
-                              data-team={teamCode}
+                        <div
+                          className={`team-column ${draggedPlayerID !== null ? 'team-column-drop' : ''}`}
+                          data-team={teamCode}
                           onClick={() => {
                             if (!touchDragMode || draggedPlayerID === null) return
                             onDropToTeam(teamCode)
@@ -5594,19 +5596,19 @@ export default function App() {
                             e.preventDefault()
                             onDropToTeam(teamCode)
                           }}
-                          >
-                            <div className="team-column-head">
-                              <h5>{`Команда ${teamCode}`}</h5>
-                              {teamCode === 'C' ? (
-                                <button type="button" className="team-remove-btn" onClick={removeTeamC} title="Убрать команду C">
-                                  −
-                                </button>
-                              ) : null}
-                            </div>
-                            <div className="team-players">
-                            {teamSplit.players
-                              .filter((player) => player.team === teamCode)
-                              .map((player) => (
+                        >
+                          <div className="team-column-head">
+                            <h5>{`Команда ${teamCode}`}</h5>
+                            {teamCode === 'C' ? (
+                              <button type="button" className="team-remove-btn" onClick={removeTeamC} title="Убрать команду C">
+                                −
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="team-players">
+                            {(() => {
+                              const teamPlayers = teamSplit.players.filter((player) => player.team === teamCode)
+                              return teamPlayers.map((player, idx) => (
                                 <article
                                   className={draggedPlayerID === player.userID ? 'team-player-card selected' : 'team-player-card'}
                                   key={`${teamCode}-${player.userID}`}
@@ -5619,9 +5621,12 @@ export default function App() {
                                   }}
                                 >
                                   <p>{playerDisplayName(player)}</p>
-                                  <small>{player.choiceLabel} · рейтинг {player.rating.toFixed(1)}</small>
+                                  <small>
+                                    {player.choiceLabel} · рейтинг {player.rating.toFixed(1)} · позиция {lineupLabel(idx)}
+                                  </small>
                                 </article>
-                              ))}
+                              ))
+                            })()}
                             {teamSplit.players.filter((player) => player.team === teamCode).length === 0 ? <p className="muted">Пусто</p> : null}
                           </div>
                         </div>
@@ -5651,25 +5656,23 @@ export default function App() {
                             >
                               <h5>Нераспределенные</h5>
                               <div className="team-players team-players-unassigned">
-                                {teamSplit.players
-                                  .filter((player) => player.team === 'unassigned')
-                                  .map((player) => (
-                                    <article
-                                      className={draggedPlayerID === player.userID ? 'team-player-card selected' : 'team-player-card'}
-                                      key={`unassigned-${player.userID}`}
-                                      draggable={!touchDragMode}
-                                      onDragStart={() => onDragStartTeamPlayer(player.userID)}
-                                      onDragEnd={() => setDraggedPlayerID(null)}
-                                      onClick={() => {
-                                        if (!touchDragMode) return
-                                        setDraggedPlayerID((prev) => (prev === player.userID ? null : player.userID))
-                                      }}
-                                    >
-                                      <p>{playerDisplayName(player)}</p>
-                                      <small>{player.choiceLabel} · рейтинг {player.rating.toFixed(1)}</small>
-                                    </article>
-                                  ))}
-                                {teamSplit.players.filter((player) => player.team === 'unassigned').length === 0 ? <p className="muted">Пусто</p> : null}
+                                {unassignedPlayers.map((player) => (
+                                  <article
+                                    className={draggedPlayerID === player.userID ? 'team-player-card selected' : 'team-player-card'}
+                                    key={`unassigned-${player.userID}`}
+                                    draggable={!touchDragMode}
+                                    onDragStart={() => onDragStartTeamPlayer(player.userID)}
+                                    onDragEnd={() => setDraggedPlayerID(null)}
+                                    onClick={() => {
+                                      if (!touchDragMode) return
+                                      setDraggedPlayerID((prev) => (prev === player.userID ? null : player.userID))
+                                    }}
+                                  >
+                                    <p>{playerDisplayName(player)}</p>
+                                    <small>{player.choiceLabel} · рейтинг {player.rating.toFixed(1)} · позиция -</small>
+                                  </article>
+                                ))}
+                                {unassignedPlayers.length === 0 ? <p className="muted">Пусто</p> : null}
                               </div>
                             </div>
 

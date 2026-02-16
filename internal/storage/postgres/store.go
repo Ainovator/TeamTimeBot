@@ -296,17 +296,18 @@ type GroupPollVoteItem struct {
 }
 
 type TeamSplitPlayer struct {
-	UserID      int64   `json:"userID"`
-	RealName    string  `json:"realName"`
-	Username    string  `json:"username"`
-	FirstName   string  `json:"firstName"`
-	LastName    string  `json:"lastName"`
-	Choice      string  `json:"choice"`
-	ChoiceIndex int     `json:"choiceIndex"`
-	ChoiceLabel string  `json:"choiceLabel"`
-	Rating      float64 `json:"rating"`
-	Team        string  `json:"team"`
-	Position    int     `json:"position"`
+	UserID       int64   `json:"userID"`
+	GuestOwnerID int64   `json:"guestOwnerID,omitempty"`
+	RealName     string  `json:"realName"`
+	Username     string  `json:"username"`
+	FirstName    string  `json:"firstName"`
+	LastName     string  `json:"lastName"`
+	Choice       string  `json:"choice"`
+	ChoiceIndex  int     `json:"choiceIndex"`
+	ChoiceLabel  string  `json:"choiceLabel"`
+	Rating       float64 `json:"rating"`
+	Team         string  `json:"team"`
+	Position     int     `json:"position"`
 }
 
 type TeamWinChance struct {
@@ -4054,17 +4055,18 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 			pos = a.Position
 		}
 		players = append(players, TeamSplitPlayer{
-			UserID:      it.UserID,
-			RealName:    strings.TrimSpace(it.RealName),
-			Username:    it.Username,
-			FirstName:   it.FirstName,
-			LastName:    it.LastName,
-			Choice:      choice,
-			ChoiceIndex: choiceIdx,
-			ChoiceLabel: choiceLabel,
-			Rating:      rating,
-			Team:        team,
-			Position:    pos,
+			UserID:       it.UserID,
+			GuestOwnerID: 0,
+			RealName:     strings.TrimSpace(it.RealName),
+			Username:     it.Username,
+			FirstName:    it.FirstName,
+			LastName:     it.LastName,
+			Choice:       choice,
+			ChoiceIndex:  choiceIdx,
+			ChoiceLabel:  choiceLabel,
+			Rating:       rating,
+			Team:         team,
+			Position:     pos,
 		})
 		nextPos++
 
@@ -4091,17 +4093,18 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 			}
 
 			players = append(players, TeamSplitPlayer{
-				UserID:      guestID,
-				RealName:    "",
-				Username:    "",
-				FirstName:   "Гость",
-				LastName:    fmt.Sprintf("(+1 от %s)", display),
-				Choice:      choice,
-				ChoiceIndex: choiceIdx,
-				ChoiceLabel: "Гость (+1)",
-				Rating:      5.0,
-				Team:        gTeam,
-				Position:    gPos,
+				UserID:       guestID,
+				GuestOwnerID: it.UserID,
+				RealName:     "",
+				Username:     "",
+				FirstName:    "Гость",
+				LastName:     fmt.Sprintf("(+1 от %s)", display),
+				Choice:       choice,
+				ChoiceIndex:  choiceIdx,
+				ChoiceLabel:  "Гость (+1)",
+				Rating:       5.0,
+				Team:         gTeam,
+				Position:     gPos,
 			})
 			nextPos++
 		}
@@ -4156,6 +4159,28 @@ func (s *Store) SaveEventTeamSplit(ctx context.Context, chatID int64, eventID, p
 			UserID:   item.UserID,
 			Team:     normalizeTeamValue(item.Team),
 			Position: item.Position,
+		}
+	}
+	// Enforce invariant: guest slots (+1) must always stay in the same team as their owner.
+	// This guards both auto-split and manual UI edits.
+	if currentState, err := s.GetEventTeamSplitState(ctx, chatID, eventID, postID); err == nil && currentState != nil {
+		for _, p := range currentState.Players {
+			if p.UserID >= 0 || p.GuestOwnerID <= 0 {
+				continue
+			}
+			owner, ok := byUser[p.GuestOwnerID]
+			if !ok {
+				continue
+			}
+			guest, exists := byUser[p.UserID]
+			if !exists {
+				guest = TeamSplitAssignmentInput{
+					UserID:   p.UserID,
+					Position: owner.Position + 1,
+				}
+			}
+			guest.Team = owner.Team
+			byUser[p.UserID] = guest
 		}
 	}
 
@@ -4225,69 +4250,106 @@ func (s *Store) AutoSplitEventTeams(ctx context.Context, chatID int64, eventID, 
 		return nil, err
 	}
 
-	userIDs := make([]int64, 0, len(state.Players))
+	realUserIDSet := make(map[int64]struct{}, len(state.Players))
 	for _, p := range state.Players {
-		userIDs = append(userIDs, p.UserID)
+		if p.UserID > 0 {
+			realUserIDSet[p.UserID] = struct{}{}
+		}
+		if p.GuestOwnerID > 0 {
+			realUserIDSet[p.GuestOwnerID] = struct{}{}
+		}
 	}
+	realUserIDs := make([]int64, 0, len(realUserIDSet))
+	for uid := range realUserIDSet {
+		realUserIDs = append(realUserIDs, uid)
+	}
+	sort.Slice(realUserIDs, func(i, j int) bool { return realUserIDs[i] < realUserIDs[j] })
+
 	type roleRow struct {
 		UserID     int64
 		PlayerType string
 	}
-	var roleRows []roleRow
-	if err := s.db.WithContext(ctx).
-		Table("group_members").
-		Select("user_telegram_id AS user_id, COALESCE(player_type, '') AS player_type").
-		Where("group_id = ? AND user_telegram_id IN ? AND is_active = TRUE", group.ID, userIDs).
-		Scan(&roleRows).Error; err != nil {
-		return nil, err
+	roleByUser := make(map[int64]string, len(realUserIDs))
+	if len(realUserIDs) > 0 {
+		var roleRows []roleRow
+		if err := s.db.WithContext(ctx).
+			Table("group_members").
+			Select("user_telegram_id AS user_id, COALESCE(player_type, '') AS player_type").
+			Where("group_id = ? AND user_telegram_id IN ? AND is_active = TRUE", group.ID, realUserIDs).
+			Scan(&roleRows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range roleRows {
+			normalized, ok := normalizePlayerType(row.PlayerType)
+			if ok {
+				roleByUser[row.UserID] = normalized
+			}
+		}
 	}
-	roleByUser := make(map[int64]string, len(roleRows))
-	for _, row := range roleRows {
-		roleByUser[row.UserID] = strings.TrimSpace(strings.ToLower(row.PlayerType))
+
+	type skillRow struct {
+		UserID    int64
+		SkillCode string
+		Score     float64
+	}
+	skillByUser := make(map[int64]map[string]float64, len(realUserIDs))
+	if len(realUserIDs) > 0 {
+		var skillRows []skillRow
+		if err := s.db.WithContext(ctx).
+			Table("group_member_skills gms").
+			Select("gms.user_telegram_id AS user_id, sc.code AS skill_code, gms.score::float8 AS score").
+			Joins("JOIN skills_catalog sc ON sc.id = gms.skill_id AND sc.is_active = TRUE").
+			Where("gms.group_id = ? AND gms.user_telegram_id IN ?", group.ID, realUserIDs).
+			Scan(&skillRows).Error; err != nil {
+			return nil, err
+		}
+		for _, row := range skillRows {
+			if _, ok := skillByUser[row.UserID]; !ok {
+				skillByUser[row.UserID] = make(map[string]float64)
+			}
+			skillByUser[row.UserID][strings.TrimSpace(row.SkillCode)] = row.Score
+		}
 	}
 
 	var relationRows []teamSplitRelationRow
-	if err := s.db.WithContext(ctx).
-		Table("player_relations").
-		Select("user_a_id AS user_a_id, user_b_id AS user_b_id, relation_type, weight").
-		Where("group_id = ? AND is_active = TRUE AND user_a_id IN ? AND user_b_id IN ?", group.ID, userIDs, userIDs).
-		Scan(&relationRows).Error; err != nil {
-		return nil, err
-	}
-	type relEdge struct {
-		Other  int64
-		Type   string
-		Weight int
-	}
-	relations := make(map[int64][]relEdge, len(userIDs))
-	for _, rel := range relationRows {
-		relations[rel.UserAID] = append(relations[rel.UserAID], relEdge{
-			Other:  rel.UserBID,
-			Type:   rel.RelationType,
-			Weight: rel.Weight,
-		})
-		relations[rel.UserBID] = append(relations[rel.UserBID], relEdge{
-			Other:  rel.UserAID,
-			Type:   rel.RelationType,
-			Weight: rel.Weight,
-		})
-	}
-
-	if url := strings.TrimSpace(os.Getenv("TEAM_SPLIT_SERVICE_URL")); url != "" {
-		assignments, err := callTeamSplitService(ctx, url, state.Players, roleByUser, relationRows)
-		if err == nil && len(assignments) > 0 {
-			if err := s.SaveEventTeamSplit(ctx, chatID, eventID, postID, assignments); err != nil {
-				return nil, err
-			}
-			return s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+	if len(realUserIDs) > 0 {
+		if err := s.db.WithContext(ctx).
+			Table("player_relations").
+			Select("user_a_id AS user_a_id, user_b_id AS user_b_id, relation_type, weight").
+			Where("group_id = ? AND is_active = TRUE AND user_a_id IN ? AND user_b_id IN ?", group.ID, realUserIDs, realUserIDs).
+			Scan(&relationRows).Error; err != nil {
+			return nil, err
 		}
-		// Fall back to the in-process algorithm if the service is unavailable.
+	}
+	relations := make(map[int64][]teamSplitRelEdge, len(realUserIDs))
+	for _, rel := range relationRows {
+		relType, ok := normalizeRelationType(rel.RelationType)
+		if !ok {
+			continue
+		}
+		weight := rel.Weight
+		if weight < 1 {
+			weight = 1
+		}
+		if weight > 10 {
+			weight = 10
+		}
+		relations[rel.UserAID] = append(relations[rel.UserAID], teamSplitRelEdge{
+			Other:  rel.UserBID,
+			Type:   relType,
+			Weight: weight,
+		})
+		relations[rel.UserBID] = append(relations[rel.UserBID], teamSplitRelEdge{
+			Other:  rel.UserAID,
+			Type:   relType,
+			Weight: weight,
+		})
 	}
 
 	teamCodes := []string{"A", "B"}
 	hasTeamC := false
 	for _, p := range state.Players {
-		if p.Team == "C" {
+		if normalizeTeamValue(p.Team) == "C" {
 			hasTeamC = true
 			break
 		}
@@ -4306,110 +4368,100 @@ func (s *Store) AutoSplitEventTeams(ctx context.Context, chatID int64, eventID, 
 		}
 	}
 
-	type bucket struct {
-		Code    string
-		Players []TeamSplitPlayer
-		Score   float64
-		Setters int
-		Liberos int
+	units := buildTeamSplitUnits(state.Players, roleByUser, skillByUser, relations)
+	if len(units) == 0 {
+		return state, nil
 	}
-	buckets := make([]*bucket, 0, len(teamCodes))
-	byCode := make(map[string]*bucket, len(teamCodes))
+
+	roleTargets := buildTeamSplitRoleTargets(units, teamCodes)
+	skillTargets, powerTargets := buildTeamSplitStatTargets(units, teamCodes, capacity)
+
+	if url := strings.TrimSpace(os.Getenv("TEAM_SPLIT_SERVICE_URL")); url != "" {
+		assignments, err := callTeamSplitService(
+			ctx,
+			url,
+			state.Players,
+			roleByUser,
+			skillByUser,
+			relationRows,
+			teamCodes,
+			capacity,
+			roleTargets,
+		)
+		if err == nil && len(assignments) > 0 {
+			assignments = enforceGuestOwnerAssignments(state.Players, assignments)
+			assignments = normalizeTeamAssignmentPositions(assignments)
+			if validateTeamSplitAssignments(state.Players, assignments, roleByUser, teamCodes, capacity, roleTargets) {
+				if err := s.SaveEventTeamSplit(ctx, chatID, eventID, postID, assignments); err != nil {
+					return nil, err
+				}
+				return s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+			}
+		}
+		// Fall back to the in-process algorithm if the service is unavailable
+		// or returned a split that does not satisfy volleyball constraints.
+	}
+
+	buckets := make(map[string]*teamSplitBucket, len(teamCodes))
 	for _, code := range teamCodes {
-		b := &bucket{Code: code}
-		buckets = append(buckets, b)
-		byCode[code] = b
-	}
-	assignedTeam := make(map[int64]string, len(state.Players))
-
-	assignToBest := func(player TeamSplitPlayer, role string, preferRole bool) {
-		var chosen *bucket
-		best := math.MaxFloat64
-		for _, b := range buckets {
-			if len(b.Players) >= capacity[b.Code] {
-				continue
-			}
-			rolePenalty := 0.0
-			if preferRole {
-				if role == "setter" {
-					rolePenalty = float64(b.Setters) * 3
-				} else if role == "libero" {
-					rolePenalty = float64(b.Liberos) * 3
-				}
-			}
-			relationPenalty := 0.0
-			for _, edge := range relations[player.UserID] {
-				otherTeam, ok := assignedTeam[edge.Other]
-				if !ok {
-					continue
-				}
-				switch edge.Type {
-				case "prefer_together":
-					if otherTeam != b.Code {
-						relationPenalty += float64(edge.Weight) * 4
-					} else {
-						relationPenalty -= float64(edge.Weight) * 0.75
-					}
-				case "avoid_together":
-					if otherTeam == b.Code {
-						relationPenalty += float64(edge.Weight) * 6
-					}
-				}
-			}
-			metric := b.Score + rolePenalty + relationPenalty + float64(len(b.Players))*0.25
-			if chosen == nil || metric < best {
-				chosen = b
-				best = metric
-			}
-		}
-		if chosen == nil {
-			chosen = buckets[0]
-		}
-		chosen.Players = append(chosen.Players, player)
-		chosen.Score += player.Rating
-		assignedTeam[player.UserID] = chosen.Code
-		if role == "setter" {
-			chosen.Setters++
-		}
-		if role == "libero" {
-			chosen.Liberos++
+		buckets[code] = &teamSplitBucket{
+			Code:       code,
+			Capacity:   capacity[code],
+			Units:      make([]*teamSplitUnit, 0),
+			RoleCounts: map[string]int{"setter": 0, "libero": 0, "central": 0},
+			SkillTotals: map[string]float64{
+				"receive": 0,
+				"serve":   0,
+				"set":     0,
+				"defense": 0,
+				"attack":  0,
+				"block":   0,
+			},
 		}
 	}
 
-	setters := make([]TeamSplitPlayer, 0)
-	liberos := make([]TeamSplitPlayer, 0)
-	restPlayers := make([]TeamSplitPlayer, 0)
-	for _, p := range state.Players {
-		switch roleByUser[p.UserID] {
-		case "setter":
-			setters = append(setters, p)
-		case "libero":
-			liberos = append(liberos, p)
-		default:
-			restPlayers = append(restPlayers, p)
+	sort.SliceStable(units, func(i, j int) bool {
+		pi := teamSplitRolePriority(units[i].Role)
+		pj := teamSplitRolePriority(units[j].Role)
+		if pi != pj {
+			return pi < pj
 		}
-	}
-	sort.SliceStable(setters, func(i, j int) bool { return setters[i].Rating > setters[j].Rating })
-	sort.SliceStable(liberos, func(i, j int) bool { return liberos[i].Rating > liberos[j].Rating })
-	sort.SliceStable(restPlayers, func(i, j int) bool { return restPlayers[i].Rating > restPlayers[j].Rating })
+		if units[i].RelationWeight != units[j].RelationWeight {
+			return units[i].RelationWeight > units[j].RelationWeight
+		}
+		if units[i].PowerTotal != units[j].PowerTotal {
+			return units[i].PowerTotal > units[j].PowerTotal
+		}
+		if units[i].Size != units[j].Size {
+			return units[i].Size > units[j].Size
+		}
+		return units[i].ID < units[j].ID
+	})
 
-	for _, p := range setters {
-		assignToBest(p, "setter", true)
-	}
-	for _, p := range liberos {
-		assignToBest(p, "libero", true)
-	}
-	for _, p := range restPlayers {
-		assignToBest(p, "", false)
+	assignedTeamByUser := make(map[int64]string, len(state.Players))
+	for _, unit := range units {
+		chosen := chooseTeamBucketForUnit(
+			unit,
+			teamCodes,
+			buckets,
+			roleTargets,
+			skillTargets,
+			powerTargets,
+			relations,
+			assignedTeamByUser,
+		)
+		assignUnitToBucket(unit, chosen, assignedTeamByUser)
 	}
 
 	assignments := make([]TeamSplitAssignmentInput, 0, len(state.Players))
 	for _, code := range teamCodes {
-		list := byCode[code].Players
-		sort.SliceStable(list, func(i, j int) bool {
-			return list[i].Rating > list[j].Rating
-		})
-		for pos, p := range list {
+		bucket := buckets[code]
+		players := make([]TeamSplitPlayer, 0, bucket.PlayerCount)
+		for _, unit := range bucket.Units {
+			players = append(players, unit.Players...)
+		}
+		ordered := orderTeamPlayersForLineup(players, roleByUser, skillByUser)
+		for pos, p := range ordered {
 			assignments = append(assignments, TeamSplitAssignmentInput{
 				UserID:   p.UserID,
 				Team:     code,
@@ -4418,17 +4470,699 @@ func (s *Store) AutoSplitEventTeams(ctx context.Context, chatID int64, eventID, 
 		}
 	}
 
+	assignments = enforceGuestOwnerAssignments(state.Players, assignments)
+	assignments = normalizeTeamAssignmentPositions(assignments)
+
 	if err := s.SaveEventTeamSplit(ctx, chatID, eventID, postID, assignments); err != nil {
 		return nil, err
 	}
 	return s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
 }
 
+type teamSplitRelEdge struct {
+	Other  int64
+	Type   string
+	Weight int
+}
+
+type teamSplitUnit struct {
+	ID             int64
+	Role           string
+	Players        []TeamSplitPlayer
+	Size           int
+	SkillTotals    map[string]float64
+	PowerTotal     float64
+	RelationWeight int
+}
+
+type teamSplitBucket struct {
+	Code        string
+	Capacity    int
+	Units       []*teamSplitUnit
+	PlayerCount int
+	RoleCounts  map[string]int
+	SkillTotals map[string]float64
+	PowerTotal  float64
+}
+
+func buildTeamSplitUnits(
+	players []TeamSplitPlayer,
+	roleByUser map[int64]string,
+	skillByUser map[int64]map[string]float64,
+	relations map[int64][]teamSplitRelEdge,
+) []*teamSplitUnit {
+	owners := make([]TeamSplitPlayer, 0, len(players))
+	guestsByOwner := make(map[int64][]TeamSplitPlayer)
+	standaloneGuests := make([]TeamSplitPlayer, 0)
+
+	for _, p := range players {
+		if p.GuestOwnerID > 0 {
+			guestsByOwner[p.GuestOwnerID] = append(guestsByOwner[p.GuestOwnerID], p)
+			continue
+		}
+		if p.UserID < 0 {
+			standaloneGuests = append(standaloneGuests, p)
+			continue
+		}
+		owners = append(owners, p)
+	}
+
+	sort.SliceStable(owners, func(i, j int) bool { return owners[i].UserID < owners[j].UserID })
+	sort.SliceStable(standaloneGuests, func(i, j int) bool { return standaloneGuests[i].UserID < standaloneGuests[j].UserID })
+
+	units := make([]*teamSplitUnit, 0, len(owners)+len(standaloneGuests))
+	for _, owner := range owners {
+		unitPlayers := make([]TeamSplitPlayer, 0, 1+len(guestsByOwner[owner.UserID]))
+		unitPlayers = append(unitPlayers, owner)
+		if guests := guestsByOwner[owner.UserID]; len(guests) > 0 {
+			sort.SliceStable(guests, func(i, j int) bool { return guests[i].UserID < guests[j].UserID })
+			unitPlayers = append(unitPlayers, guests...)
+		}
+		units = append(units, newTeamSplitUnit(owner.UserID, unitPlayers, roleByUser, skillByUser, relations))
+		delete(guestsByOwner, owner.UserID)
+	}
+
+	// Defensive fallback for inconsistent data where a guest exists without owner in the roster.
+	for ownerID, guests := range guestsByOwner {
+		for _, guest := range guests {
+			unitID := guest.UserID
+			if ownerID > 0 {
+				unitID = ownerID
+			}
+			units = append(units, newTeamSplitUnit(unitID, []TeamSplitPlayer{guest}, roleByUser, skillByUser, relations))
+		}
+	}
+	for _, guest := range standaloneGuests {
+		units = append(units, newTeamSplitUnit(guest.UserID, []TeamSplitPlayer{guest}, roleByUser, skillByUser, relations))
+	}
+
+	return units
+}
+
+func newTeamSplitUnit(
+	id int64,
+	players []TeamSplitPlayer,
+	roleByUser map[int64]string,
+	skillByUser map[int64]map[string]float64,
+	relations map[int64][]teamSplitRelEdge,
+) *teamSplitUnit {
+	role := teamSplitPlayerRole(players[0], roleByUser)
+	skillTotals := map[string]float64{
+		"receive": 0,
+		"serve":   0,
+		"set":     0,
+		"defense": 0,
+		"attack":  0,
+		"block":   0,
+	}
+	powerTotal := 0.0
+	relationWeight := 0
+	for _, p := range players {
+		pRole := teamSplitPlayerRole(p, roleByUser)
+		skills := teamSplitPlayerSkills(p, skillByUser)
+		for code, value := range skills {
+			skillTotals[code] += value
+		}
+		powerTotal += teamSplitPlayerPower(pRole, skills)
+		for _, edge := range relations[p.UserID] {
+			relationWeight += edge.Weight
+		}
+	}
+	return &teamSplitUnit{
+		ID:             id,
+		Role:           role,
+		Players:        players,
+		Size:           len(players),
+		SkillTotals:    skillTotals,
+		PowerTotal:     powerTotal,
+		RelationWeight: relationWeight,
+	}
+}
+
+func buildTeamSplitRoleTargets(units []*teamSplitUnit, teamCodes []string) map[string]map[string]int {
+	countByRole := map[string]int{
+		"setter":  0,
+		"libero":  0,
+		"central": 0,
+	}
+	for _, unit := range units {
+		if _, ok := countByRole[unit.Role]; ok {
+			countByRole[unit.Role]++
+		}
+	}
+
+	targets := map[string]map[string]int{
+		"setter":  distributeTeamRoleTargets(minInt(countByRole["setter"], len(teamCodes)), 1, teamCodes),
+		"libero":  distributeTeamRoleTargets(minInt(countByRole["libero"], len(teamCodes)), 1, teamCodes),
+		"central": distributeTeamRoleTargets(minInt(countByRole["central"], 2*len(teamCodes)), 2, teamCodes),
+	}
+	return targets
+}
+
+func distributeTeamRoleTargets(total int, maxPerTeam int, teamCodes []string) map[string]int {
+	out := make(map[string]int, len(teamCodes))
+	for _, code := range teamCodes {
+		out[code] = 0
+	}
+	if total <= 0 || len(teamCodes) == 0 || maxPerTeam <= 0 {
+		return out
+	}
+
+	remaining := total
+	for remaining > 0 {
+		progressed := false
+		for _, code := range teamCodes {
+			if remaining == 0 {
+				break
+			}
+			if out[code] >= maxPerTeam {
+				continue
+			}
+			out[code]++
+			remaining--
+			progressed = true
+		}
+		if !progressed {
+			break
+		}
+	}
+	return out
+}
+
+func buildTeamSplitStatTargets(
+	units []*teamSplitUnit,
+	teamCodes []string,
+	capacity map[string]int,
+) (map[string]map[string]float64, map[string]float64) {
+	totalPlayers := 0
+	totalPower := 0.0
+	totalSkills := map[string]float64{
+		"receive": 0,
+		"serve":   0,
+		"set":     0,
+		"defense": 0,
+		"attack":  0,
+		"block":   0,
+	}
+	for _, unit := range units {
+		totalPlayers += unit.Size
+		totalPower += unit.PowerTotal
+		for code, value := range unit.SkillTotals {
+			totalSkills[code] += value
+		}
+	}
+	if totalPlayers <= 0 {
+		return map[string]map[string]float64{}, map[string]float64{}
+	}
+
+	skillTargets := make(map[string]map[string]float64, len(teamCodes))
+	powerTargets := make(map[string]float64, len(teamCodes))
+	for _, code := range teamCodes {
+		ratio := float64(capacity[code]) / float64(totalPlayers)
+		skillTargets[code] = map[string]float64{
+			"receive": totalSkills["receive"] * ratio,
+			"serve":   totalSkills["serve"] * ratio,
+			"set":     totalSkills["set"] * ratio,
+			"defense": totalSkills["defense"] * ratio,
+			"attack":  totalSkills["attack"] * ratio,
+			"block":   totalSkills["block"] * ratio,
+		}
+		powerTargets[code] = totalPower * ratio
+	}
+	return skillTargets, powerTargets
+}
+
+func chooseTeamBucketForUnit(
+	unit *teamSplitUnit,
+	teamCodes []string,
+	buckets map[string]*teamSplitBucket,
+	roleTargets map[string]map[string]int,
+	skillTargets map[string]map[string]float64,
+	powerTargets map[string]float64,
+	relations map[int64][]teamSplitRelEdge,
+	assignedTeamByUser map[int64]string,
+) *teamSplitBucket {
+	var chosen *teamSplitBucket
+	best := math.MaxFloat64
+
+	for _, code := range teamCodes {
+		bucket := buckets[code]
+		score := teamSplitPlacementScore(
+			unit,
+			bucket,
+			roleTargets,
+			skillTargets[code],
+			powerTargets[code],
+			relations,
+			assignedTeamByUser,
+		)
+		if chosen == nil || score < best || (score == best && bucket.PlayerCount < chosen.PlayerCount) {
+			chosen = bucket
+			best = score
+		}
+	}
+	if chosen == nil {
+		return buckets[teamCodes[0]]
+	}
+	return chosen
+}
+
+func teamSplitPlacementScore(
+	unit *teamSplitUnit,
+	bucket *teamSplitBucket,
+	roleTargets map[string]map[string]int,
+	skillTarget map[string]float64,
+	powerTarget float64,
+	relations map[int64][]teamSplitRelEdge,
+	assignedTeamByUser map[int64]string,
+) float64 {
+	penalty := 0.0
+	nextPlayers := bucket.PlayerCount + unit.Size
+	if overflow := nextPlayers - bucket.Capacity; overflow > 0 {
+		penalty += float64(overflow) * 60.0
+	}
+	penalty += math.Abs(float64(nextPlayers-bucket.Capacity)) * 0.9
+
+	roleOrder := []string{"setter", "libero", "central"}
+	for _, role := range roleOrder {
+		target := 0
+		if byTeam, ok := roleTargets[role]; ok {
+			target = byTeam[bucket.Code]
+		}
+		current := bucket.RoleCounts[role]
+		add := 0
+		if unit.Role == role {
+			add = 1
+		}
+		next := current + add
+		if next < target {
+			penalty += float64(target-next) * 52.0
+		}
+		if next > target {
+			excessWeight := 6.0
+			if role == "central" {
+				excessWeight = 4.5
+			}
+			penalty += float64(next-target) * excessWeight
+		}
+	}
+
+	nextPower := bucket.PowerTotal + unit.PowerTotal
+	penalty += math.Abs(nextPower-powerTarget) * 0.42
+
+	skillWeight := map[string]float64{
+		"attack":  0.45,
+		"block":   0.48,
+		"set":     0.42,
+		"receive": 0.37,
+		"defense": 0.33,
+		"serve":   0.28,
+	}
+	for code, target := range skillTarget {
+		nextSkill := bucket.SkillTotals[code] + unit.SkillTotals[code]
+		penalty += math.Abs(nextSkill-target) * skillWeight[code]
+	}
+
+	for _, p := range unit.Players {
+		for _, edge := range relations[p.UserID] {
+			otherTeam, ok := assignedTeamByUser[edge.Other]
+			if !ok {
+				continue
+			}
+			w := float64(edge.Weight)
+			switch edge.Type {
+			case "prefer_together":
+				if otherTeam != bucket.Code {
+					penalty += w * 9.0
+				} else {
+					penalty -= w * 1.4
+				}
+			case "avoid_together":
+				if otherTeam == bucket.Code {
+					penalty += w * 11.0
+				} else {
+					penalty -= w * 0.45
+				}
+			}
+		}
+	}
+
+	return penalty
+}
+
+func assignUnitToBucket(unit *teamSplitUnit, bucket *teamSplitBucket, assignedTeamByUser map[int64]string) {
+	bucket.Units = append(bucket.Units, unit)
+	bucket.PlayerCount += unit.Size
+	bucket.PowerTotal += unit.PowerTotal
+	if unit.Role != "" {
+		bucket.RoleCounts[unit.Role]++
+	}
+	for code, value := range unit.SkillTotals {
+		bucket.SkillTotals[code] += value
+	}
+	for _, p := range unit.Players {
+		assignedTeamByUser[p.UserID] = bucket.Code
+	}
+}
+
+func orderTeamPlayersForLineup(
+	players []TeamSplitPlayer,
+	roleByUser map[int64]string,
+	skillByUser map[int64]map[string]float64,
+) []TeamSplitPlayer {
+	if len(players) <= 1 {
+		out := make([]TeamSplitPlayer, len(players))
+		copy(out, players)
+		return out
+	}
+
+	available := make([]TeamSplitPlayer, len(players))
+	copy(available, players)
+	ordered := make([]TeamSplitPlayer, 0, len(players))
+	slotOrder := []int{2, 3, 4, 5, 1, 6}
+
+	for _, slot := range slotOrder {
+		if len(available) == 0 || len(ordered) >= 6 {
+			break
+		}
+		bestIdx := -1
+		bestScore := -math.MaxFloat64
+		for idx, p := range available {
+			score := teamSplitLineupSlotScore(slot, p, roleByUser, skillByUser)
+			if bestIdx == -1 || score > bestScore {
+				bestIdx = idx
+				bestScore = score
+			}
+		}
+		if bestIdx < 0 {
+			break
+		}
+		ordered = append(ordered, available[bestIdx])
+		available = append(available[:bestIdx], available[bestIdx+1:]...)
+	}
+
+	sort.SliceStable(available, func(i, j int) bool {
+		si := teamSplitBenchScore(available[i], roleByUser, skillByUser)
+		sj := teamSplitBenchScore(available[j], roleByUser, skillByUser)
+		if si != sj {
+			return si > sj
+		}
+		return available[i].UserID < available[j].UserID
+	})
+
+	return append(ordered, available...)
+}
+
+func teamSplitBenchScore(player TeamSplitPlayer, roleByUser map[int64]string, skillByUser map[int64]map[string]float64) float64 {
+	role := teamSplitPlayerRole(player, roleByUser)
+	skills := teamSplitPlayerSkills(player, skillByUser)
+	return teamSplitPlayerPower(role, skills) + player.Rating*0.85
+}
+
+func teamSplitLineupSlotScore(
+	slot int,
+	player TeamSplitPlayer,
+	roleByUser map[int64]string,
+	skillByUser map[int64]map[string]float64,
+) float64 {
+	role := teamSplitPlayerRole(player, roleByUser)
+	skills := teamSplitPlayerSkills(player, skillByUser)
+
+	base := teamSplitPlayerPower(role, skills) + player.Rating*0.55
+	attack := skills["attack"]
+	block := skills["block"]
+	setScore := skills["set"]
+	receive := skills["receive"]
+	defense := skills["defense"]
+	serve := skills["serve"]
+
+	roleBonus := func(target string, bonus float64) float64 {
+		if role == target {
+			return bonus
+		}
+		return 0
+	}
+
+	switch slot {
+	case 1:
+		return base + serve*1.5 + receive*1.2 + defense*0.8 + roleBonus("attacker", 1.1)
+	case 2:
+		return base + setScore*2.3 + serve*0.6 + defense*0.7 + roleBonus("setter", 4.5)
+	case 3:
+		return base + block*2.2 + attack*1.1 + serve*0.4 + roleBonus("central", 3.7)
+	case 4:
+		return base + attack*2.0 + serve*1.0 + receive*0.5 + roleBonus("attacker", 3.1)
+	case 5:
+		return base + receive*2.1 + defense*2.0 + setScore*0.4 + roleBonus("libero", 4.3)
+	case 6:
+		return base + block*1.2 + defense*1.0 + receive*0.9 + attack*0.8 + roleBonus("central", 1.7)
+	default:
+		return base
+	}
+}
+
+func teamSplitPlayerRole(player TeamSplitPlayer, roleByUser map[int64]string) string {
+	if player.UserID > 0 {
+		if normalized, ok := normalizePlayerType(roleByUser[player.UserID]); ok {
+			return normalized
+		}
+	}
+	if player.GuestOwnerID > 0 {
+		if normalized, ok := normalizePlayerType(roleByUser[player.GuestOwnerID]); ok {
+			return normalized
+		}
+	}
+	return ""
+}
+
+func teamSplitPlayerSkills(player TeamSplitPlayer, skillByUser map[int64]map[string]float64) map[string]float64 {
+	out := map[string]float64{
+		"receive": 5.0,
+		"serve":   5.0,
+		"set":     5.0,
+		"defense": 5.0,
+		"attack":  5.0,
+		"block":   5.0,
+	}
+	if skills, ok := skillByUser[player.UserID]; ok {
+		for code := range out {
+			if value, ok := skills[code]; ok && value > 0 {
+				out[code] = value
+			}
+		}
+		return out
+	}
+	// For synthetic guests try to inherit owner's profile if available. Fallback is neutral defaults.
+	if player.UserID < 0 && player.GuestOwnerID > 0 {
+		if skills, ok := skillByUser[player.GuestOwnerID]; ok {
+			for code := range out {
+				if value, ok := skills[code]; ok && value > 0 {
+					out[code] = value
+				}
+			}
+		}
+	}
+	return out
+}
+
+func teamSplitPlayerPower(role string, skills map[string]float64) float64 {
+	receive := skills["receive"]
+	serve := skills["serve"]
+	setScore := skills["set"]
+	defense := skills["defense"]
+	attack := skills["attack"]
+	block := skills["block"]
+
+	power := attack*1.15 + block*1.12 + setScore*1.02 + receive*0.95 + defense*0.88 + serve*0.78
+	switch role {
+	case "setter":
+		power += setScore*0.48 + serve*0.12
+	case "libero":
+		power += receive*0.42 + defense*0.38
+	case "central":
+		power += block*0.56 + attack*0.18
+	case "attacker":
+		power += attack*0.34 + serve*0.11
+	}
+	return power
+}
+
+func teamSplitRolePriority(role string) int {
+	switch role {
+	case "setter":
+		return 0
+	case "central":
+		return 1
+	case "libero":
+		return 2
+	case "attacker":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func enforceGuestOwnerAssignments(players []TeamSplitPlayer, assignments []TeamSplitAssignmentInput) []TeamSplitAssignmentInput {
+	ownerByGuest := make(map[int64]int64)
+	for _, p := range players {
+		if p.UserID < 0 && p.GuestOwnerID > 0 {
+			ownerByGuest[p.UserID] = p.GuestOwnerID
+		}
+	}
+	if len(ownerByGuest) == 0 {
+		return assignments
+	}
+
+	byUser := make(map[int64]TeamSplitAssignmentInput, len(assignments))
+	for _, item := range assignments {
+		byUser[item.UserID] = item
+	}
+	for guestID, ownerID := range ownerByGuest {
+		owner, ok := byUser[ownerID]
+		if !ok {
+			continue
+		}
+		guest, ok := byUser[guestID]
+		if !ok {
+			guest = TeamSplitAssignmentInput{
+				UserID: guestID,
+				Team:   owner.Team,
+			}
+		}
+		guest.Team = owner.Team
+		if guest.Position < owner.Position {
+			guest.Position = owner.Position + 1
+		}
+		byUser[guestID] = guest
+	}
+
+	out := make([]TeamSplitAssignmentInput, 0, len(byUser))
+	for _, item := range byUser {
+		out = append(out, item)
+	}
+	return out
+}
+
+func normalizeTeamAssignmentPositions(assignments []TeamSplitAssignmentInput) []TeamSplitAssignmentInput {
+	byTeam := map[string][]TeamSplitAssignmentInput{
+		"A":          {},
+		"B":          {},
+		"C":          {},
+		"unassigned": {},
+	}
+	for _, item := range assignments {
+		team := normalizeTeamValue(item.Team)
+		byTeam[team] = append(byTeam[team], TeamSplitAssignmentInput{
+			UserID:   item.UserID,
+			Team:     team,
+			Position: item.Position,
+		})
+	}
+
+	out := make([]TeamSplitAssignmentInput, 0, len(assignments))
+	for _, code := range []string{"A", "B", "C", "unassigned"} {
+		list := byTeam[code]
+		sort.SliceStable(list, func(i, j int) bool {
+			if list[i].Position != list[j].Position {
+				return list[i].Position < list[j].Position
+			}
+			return list[i].UserID < list[j].UserID
+		})
+		for idx, item := range list {
+			item.Position = idx
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func validateTeamSplitAssignments(
+	players []TeamSplitPlayer,
+	assignments []TeamSplitAssignmentInput,
+	roleByUser map[int64]string,
+	teamCodes []string,
+	capacity map[string]int,
+	roleTargets map[string]map[string]int,
+) bool {
+	if len(players) == 0 || len(assignments) == 0 {
+		return false
+	}
+
+	allowedTeams := make(map[string]struct{}, len(teamCodes))
+	for _, code := range teamCodes {
+		allowedTeams[normalizeTeamValue(code)] = struct{}{}
+	}
+
+	byUser := make(map[int64]TeamSplitAssignmentInput, len(assignments))
+	for _, item := range assignments {
+		if item.UserID == 0 {
+			continue
+		}
+		normalized := item
+		normalized.Team = normalizeTeamValue(item.Team)
+		byUser[item.UserID] = normalized
+	}
+
+	teamCounts := make(map[string]int, len(teamCodes))
+	roleCounts := make(map[string]map[string]int, len(teamCodes))
+	for _, code := range teamCodes {
+		teamCounts[code] = 0
+		roleCounts[code] = map[string]int{"setter": 0, "libero": 0, "central": 0}
+	}
+
+	for _, p := range players {
+		item, ok := byUser[p.UserID]
+		if !ok {
+			return false
+		}
+		if _, ok := allowedTeams[item.Team]; !ok {
+			return false
+		}
+		teamCounts[item.Team]++
+		if p.GuestOwnerID > 0 {
+			if owner, ok := byUser[p.GuestOwnerID]; ok {
+				if normalizeTeamValue(owner.Team) != item.Team {
+					return false
+				}
+			}
+		}
+		role := teamSplitPlayerRole(p, roleByUser)
+		if _, ok := roleCounts[item.Team][role]; ok {
+			roleCounts[item.Team][role]++
+		}
+	}
+
+	for _, code := range teamCodes {
+		if teamCounts[code] > capacity[code] {
+			return false
+		}
+		for _, role := range []string{"setter", "libero", "central"} {
+			target := 0
+			if byTeam, ok := roleTargets[role]; ok {
+				target = byTeam[code]
+			}
+			if roleCounts[code][role] < target {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 type teamSplitServiceReq struct {
 	Players []struct {
-		UserID     int64   `json:"userID"`
-		Rating     float64 `json:"rating"`
-		PlayerType string  `json:"playerType"`
+		UserID       int64              `json:"userID"`
+		GuestOwnerID int64              `json:"guestOwnerID,omitempty"`
+		Rating       float64            `json:"rating"`
+		PlayerType   string             `json:"playerType"`
+		Skills       map[string]float64 `json:"skills,omitempty"`
 	} `json:"players"`
 	Relations []struct {
 		UserAID      int64  `json:"userAID"`
@@ -4436,8 +5170,10 @@ type teamSplitServiceReq struct {
 		RelationType string `json:"relationType"`
 		Weight       int    `json:"weight"`
 	} `json:"relations"`
-	TeamCodes []string       `json:"teamCodes,omitempty"`
-	Capacity  map[string]int `json:"capacity,omitempty"`
+	TeamCodes   []string                  `json:"teamCodes,omitempty"`
+	Capacity    map[string]int            `json:"capacity,omitempty"`
+	RoleTargets map[string]map[string]int `json:"roleTargets,omitempty"`
+	LineupSize  int                       `json:"lineupSize,omitempty"`
 }
 
 type teamSplitServiceResp struct {
@@ -4456,41 +5192,40 @@ func callTeamSplitService(
 	baseURL string,
 	players []TeamSplitPlayer,
 	roleByUser map[int64]string,
+	skillByUser map[int64]map[string]float64,
 	relationRows []teamSplitRelationRow,
+	teamCodes []string,
+	capacity map[string]int,
+	roleTargets map[string]map[string]int,
 ) ([]TeamSplitAssignmentInput, error) {
-	n := len(players)
-	teamCodes := []string{"A", "B"}
-	if n > 14 {
-		teamCodes = append(teamCodes, "C")
-	}
-	base := n / len(teamCodes)
-	rest := n % len(teamCodes)
-	capacity := make(map[string]int, len(teamCodes))
-	for idx, code := range teamCodes {
-		capacity[code] = base
-		if idx < rest {
-			capacity[code]++
-		}
-	}
-
 	reqBody := teamSplitServiceReq{
-		TeamCodes: teamCodes,
-		Capacity:  capacity,
+		TeamCodes:   teamCodes,
+		Capacity:    capacity,
+		RoleTargets: roleTargets,
+		LineupSize:  6,
 	}
 	reqBody.Players = make([]struct {
-		UserID     int64   `json:"userID"`
-		Rating     float64 `json:"rating"`
-		PlayerType string  `json:"playerType"`
+		UserID       int64              `json:"userID"`
+		GuestOwnerID int64              `json:"guestOwnerID,omitempty"`
+		Rating       float64            `json:"rating"`
+		PlayerType   string             `json:"playerType"`
+		Skills       map[string]float64 `json:"skills,omitempty"`
 	}, 0, len(players))
 	for _, p := range players {
+		role := teamSplitPlayerRole(p, roleByUser)
+		skills := teamSplitPlayerSkills(p, skillByUser)
 		reqBody.Players = append(reqBody.Players, struct {
-			UserID     int64   `json:"userID"`
-			Rating     float64 `json:"rating"`
-			PlayerType string  `json:"playerType"`
+			UserID       int64              `json:"userID"`
+			GuestOwnerID int64              `json:"guestOwnerID,omitempty"`
+			Rating       float64            `json:"rating"`
+			PlayerType   string             `json:"playerType"`
+			Skills       map[string]float64 `json:"skills,omitempty"`
 		}{
-			UserID:     p.UserID,
-			Rating:     p.Rating,
-			PlayerType: roleByUser[p.UserID],
+			UserID:       p.UserID,
+			GuestOwnerID: p.GuestOwnerID,
+			Rating:       p.Rating,
+			PlayerType:   role,
+			Skills:       skills,
 		})
 	}
 	reqBody.Relations = make([]struct {

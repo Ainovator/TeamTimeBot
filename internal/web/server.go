@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -2059,7 +2060,11 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 		}
 		fmt.Fprintf(&b, "Команда %s (%d):\n", code, len(list))
 		for idx, p := range list {
-			fmt.Fprintf(&b, "%d. %s\n", idx+1, teamPlayerDisplayName(p))
+			label := strconv.Itoa(idx + 1)
+			if idx >= 6 {
+				label = "З"
+			}
+			fmt.Fprintf(&b, "%s. %s\n", label, teamPlayerDisplayName(p))
 		}
 		b.WriteString("\n")
 	}
@@ -2075,9 +2080,24 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 		}
 	}
 
+	activeTeamCount := 0
+	for _, code := range []string{"A", "B", "C"} {
+		if len(teams[code]) > 0 {
+			activeTeamCount++
+		}
+	}
 	pairs := buildTeamForecastPairs(teams)
 	if len(pairs) > 0 {
-		b.WriteString("\n\nПрогноз:\n")
+		if activeTeamCount > 2 {
+			if first := chooseOpeningPair(pairs); first != nil {
+				fmt.Fprintf(&b, "\n\nПервая игра: Команда %s vs Команда %s\n", first.Left, first.Right)
+			} else {
+				b.WriteString("\n\n")
+			}
+		} else {
+			b.WriteString("\n\n")
+		}
+		b.WriteString("Прогноз:\n")
 		for _, pair := range pairs {
 			fmt.Fprintf(&b, "Команда %s %d%% / %d%% Команда %s\n", pair.Left, pair.LeftPercent, pair.RightPercent, pair.Right)
 		}
@@ -2415,6 +2435,14 @@ func buildTeamForecastPairs(teams map[string][]postgres.TeamSplitPlayer) []teamF
 		makePair("C", "A"),
 		makePair("B", "C"),
 	}
+}
+
+func chooseOpeningPair(pairs []teamForecastPair) *teamForecastPair {
+	if len(pairs) < 2 {
+		return nil
+	}
+	out := pairs[rand.IntN(len(pairs))]
+	return &out
 }
 
 func parseHourMinute(value string) (int, int, error) {

@@ -134,6 +134,7 @@ export type GroupPollVoteItem = {
 
 export type TeamSplitPlayer = {
   userID: number
+  guestOwnerID?: number
   realName: string
   username: string
   firstName: string
