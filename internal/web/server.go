@@ -2026,6 +2026,10 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 	if state == nil || len(state.Players) == 0 {
 		return errors.New("no players to publish")
 	}
+	roleByUser, skillByUser, err := s.store.GetTeamSplitPlayerProfiles(ctx, chatID, state.Players)
+	if err != nil {
+		return err
+	}
 
 	teams := map[string][]postgres.TeamSplitPlayer{
 		"A":          {},
@@ -2048,6 +2052,7 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 			return teams[key][i].Position < teams[key][j].Position
 		})
 	}
+	teamFormation := buildTeamFormationRecommendations(teams, roleByUser, skillByUser)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Состав команд: %q\n", event.Name)
@@ -2065,6 +2070,10 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 				label = "З"
 			}
 			fmt.Fprintf(&b, "%s. %s\n", label, teamPlayerDisplayName(p))
+		}
+		if rec, ok := teamFormation[code]; ok {
+			fmt.Fprintf(&b, "Рекомендованная схема: %s\n", rec.Scheme)
+			fmt.Fprintf(&b, "Анализ схемы: %s\n", formatTeamFormationAnalysis(rec))
 		}
 		b.WriteString("\n")
 	}
@@ -2376,6 +2385,165 @@ func teamPlayerDisplayName(p postgres.TeamSplitPlayer) string {
 		return "@" + strings.TrimSpace(p.Username)
 	}
 	return strconv.FormatInt(p.UserID, 10)
+}
+
+type teamFormationRecommendation struct {
+	Scheme           string
+	BestSetterRating float64
+	SetterGap        float64
+	AvgReceive       float64
+	StrongAttackers  int
+	SetterCount      int
+	HasSecondSetter  bool
+}
+
+func buildTeamFormationRecommendations(
+	teams map[string][]postgres.TeamSplitPlayer,
+	roleByUser map[int64]string,
+	skillByUser map[int64]map[string]float64,
+) map[string]teamFormationRecommendation {
+	out := make(map[string]teamFormationRecommendation, 3)
+	for _, code := range []string{"A", "B", "C"} {
+		list := teams[code]
+		if len(list) == 0 {
+			continue
+		}
+		out[code] = recommendTeamFormation(list, roleByUser, skillByUser)
+	}
+	return out
+}
+
+func recommendTeamFormation(
+	players []postgres.TeamSplitPlayer,
+	roleByUser map[int64]string,
+	skillByUser map[int64]map[string]float64,
+) teamFormationRecommendation {
+	setters := make([]float64, 0, 2)
+	receiveTotal := 0.0
+	strongAttackers := 0
+
+	for _, p := range players {
+		role := teamFormationPlayerRole(p, roleByUser)
+		skills := teamFormationPlayerSkills(p, skillByUser)
+		receiveTotal += skills["receive"]
+
+		if role == "setter" {
+			setters = append(setters, p.Rating)
+		}
+		if role == "attacker" && skills["attack"] >= 7.0 {
+			strongAttackers++
+		}
+	}
+
+	sort.SliceStable(setters, func(i, j int) bool { return setters[i] > setters[j] })
+	bestSetter := 0.0
+	setterGap := 0.0
+	hasSecondSetter := false
+	if len(setters) > 0 {
+		bestSetter = setters[0]
+		if len(setters) > 1 {
+			hasSecondSetter = true
+			setterGap = bestSetter - setters[1]
+		} else {
+			setterGap = bestSetter
+		}
+	}
+
+	avgReceive := 0.0
+	if len(players) > 0 {
+		avgReceive = receiveTotal / float64(len(players))
+	}
+
+	useFiveOne := len(setters) > 0 &&
+		bestSetter >= 7.5 &&
+		setterGap >= 1.0 &&
+		avgReceive >= 6.5 &&
+		strongAttackers >= 2
+
+	scheme := "4/2"
+	if useFiveOne {
+		scheme = "5/1"
+	}
+
+	return teamFormationRecommendation{
+		Scheme:           scheme,
+		BestSetterRating: bestSetter,
+		SetterGap:        setterGap,
+		AvgReceive:       avgReceive,
+		StrongAttackers:  strongAttackers,
+		SetterCount:      len(setters),
+		HasSecondSetter:  hasSecondSetter,
+	}
+}
+
+func formatTeamFormationAnalysis(rec teamFormationRecommendation) string {
+	if rec.SetterCount == 0 {
+		return fmt.Sprintf("связка не найдена, прием %.1f, атакующие 7+ (%d)", rec.AvgReceive, rec.StrongAttackers)
+	}
+	if rec.HasSecondSetter {
+		return fmt.Sprintf("лучшая связка %.1f, отрыв %.1f, прием %.1f, атакующие 7+ (%d)", rec.BestSetterRating, rec.SetterGap, rec.AvgReceive, rec.StrongAttackers)
+	}
+	return fmt.Sprintf("лучшая связка %.1f, второй связки нет, прием %.1f, атакующие 7+ (%d)", rec.BestSetterRating, rec.AvgReceive, rec.StrongAttackers)
+}
+
+func teamFormationPlayerRole(player postgres.TeamSplitPlayer, roleByUser map[int64]string) string {
+	if player.UserID > 0 {
+		if normalized, ok := normalizeTeamFormationRole(roleByUser[player.UserID]); ok {
+			return normalized
+		}
+	}
+	if player.GuestOwnerID > 0 {
+		if normalized, ok := normalizeTeamFormationRole(roleByUser[player.GuestOwnerID]); ok {
+			return normalized
+		}
+	}
+	return ""
+}
+
+func normalizeTeamFormationRole(value string) (string, bool) {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", "none":
+		return "", true
+	case "attacker":
+		return "attacker", true
+	case "setter":
+		return "setter", true
+	case "libero":
+		return "libero", true
+	case "central":
+		return "central", true
+	default:
+		return "", false
+	}
+}
+
+func teamFormationPlayerSkills(player postgres.TeamSplitPlayer, skillByUser map[int64]map[string]float64) map[string]float64 {
+	out := map[string]float64{
+		"receive": 5.0,
+		"serve":   5.0,
+		"set":     5.0,
+		"defense": 5.0,
+		"attack":  5.0,
+		"block":   5.0,
+	}
+	if skills, ok := skillByUser[player.UserID]; ok {
+		for code := range out {
+			if value, ok := skills[code]; ok && value > 0 {
+				out[code] = value
+			}
+		}
+		return out
+	}
+	if player.UserID < 0 && player.GuestOwnerID > 0 {
+		if skills, ok := skillByUser[player.GuestOwnerID]; ok {
+			for code := range out {
+				if value, ok := skills[code]; ok && value > 0 {
+					out[code] = value
+				}
+			}
+		}
+	}
+	return out
 }
 
 type teamForecastPair struct {

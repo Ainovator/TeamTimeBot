@@ -4131,6 +4131,80 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 	}, nil
 }
 
+func (s *Store) GetTeamSplitPlayerProfiles(
+	ctx context.Context,
+	chatID int64,
+	players []TeamSplitPlayer,
+) (map[int64]string, map[int64]map[string]float64, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	realUserIDSet := make(map[int64]struct{}, len(players))
+	for _, p := range players {
+		if p.UserID > 0 {
+			realUserIDSet[p.UserID] = struct{}{}
+		}
+		if p.GuestOwnerID > 0 {
+			realUserIDSet[p.GuestOwnerID] = struct{}{}
+		}
+	}
+	realUserIDs := make([]int64, 0, len(realUserIDSet))
+	for uid := range realUserIDSet {
+		realUserIDs = append(realUserIDs, uid)
+	}
+	sort.Slice(realUserIDs, func(i, j int) bool { return realUserIDs[i] < realUserIDs[j] })
+
+	roleByUser := make(map[int64]string, len(realUserIDs))
+	skillByUser := make(map[int64]map[string]float64, len(realUserIDs))
+	if len(realUserIDs) == 0 {
+		return roleByUser, skillByUser, nil
+	}
+
+	type roleRow struct {
+		UserID     int64
+		PlayerType string
+	}
+	var roleRows []roleRow
+	if err := s.db.WithContext(ctx).
+		Table("group_members").
+		Select("user_telegram_id AS user_id, COALESCE(player_type, '') AS player_type").
+		Where("group_id = ? AND user_telegram_id IN ? AND is_active = TRUE", group.ID, realUserIDs).
+		Scan(&roleRows).Error; err != nil {
+		return nil, nil, err
+	}
+	for _, row := range roleRows {
+		normalized, ok := normalizePlayerType(row.PlayerType)
+		if ok {
+			roleByUser[row.UserID] = normalized
+		}
+	}
+
+	type skillRow struct {
+		UserID    int64
+		SkillCode string
+		Score     float64
+	}
+	var skillRows []skillRow
+	if err := s.db.WithContext(ctx).
+		Table("group_member_skills gms").
+		Select("gms.user_telegram_id AS user_id, sc.code AS skill_code, gms.score::float8 AS score").
+		Joins("JOIN skills_catalog sc ON sc.id = gms.skill_id AND sc.is_active = TRUE").
+		Where("gms.group_id = ? AND gms.user_telegram_id IN ?", group.ID, realUserIDs).
+		Scan(&skillRows).Error; err != nil {
+		return nil, nil, err
+	}
+	for _, row := range skillRows {
+		if _, ok := skillByUser[row.UserID]; !ok {
+			skillByUser[row.UserID] = make(map[string]float64)
+		}
+		skillByUser[row.UserID][strings.TrimSpace(row.SkillCode)] = row.Score
+	}
+
+	return roleByUser, skillByUser, nil
+}
+
 func (s *Store) SaveEventTeamSplit(ctx context.Context, chatID int64, eventID, postID uint64, updates []TeamSplitAssignmentInput) error {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
