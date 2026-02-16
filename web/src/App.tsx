@@ -184,6 +184,7 @@ export default function App() {
     relationType: 'prefer_together' as 'prefer_together' | 'avoid_together',
     weight: '5',
   })
+  const [memberRelationPickerQuery, setMemberRelationPickerQuery] = useState('')
   const [membersSearch, setMembersSearch] = useState('')
   const [membersTypeFilter, setMembersTypeFilter] = useState<'' | 'attacker' | 'setter' | 'libero' | 'central'>('')
   const [membersSortCriteria, setMembersSortCriteria] = useState<MembersSortCriterion[]>([])
@@ -437,10 +438,17 @@ export default function App() {
         return true
       }
       const name = fullName(member).toLowerCase()
-      const realName = (member.realName || '').toLowerCase()
+      const realName = (profile?.realName || member.realName || '').toLowerCase()
       const username = (member.username || '').toLowerCase()
+      const usernameWithAt = username ? `@${username}` : ''
       const id = String(member.userTelegramID)
-      return name.includes(query) || realName.includes(query) || username.includes(query) || id.includes(query)
+      return (
+        name.includes(query) ||
+        realName.includes(query) ||
+        username.includes(query) ||
+        usernameWithAt.includes(query) ||
+        id.includes(query)
+      )
     })
     if (membersSortCriteria.length === 0) {
       return list
@@ -585,6 +593,14 @@ export default function App() {
       })()
     }
   }, [activeChatID, activePerms, activeSection, authConfig?.enabled, members.length])
+  const memberByUserID = useMemo(() => {
+    const map = new Map<number, GroupMember>()
+    for (const member of members) {
+      map.set(member.userTelegramID, member)
+    }
+    return map
+  }, [members])
+
   const availableRelationMembers = useMemo(() => {
     if (!selectedMemberSkills) {
       return []
@@ -593,6 +609,34 @@ export default function App() {
       .filter((member) => member.userTelegramID !== selectedMemberSkills.userTelegramID)
       .sort((a, b) => fullName(a).localeCompare(fullName(b), 'ru'))
   }, [members, selectedMemberSkills])
+
+  const relationMemberOptions = useMemo(() => {
+    return availableRelationMembers.map((member) => {
+      return {
+        id: member.userTelegramID,
+        label: `${relationMemberOptionLabel(member)} · ID ${member.userTelegramID}`,
+      }
+    })
+  }, [availableRelationMembers, memberSkillProfiles])
+
+  const relationMemberIDByLabel = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of relationMemberOptions) {
+      map.set(item.label.toLowerCase(), String(item.id))
+    }
+    return map
+  }, [relationMemberOptions])
+
+  useEffect(() => {
+    const selectedID = Number(memberRelationDraft.otherUserID)
+    if (!Number.isInteger(selectedID) || selectedID <= 0) {
+      return
+    }
+    const option = relationMemberOptions.find((item) => item.id === selectedID)
+    if (option && memberRelationPickerQuery !== option.label) {
+      setMemberRelationPickerQuery(option.label)
+    }
+  }, [memberRelationDraft.otherUserID, memberRelationPickerQuery, relationMemberOptions])
   const eventEditorDirty = useMemo(() => {
     if (!selectedEvent || activeSection !== 'event_templates' || activeEventView !== 'edit') {
       return false
@@ -2519,6 +2563,7 @@ export default function App() {
         relationType: 'prefer_together',
         weight: '5',
       })
+      setMemberRelationPickerQuery('')
       setMemberSkillProfiles((prev) => ({ ...prev, [profile.userTelegramID]: profile }))
     } catch (err) {
       setMemberSkillError((err as Error).message)
@@ -2574,6 +2619,17 @@ export default function App() {
       setMemberRealNameDraft(refreshed.realName || '')
       setSelectedMemberSkills(refreshed)
       setMemberSkillProfiles((prev) => ({ ...prev, [refreshed.userTelegramID]: refreshed }))
+      setMembers((prev) =>
+        prev.map((member) =>
+          member.userTelegramID === refreshed.userTelegramID
+            ? {
+                ...member,
+                realName: refreshed.realName || '',
+                playerType: refreshed.playerType || '',
+              }
+            : member,
+        ),
+      )
       setSuccess('Профиль игрока сохранен')
     } catch (err) {
       setMemberSkillError((err as Error).message)
@@ -2584,7 +2640,52 @@ export default function App() {
     return type === 'prefer_together' ? 'Играть вместе' : 'Не в одну команду'
   }
 
+  function relationMemberOptionLabel(member: GroupMember) {
+    const profile = memberSkillProfiles[member.userTelegramID]
+    const realName = (profile?.realName || member.realName || '').trim()
+    const username = (member.username || '').trim()
+    const base = fullName(member)
+    if (realName.length > 0) {
+      return username.length > 0 ? `${realName} · @${username}` : realName
+    }
+    if (username.length > 0 && base !== `@${username}`) {
+      return `${base} · @${username}`
+    }
+    return base
+  }
+
+  function onRelationMemberPickerChange(value: string) {
+    setMemberRelationPickerQuery(value)
+    const normalized = value.trim().toLowerCase()
+    if (normalized === '') {
+      setMemberRelationDraft((prev) => ({ ...prev, otherUserID: '' }))
+      return
+    }
+
+    const byLabel = relationMemberIDByLabel.get(normalized)
+    if (byLabel) {
+      setMemberRelationDraft((prev) => ({ ...prev, otherUserID: byLabel }))
+      return
+    }
+
+    if (/^\d+$/.test(normalized) && availableRelationMembers.some((member) => String(member.userTelegramID) === normalized)) {
+      setMemberRelationDraft((prev) => ({ ...prev, otherUserID: normalized }))
+      return
+    }
+
+    setMemberRelationDraft((prev) => ({ ...prev, otherUserID: '' }))
+  }
+
   function relationUserName(relation: PlayerRelation) {
+    const member = memberByUserID.get(relation.relatedUserID)
+    if (member) {
+      const profile = memberSkillProfiles[member.userTelegramID]
+      const realName = (profile?.realName || member.realName || '').trim()
+      if (realName.length > 0) {
+        return realName
+      }
+      return fullName(member)
+    }
     const full = `${relation.relatedFirstName ?? ''} ${relation.relatedLastName ?? ''}`.trim()
     if (full) {
       return full
@@ -2619,6 +2720,7 @@ export default function App() {
       const next = await fetchMemberRelations(activeChatID, selectedMemberSkills.userTelegramID)
       setMemberRelations(next)
       setMemberRelationDraft((prev) => ({ ...prev, otherUserID: '', weight: '5' }))
+      setMemberRelationPickerQuery('')
       setSuccess('Связь сохранена')
     } catch (err) {
       setMemberSkillError((err as Error).message)
@@ -3831,21 +3933,21 @@ export default function App() {
               </div>
               <section className="content-card relation-block">
                 <h4>Связи игрока</h4>
-                <div className="form-grid form-grid-3">
+                <div className="form-grid form-grid-3 relation-form-grid">
                   <label className="field">
                     <span>Игрок</span>
-                    <select
+                    <input
                       className="ui-select"
-                      value={memberRelationDraft.otherUserID}
-                      onChange={(e) => setMemberRelationDraft((prev) => ({ ...prev, otherUserID: e.target.value }))}
-                    >
-                      <option value="">Выбери игрока</option>
-                      {availableRelationMembers.map((member) => (
-                        <option key={member.userTelegramID} value={member.userTelegramID}>
-                          {fullName(member)}
-                        </option>
+                      list="relation-member-options"
+                      placeholder="Начни вводить ник, реальное имя или ID"
+                      value={memberRelationPickerQuery}
+                      onChange={(e) => onRelationMemberPickerChange(e.target.value)}
+                    />
+                    <datalist id="relation-member-options">
+                      {relationMemberOptions.map((option) => (
+                        <option key={option.id} value={option.label} />
                       ))}
-                    </select>
+                    </datalist>
                   </label>
                   <label className="field">
                     <span>Тип связи</span>
@@ -3930,7 +4032,7 @@ export default function App() {
           <label className="field">
             <span>Поиск</span>
             <input
-              placeholder="Имя, username или ID"
+              placeholder="Имя, ник, реальное имя или ID"
               value={membersSearch}
               onChange={(e) => setMembersSearch(e.target.value)}
             />
@@ -4052,7 +4154,13 @@ export default function App() {
                         <span>ID: {member.userTelegramID}</span>
                       </div>
                     </td>
-                    <td>{member.realName?.trim() ? member.realName : <span className="muted">—</span>}</td>
+                    <td>
+                      {(memberSkillProfiles[member.userTelegramID]?.realName || member.realName || '').trim() ? (
+                        (memberSkillProfiles[member.userTelegramID]?.realName || member.realName || '').trim()
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
                     <td>
                       <span className="skill-chip">
                         {playerTypeLabel(
