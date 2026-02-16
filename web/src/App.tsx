@@ -121,6 +121,10 @@ const docsNavItems: Array<{ id: string; title: string }> = [
   { id: 'docs-debts', title: 'Задолженности' },
   { id: 'docs-roles', title: 'Роли и доступы' },
 ]
+
+const MEMBERS_SORT_AVERAGE_CODE = '__avg__'
+type MembersSortCriterion = { code: string; direction: 'asc' | 'desc' }
+
 declare global {
   interface Window {
     onTelegramAuth?: (payload: {
@@ -182,6 +186,7 @@ export default function App() {
   })
   const [membersSearch, setMembersSearch] = useState('')
   const [membersTypeFilter, setMembersTypeFilter] = useState<'' | 'attacker' | 'setter' | 'libero' | 'central'>('')
+  const [membersSortCriteria, setMembersSortCriteria] = useState<MembersSortCriterion[]>([])
   const [memberSkillLoading, setMemberSkillLoading] = useState(false)
   const [memberSkillError, setMemberSkillError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -422,7 +427,7 @@ export default function App() {
   }, [eventHistory, historyStatusFilter])
   const filteredMembers = useMemo(() => {
     const query = membersSearch.trim().toLowerCase()
-    return members.filter((member) => {
+    const list = members.filter((member) => {
       const profile = memberSkillProfiles[member.userTelegramID]
       const playerType = (profile?.playerType || member.playerType || '') as '' | 'attacker' | 'setter' | 'libero' | 'central'
       if (membersTypeFilter !== '' && playerType !== membersTypeFilter) {
@@ -437,11 +442,88 @@ export default function App() {
       const id = String(member.userTelegramID)
       return name.includes(query) || realName.includes(query) || username.includes(query) || id.includes(query)
     })
-  }, [memberSkillProfiles, members, membersSearch, membersTypeFilter])
+    if (membersSortCriteria.length === 0) {
+      return list
+    }
+
+    const knownSkillCodes = new Set(skillsCatalog.map((skill) => skill.code))
+    const valueCache = new Map<string, number>()
+    const getSortValue = (member: GroupMember, code: string): number => {
+      const cacheKey = `${member.userTelegramID}:${code}`
+      const cached = valueCache.get(cacheKey)
+      if (cached !== undefined) {
+        return cached
+      }
+      const profile = memberSkillProfiles[member.userTelegramID] ?? null
+      let value: number
+      if (code === MEMBERS_SORT_AVERAGE_CODE) {
+        const avg = averageScore(profile, skillsCatalog)
+        value = avg === null ? -1 : avg
+      } else if (knownSkillCodes.has(code)) {
+        const skill = profileSkills(profile, skillsCatalog).find((item) => item.skillCode === code)
+        value = normalizedSkillScore(skill?.score)
+      } else {
+        value = -1
+      }
+      valueCache.set(cacheKey, value)
+      return value
+    }
+
+    return [...list].sort((left, right) => {
+      for (const criterion of membersSortCriteria) {
+        const leftValue = getSortValue(left, criterion.code)
+        const rightValue = getSortValue(right, criterion.code)
+        if (leftValue !== rightValue) {
+          return criterion.direction === 'asc' ? leftValue - rightValue : rightValue - leftValue
+        }
+      }
+      const nameDiff = fullName(left).localeCompare(fullName(right), 'ru')
+      if (nameDiff !== 0) {
+        return nameDiff
+      }
+      return left.userTelegramID - right.userTelegramID
+    })
+  }, [
+    memberSkillProfiles,
+    members,
+    membersSearch,
+    membersSortCriteria,
+    membersTypeFilter,
+    skillsCatalog,
+  ])
   const selectedHistoryEvent = useMemo(
     () => eventHistory.find((event) => event.instanceID === activeHistoryEventID) ?? null,
     [eventHistory, activeHistoryEventID],
   )
+
+  useEffect(() => {
+    const knownSkillCodes = new Set(skillsCatalog.map((skill) => skill.code))
+    setMembersSortCriteria((prev) => {
+      const next = prev.filter((item) => item.code === MEMBERS_SORT_AVERAGE_CODE || knownSkillCodes.has(item.code))
+      return next.length === prev.length ? prev : next
+    })
+  }, [skillsCatalog])
+
+  function onMembersSort(code: string, direction: 'asc' | 'desc') {
+    setMembersSortCriteria((prev) => {
+      const idx = prev.findIndex((item) => item.code === code)
+      if (idx === -1) {
+        return [...prev, { code, direction }]
+      }
+      if (prev[idx].direction === direction) {
+        return [...prev.slice(0, idx), ...prev.slice(idx + 1)]
+      }
+      const next = [...prev]
+      next[idx] = { code, direction }
+      return next
+    })
+  }
+
+  const membersSortOrderByCode = useMemo(() => {
+    const map = new Map<string, number>()
+    membersSortCriteria.forEach((item, idx) => map.set(item.code, idx + 1))
+    return map
+  }, [membersSortCriteria])
 
   useEffect(() => {
     if (activeChatID === null) {
@@ -3853,7 +3935,7 @@ export default function App() {
               onChange={(e) => setMembersSearch(e.target.value)}
             />
           </label>
-              <label className="field">
+          <label className="field">
             <span>Тип игрока</span>
             <select
               value={membersTypeFilter}
@@ -3883,8 +3965,82 @@ export default function App() {
                   <th>Игрок</th>
                   <th>Реальное имя</th>
                   <th>Тип игрока</th>
-                  <th>Характеристики</th>
-                  <th>Средняя</th>
+                  <th>
+                    <div className="members-head-title">Характеристики</div>
+                    <div className="members-skill-sort-grid">
+                      {skillsCatalog.map((skill) => (
+                        <div className="members-skill-sort-item" key={`sort-${skill.code}`}>
+                          <span>
+                            {skill.name}
+                            {membersSortOrderByCode.has(skill.code) ? (
+                              <em className="members-sort-order">{membersSortOrderByCode.get(skill.code)}</em>
+                            ) : null}
+                          </span>
+                          <div className="members-sort-arrows">
+                            <button
+                              type="button"
+                              className={`members-sort-arrow ${
+                                membersSortCriteria.some((item) => item.code === skill.code && item.direction === 'asc') ? 'active' : ''
+                              }`}
+                              onClick={() => onMembersSort(skill.code, 'asc')}
+                              aria-label={`Сортировать по ${skill.name} по возрастанию`}
+                              title={`Сортировать по ${skill.name} по возрастанию`}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className={`members-sort-arrow ${
+                                membersSortCriteria.some((item) => item.code === skill.code && item.direction === 'desc') ? 'active' : ''
+                              }`}
+                              onClick={() => onMembersSort(skill.code, 'desc')}
+                              aria-label={`Сортировать по ${skill.name} по убыванию`}
+                              title={`Сортировать по ${skill.name} по убыванию`}
+                            >
+                              ↓
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </th>
+                  <th>
+                    <div className="members-average-head">
+                      <span>Средняя</span>
+                      <div className="members-sort-arrows">
+                        <button
+                          type="button"
+                          className={`members-sort-arrow ${
+                            membersSortCriteria.some(
+                              (item) => item.code === MEMBERS_SORT_AVERAGE_CODE && item.direction === 'asc',
+                            )
+                              ? 'active'
+                              : ''
+                          }`}
+                          onClick={() => onMembersSort(MEMBERS_SORT_AVERAGE_CODE, 'asc')}
+                          aria-label="Сортировать по средней по возрастанию"
+                          title="Сортировать по средней по возрастанию"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className={`members-sort-arrow ${
+                            membersSortCriteria.some(
+                              (item) => item.code === MEMBERS_SORT_AVERAGE_CODE && item.direction === 'desc',
+                            )
+                              ? 'active'
+                              : ''
+                          }`}
+                          onClick={() => onMembersSort(MEMBERS_SORT_AVERAGE_CODE, 'desc')}
+                          aria-label="Сортировать по средней по убыванию"
+                          title="Сортировать по средней по убыванию"
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody>
