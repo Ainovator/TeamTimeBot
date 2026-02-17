@@ -268,8 +268,7 @@ export default function App() {
   const [showEventActivity, setShowEventActivity] = useState(false)
   const [eventHistory, setEventHistory] = useState<EventHistoryItem[]>([])
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'on_review' | 'completed' | 'not_held'>('')
-  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing' | 'sets' | 'games'>('distribution')
-  const [gamesExpanded, setGamesExpanded] = useState<Record<number, boolean>>({})
+  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing' | 'sets'>('distribution')
   const [eventHistoryLoading, setEventHistoryLoading] = useState(false)
   const [eventHistoryError, setEventHistoryError] = useState('')
   const [eventPollHistory, setEventPollHistory] = useState<EventPollHistoryItem[]>([])
@@ -1431,7 +1430,6 @@ export default function App() {
 
   useEffect(() => {
     setHistoryDetailTab('distribution')
-    setGamesExpanded({})
   }, [activeHistoryEventID])
 
   useEffect(() => {
@@ -5529,15 +5527,6 @@ export default function App() {
               >
                 Партии
               </button>
-              <button
-                type="button"
-                className={historyDetailTab === 'games' ? 'history-tab active' : 'history-tab'}
-                onClick={() => setHistoryDetailTab('games')}
-                disabled={selectedHistoryPostID === null}
-                title={selectedHistoryPostID === null ? 'Сначала выбери опрос' : undefined}
-              >
-                Игры
-              </button>
             </div>
 
             {historyDetailTab === 'distribution' ? (
@@ -5579,6 +5568,33 @@ export default function App() {
                       const pairRows = teamPairProbabilities(teamSplit.players, teamCEnabled).filter((pair) =>
                         activeTeams.includes(pair.left) && activeTeams.includes(pair.right),
                       )
+                      const formationRows = activeTeams
+                        .map((teamCode) => ({
+                          teamCode,
+                          formation: teamSplit.formations?.[teamCode],
+                        }))
+                        .filter(
+                          (
+                            item,
+                          ): item is {
+                            teamCode: ActiveTeamCode
+                            formation: {
+                              scheme: string
+                              analysis: string
+                              indicators?: Array<{
+                                code: string
+                                name: string
+                                result: string
+                                reference: string
+                                passed: boolean
+                              }>
+                            }
+                          } =>
+                            Boolean(
+                              item.formation &&
+                                (item.formation.scheme || item.formation.analysis || (item.formation.indicators?.length ?? 0) > 0),
+                            ),
+                        )
                       const selectedTouchPlayer =
                         draggedPlayerID !== null ? teamSplit.players.find((p) => p.userID === draggedPlayerID) ?? null : null
                       const lineupLabel = (index: number) => (index < 6 ? String(index + 1) : 'З')
@@ -5698,6 +5714,46 @@ export default function App() {
                               ) : null}
                             </div>
                           </div>
+
+                          {formationRows.length > 0 ? (
+                            <>
+                              <h5 className="team-analysis-title">Аналитика расстановки</h5>
+                              <div className="team-analysis-list">
+                                {formationRows.map(({ teamCode, formation }) => (
+                                  <article className="team-analysis-card" key={`analysis-${teamCode}`}>
+                                    <div className="team-analysis-head">
+                                      <strong style={{ color: teamColor(teamCode) }}>{`Команда ${teamCode}`}</strong>
+                                      <span className="team-analysis-scheme">{formation.scheme || '-'}</span>
+                                    </div>
+                                    {formation.analysis ? <p>{formation.analysis}</p> : null}
+                                    {formation.indicators && formation.indicators.length > 0 ? (
+                                      <div className="team-analysis-grid">
+                                        <div className="team-analysis-grid-head">
+                                          <span>Показатель</span>
+                                          <span>Результат</span>
+                                          <span>Ориентир</span>
+                                          <span>Статус</span>
+                                        </div>
+                                        {formation.indicators.map((item) => (
+                                          <div className="team-analysis-grid-row" key={`${teamCode}-${item.code}`}>
+                                            <span className="team-analysis-grid-name">{item.name}</span>
+                                            <span>{item.result}</span>
+                                            <span>{item.reference}</span>
+                                            <span className={item.passed ? 'team-analysis-status ok' : 'team-analysis-status warn'}>
+                                              {item.passed ? 'В норме' : 'Ниже ориентира'}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                    {!formation.analysis && (!formation.indicators || formation.indicators.length === 0) ? (
+                                      <p>Нет данных анализа</p>
+                                    ) : null}
+                                  </article>
+                                ))}
+                              </div>
+                            </>
+                          ) : null}
 
                           <h5 className="team-forecast-title">Прогноз</h5>
                           <div className="team-prob-list">
@@ -6013,121 +6069,6 @@ export default function App() {
                             </button>
                           </div>
                         </>
-                      )
-                    })()}
-                  </>
-                ) : null}
-              </section>
-            ) : null}
-
-            {historyDetailTab === 'games' ? (
-              <section className="content-card">
-                <div className="template-head">
-                  <h4>Игры</h4>
-                </div>
-                {eventSetsLoading ? <p className="muted">Загружаю партии...</p> : null}
-                {eventSetsError ? <p className="muted">Ошибка: {eventSetsError}</p> : null}
-
-                {!eventSetsLoading && !eventSetsError && eventSetRowsDraft.length === 0 ? (
-                  <p className="muted">Партии пока не заданы. Заполни их во вкладке «Партии».</p>
-                ) : null}
-
-                {!eventSetsLoading && !eventSetsError && eventSetRowsDraft.length > 0 ? (
-                  <>
-                    {(() => {
-                      const rosterByTeam = new Map<string, EventTeamSplitState['players']>()
-                      if (teamSplit?.players?.length) {
-                        for (const p of teamSplit.players) {
-                          const key = String(p.team || '')
-                          if (!rosterByTeam.has(key)) rosterByTeam.set(key, [])
-                          rosterByTeam.get(key)!.push(p)
-                        }
-                      }
-                      const scoreLabel = (a: number, b: number) => `${clampInt(a, 0, 99)}:${clampInt(b, 0, 99)}`
-                      const teamTitle = (code: string) => `Команда ${code}`
-
-                      const toggle = (idx: number) =>
-                        setGamesExpanded((prev) => ({
-                          ...prev,
-                          [idx]: !prev[idx],
-                        }))
-
-                      return (
-                        <div className="table-wrap table-wrap-spaced">
-                          <table className="table games-table">
-                            <thead>
-                              <tr>
-                                <th>Команда A</th>
-                                <th className="col-center">Счёт</th>
-                                <th>Команда B</th>
-                                <th className="col-center" aria-label="Детали" />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {eventSetRowsDraft.map((row, idx) => {
-                                const expanded = Boolean(gamesExpanded[idx])
-                                const left = String(row.left || 'A')
-                                const right = String(row.right || 'B')
-                                const leftPlayers = (rosterByTeam.get(left) ?? []).filter((p) => p.team === left)
-                                const rightPlayers = (rosterByTeam.get(right) ?? []).filter((p) => p.team === right)
-                                const hasRoster = Boolean(teamSplit && teamSplit.players && teamSplit.players.length > 0)
-
-                                return (
-                                  <Fragment key={`game-${idx}`}>
-                                    <tr className="member-row game-row" onClick={() => toggle(idx)}>
-                                      <td>
-                                        <strong>{teamTitle(left)}</strong>
-                                      </td>
-                                      <td className="col-center">
-                                        <span className="game-score">{scoreLabel(row.leftScore, row.rightScore)}</span>
-                                      </td>
-                                      <td>
-                                        <strong>{teamTitle(right)}</strong>
-                                      </td>
-                                      <td className="col-center game-caret" aria-hidden="true">
-                                        {expanded ? '▾' : '▸'}
-                                      </td>
-                                    </tr>
-                                    {expanded ? (
-                                      <tr className="games-expand-row">
-                                        <td colSpan={4}>
-                                          {!hasRoster ? (
-                                            <p className="muted game-expand-empty">
-                                              Нет сохранённого распределения команд. Сначала сохрани команды во вкладке «Распределение».
-                                            </p>
-                                          ) : (
-                                            <div className="game-roster">
-                                              <div className="game-roster-col">
-                                                <p className="muted game-roster-title">{teamTitle(left)}</p>
-                                                <ul className="game-roster-list">
-                                                  {leftPlayers.length ? (
-                                                    leftPlayers.map((p) => <li key={`l-${idx}-${p.userID}`}>{playerDisplayName(p)}</li>)
-                                                  ) : (
-                                                    <li className="muted">Пусто</li>
-                                                  )}
-                                                </ul>
-                                              </div>
-                                              <div className="game-roster-col">
-                                                <p className="muted game-roster-title">{teamTitle(right)}</p>
-                                                <ul className="game-roster-list">
-                                                  {rightPlayers.length ? (
-                                                    rightPlayers.map((p) => <li key={`r-${idx}-${p.userID}`}>{playerDisplayName(p)}</li>)
-                                                  ) : (
-                                                    <li className="muted">Пусто</li>
-                                                  )}
-                                                </ul>
-                                              </div>
-                                            </div>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    ) : null}
-                                  </Fragment>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
                       )
                     })()}
                   </>

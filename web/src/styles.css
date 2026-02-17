@@ -1378,6 +1378,110 @@ h4 {
   cursor: grabbing;
 }
 
+.team-analysis-title {
+  margin: 20px 0 10px;
+  color: #b7cff7;
+  font-size: 15px;
+}
+
+.team-analysis-list {
+  display: grid;
+  gap: 8px;
+}
+
+.team-analysis-card {
+  border: 1px solid rgba(95, 136, 214, 0.24);
+  border-radius: 10px;
+  background: rgba(14, 24, 41, 0.72);
+  padding: 10px;
+}
+
+.team-analysis-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.team-analysis-scheme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(124, 159, 223, 0.55);
+  background: rgba(61, 95, 156, 0.3);
+  color: #dce9ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.team-analysis-card p {
+  margin: 0;
+  color: #d6e3fa;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.team-analysis-grid {
+  margin-top: 8px;
+  border: 1px solid rgba(101, 145, 219, 0.28);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.team-analysis-grid-head,
+.team-analysis-grid-row {
+  display: grid;
+  grid-template-columns: 1.5fr 0.8fr 0.8fr 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+}
+
+.team-analysis-grid-head {
+  background: rgba(64, 99, 162, 0.24);
+  font-size: 11px;
+  color: #c8dcff;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.team-analysis-grid-row {
+  border-top: 1px solid rgba(101, 145, 219, 0.2);
+  font-size: 12px;
+  color: #d6e3fa;
+}
+
+.team-analysis-grid-name {
+  color: #e2ecff;
+}
+
+.team-analysis-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.team-analysis-status.ok {
+  background: rgba(72, 168, 102, 0.22);
+  border: 1px solid rgba(104, 196, 133, 0.45);
+  color: #b6f2c9;
+}
+
+.team-analysis-status.warn {
+  background: rgba(186, 126, 46, 0.24);
+  border: 1px solid rgba(223, 157, 69, 0.46);
+  color: #ffd9a8;
+}
+
 .team-prob-list {
   margin-top: 12px;
   display: grid;

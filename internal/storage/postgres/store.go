@@ -318,8 +318,17 @@ type TeamWinChance struct {
 }
 
 type TeamFormationView struct {
-	Scheme   string `json:"scheme"`
-	Analysis string `json:"analysis"`
+	Scheme     string                   `json:"scheme"`
+	Analysis   string                   `json:"analysis"`
+	Indicators []TeamFormationIndicator `json:"indicators,omitempty"`
+}
+
+type TeamFormationIndicator struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	Result    string `json:"result"`
+	Reference string `json:"reference"`
+	Passed    bool   `json:"passed"`
 }
 
 type EventTeamSplitState struct {
@@ -5242,6 +5251,12 @@ func assignUnitToBucket(unit *teamSplitUnit, bucket *teamSplitBucket, assignedTe
 	}
 }
 
+const (
+	teamSplitFormationSetterTarget  = 7.0
+	teamSplitFormationReceiveTarget = 6.0
+	teamSplitFormationCentralTarget = 2
+)
+
 func orderTeamPlayersForLineup(
 	players []TeamSplitPlayer,
 	roleByUser map[int64]string,
@@ -5257,6 +5272,12 @@ func orderTeamPlayersForLineup(
 	copy(available, players)
 	ordered := make([]TeamSplitPlayer, 0, len(players))
 	slotOrder := []int{2, 3, 4, 5, 1, 6}
+	scheme := teamSplitRecommendedSchemeForLineup(players, roleByUser, skillByUser)
+	if scheme == "5/1" {
+		// Fill scarce roles first for 5/1:
+		// 2-setter, 1-central, 4-central, then attacking trio.
+		slotOrder = []int{2, 1, 4, 5, 3, 6}
+	}
 
 	for _, slot := range slotOrder {
 		if len(available) == 0 || len(ordered) >= 6 {
@@ -5265,7 +5286,7 @@ func orderTeamPlayersForLineup(
 		bestIdx := -1
 		bestScore := -math.MaxFloat64
 		for idx, p := range available {
-			score := teamSplitLineupSlotScore(slot, p, roleByUser, skillByUser)
+			score := teamSplitLineupSlotScore(slot, scheme, p, roleByUser, skillByUser)
 			if bestIdx == -1 || score > bestScore {
 				bestIdx = idx
 				bestScore = score
@@ -5296,8 +5317,50 @@ func teamSplitBenchScore(player TeamSplitPlayer, roleByUser map[int64]string, sk
 	return teamSplitPlayerPower(role, skills) + player.Rating*0.85
 }
 
+func teamSplitRecommendedSchemeForLineup(
+	players []TeamSplitPlayer,
+	roleByUser map[int64]string,
+	skillByUser map[int64]map[string]float64,
+) string {
+	if len(players) == 0 {
+		return "4/2"
+	}
+
+	setters := make([]float64, 0, 2)
+	receiveTotal := 0.0
+	centralCount := 0
+	for _, player := range players {
+		role := teamSplitPlayerRole(player, roleByUser)
+		skills := teamSplitPlayerSkills(player, skillByUser)
+		receiveTotal += skills["receive"]
+		if role == "setter" {
+			setters = append(setters, skills["set"])
+		}
+		if role == "central" {
+			centralCount++
+		}
+	}
+
+	sort.SliceStable(setters, func(i, j int) bool { return setters[i] > setters[j] })
+	bestSetter := 0.0
+	if len(setters) > 0 {
+		bestSetter = setters[0]
+	}
+
+	avgReceive := receiveTotal / float64(len(players))
+	useFiveOne := len(setters) > 0 &&
+		bestSetter >= teamSplitFormationSetterTarget &&
+		centralCount >= teamSplitFormationCentralTarget &&
+		avgReceive >= teamSplitFormationReceiveTarget
+	if useFiveOne {
+		return "5/1"
+	}
+	return "4/2"
+}
+
 func teamSplitLineupSlotScore(
 	slot int,
+	scheme string,
 	player TeamSplitPlayer,
 	roleByUser map[int64]string,
 	skillByUser map[int64]map[string]float64,
@@ -5318,6 +5381,25 @@ func teamSplitLineupSlotScore(
 			return bonus
 		}
 		return 0
+	}
+
+	if scheme == "5/1" {
+		switch slot {
+		case 1:
+			return base + block*2.4 + attack*1.0 + serve*0.4 + roleBonus("central", 6.2)
+		case 2:
+			return base + setScore*2.9 + serve*0.6 + defense*0.7 + roleBonus("setter", 7.1)
+		case 3:
+			return base + attack*1.9 + receive*1.1 + defense*0.6 + serve*0.5 + roleBonus("attacker", 4.2)
+		case 4:
+			return base + block*2.3 + attack*1.0 + serve*0.3 + roleBonus("central", 5.8)
+		case 5:
+			return base + attack*2.5 + serve*1.0 + block*0.5 + roleBonus("attacker", 5.0)
+		case 6:
+			return base + receive*1.9 + defense*1.5 + attack*1.0 + serve*0.5 + roleBonus("attacker", 3.7) + roleBonus("libero", 2.8)
+		default:
+			return base
+		}
 	}
 
 	switch slot {

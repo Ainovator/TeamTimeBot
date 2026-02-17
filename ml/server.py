@@ -23,6 +23,10 @@ SKILL_WEIGHT = {
     "serve": 0.28,
 }
 SLOT_ORDER = (2, 3, 4, 5, 1, 6)
+FIVE_ONE_SLOT_ORDER = (2, 1, 4, 5, 3, 6)
+FORMATION_SETTER_TARGET = 7.0
+FORMATION_RECEIVE_TARGET = 6.0
+FORMATION_CENTRAL_TARGET = 2
 
 
 def _to_int(value, default=0):
@@ -604,20 +608,93 @@ def _lineup_slot_score(slot: int, player, player_by_id):
     return base
 
 
+def _lineup_slot_score_5_1(slot: int, player, player_by_id):
+    role = _player_role(player, player_by_id)
+    skills = _player_skills(player)
+    rating = _to_float(player.get("rating"), 5.0)
+    base = _player_power(role, skills) + rating * 0.55
+    attack = skills["attack"]
+    block = skills["block"]
+    set_score = skills["set"]
+    receive = skills["receive"]
+    defense = skills["defense"]
+    serve = skills["serve"]
+
+    def role_bonus(target: str, bonus: float):
+        if role == target:
+            return bonus
+        return 0.0
+
+    if slot == 1:
+        return base + block * 2.4 + attack * 1.0 + serve * 0.4 + role_bonus("central", 6.2)
+    if slot == 2:
+        return base + set_score * 2.9 + serve * 0.6 + defense * 0.7 + role_bonus("setter", 7.1)
+    if slot == 3:
+        return base + attack * 1.9 + receive * 1.1 + defense * 0.6 + serve * 0.5 + role_bonus("attacker", 4.2)
+    if slot == 4:
+        return base + block * 2.3 + attack * 1.0 + serve * 0.3 + role_bonus("central", 5.8)
+    if slot == 5:
+        return base + attack * 2.5 + serve * 1.0 + block * 0.5 + role_bonus("attacker", 5.0)
+    if slot == 6:
+        return (
+            base
+            + receive * 1.9
+            + defense * 1.5
+            + attack * 1.0
+            + serve * 0.5
+            + role_bonus("attacker", 3.7)
+            + role_bonus("libero", 2.8)
+        )
+    return base
+
+
+def _recommend_team_scheme_for_lineup(players, player_by_id):
+    if not players:
+        return "4/2"
+
+    setters = []
+    receive_total = 0.0
+    central_count = 0
+    for player in players:
+        role = _player_role(player, player_by_id)
+        skills = _player_skills(player)
+        receive_total += skills["receive"]
+        if role == "setter":
+            setters.append(skills["set"])
+        if role == "central":
+            central_count += 1
+
+    setters.sort(reverse=True)
+    best_setter = setters[0] if setters else 0.0
+    avg_receive = receive_total / float(len(players))
+    use_five_one = (
+        len(setters) > 0
+        and best_setter >= FORMATION_SETTER_TARGET
+        and central_count >= FORMATION_CENTRAL_TARGET
+        and avg_receive >= FORMATION_RECEIVE_TARGET
+    )
+    return "5/1" if use_five_one else "4/2"
+
+
 def _order_team_players_for_lineup(players, player_by_id, lineup_size: int):
     if len(players) <= 1:
         return list(players)
     starters_limit = min(max(lineup_size, 1), len(SLOT_ORDER))
+    scheme = _recommend_team_scheme_for_lineup(players, player_by_id)
+    slot_order = FIVE_ONE_SLOT_ORDER if scheme == "5/1" else SLOT_ORDER
     available = list(players)
     ordered = []
 
-    for slot in SLOT_ORDER:
+    for slot in slot_order:
         if len(ordered) >= starters_limit or not available:
             break
         best_idx = -1
         best_score = -math.inf
         for idx, player in enumerate(available):
-            score = _lineup_slot_score(slot, player, player_by_id)
+            if scheme == "5/1":
+                score = _lineup_slot_score_5_1(slot, player, player_by_id)
+            else:
+                score = _lineup_slot_score(slot, player, player_by_id)
             if best_idx == -1 or score > best_score:
                 best_idx = idx
                 best_score = score

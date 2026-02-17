@@ -154,9 +154,18 @@ export type TeamWinChance = {
   teamBProb: number
 }
 
+export type TeamFormationIndicator = {
+  code: string
+  name: string
+  result: string
+  reference: string
+  passed: boolean
+}
+
 export type TeamFormationView = {
   scheme: string
   analysis: string
+  indicators?: TeamFormationIndicator[]
 }
 
 export type EventTeamSplitState = {

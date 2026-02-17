@@ -2080,7 +2080,6 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 		}
 		if rec, ok := teamFormation[code]; ok {
 			fmt.Fprintf(&b, "Рекомендованная схема: %s\n", strings.TrimSpace(rec.Scheme))
-			fmt.Fprintf(&b, "Анализ схемы: %s\n", strings.TrimSpace(rec.Analysis))
 		}
 		b.WriteString("\n")
 	}
@@ -2400,6 +2399,15 @@ type teamFormationRecommendation struct {
 	AvgReceive       float64
 	CentralCount     int
 	SetterCount      int
+	Indicators       []teamFormationIndicator
+}
+
+type teamFormationIndicator struct {
+	Code      string
+	Name      string
+	Result    string
+	Reference string
+	Passed    bool
 }
 
 func (s *Server) enrichTeamSplitStateAnalysis(ctx context.Context, chatID int64, state *postgres.EventTeamSplitState) error {
@@ -2436,11 +2444,29 @@ func (s *Server) enrichTeamSplitStateAnalysis(ctx context.Context, chatID int64,
 	state.Formations = make(map[string]postgres.TeamFormationView, len(recs))
 	for code, rec := range recs {
 		state.Formations[code] = postgres.TeamFormationView{
-			Scheme:   rec.Scheme,
-			Analysis: formatTeamFormationAnalysis(rec),
+			Scheme:     rec.Scheme,
+			Analysis:   formatTeamFormationAnalysis(rec),
+			Indicators: mapTeamFormationIndicators(rec.Indicators),
 		}
 	}
 	return nil
+}
+
+func mapTeamFormationIndicators(indicators []teamFormationIndicator) []postgres.TeamFormationIndicator {
+	if len(indicators) == 0 {
+		return nil
+	}
+	out := make([]postgres.TeamFormationIndicator, 0, len(indicators))
+	for _, item := range indicators {
+		out = append(out, postgres.TeamFormationIndicator{
+			Code:      item.Code,
+			Name:      item.Name,
+			Result:    item.Result,
+			Reference: item.Reference,
+			Passed:    item.Passed,
+		})
+	}
+	return out
 }
 
 func buildTeamFormationRecommendations(
@@ -2464,6 +2490,12 @@ func recommendTeamFormation(
 	roleByUser map[int64]string,
 	skillByUser map[int64]map[string]float64,
 ) teamFormationRecommendation {
+	const (
+		setterTarget  = 7.0
+		receiveTarget = 6.0
+		centralTarget = 2
+	)
+
 	setters := make([]float64, 0, 2)
 	receiveTotal := 0.0
 	centralCount := 0
@@ -2493,13 +2525,44 @@ func recommendTeamFormation(
 	}
 
 	useFiveOne := len(setters) > 0 &&
-		bestSetter >= 7.0 &&
-		centralCount >= 2 &&
-		avgReceive >= 6.0
+		bestSetter >= setterTarget &&
+		centralCount >= centralTarget &&
+		avgReceive >= receiveTarget
 
 	scheme := "4/2"
 	if useFiveOne {
 		scheme = "5/1"
+	}
+
+	indicators := []teamFormationIndicator{
+		{
+			Code:      "setters",
+			Name:      "Связующие в составе",
+			Result:    fmt.Sprintf("%d", len(setters)),
+			Reference: ">= 1",
+			Passed:    len(setters) >= 1,
+		},
+		{
+			Code:      "best_setter_set",
+			Name:      "Лучший пас связующего",
+			Result:    fmt.Sprintf("%.1f", bestSetter),
+			Reference: fmt.Sprintf(">= %.1f", setterTarget),
+			Passed:    bestSetter >= setterTarget,
+		},
+		{
+			Code:      "centrals",
+			Name:      "Центральные блокирующие",
+			Result:    fmt.Sprintf("%d", centralCount),
+			Reference: fmt.Sprintf(">= %d", centralTarget),
+			Passed:    centralCount >= centralTarget,
+		},
+		{
+			Code:      "avg_receive",
+			Name:      "Средний прием",
+			Result:    fmt.Sprintf("%.1f", avgReceive),
+			Reference: fmt.Sprintf(">= %.1f", receiveTarget),
+			Passed:    avgReceive >= receiveTarget,
+		},
 	}
 
 	return teamFormationRecommendation{
@@ -2508,6 +2571,7 @@ func recommendTeamFormation(
 		AvgReceive:       avgReceive,
 		CentralCount:     centralCount,
 		SetterCount:      len(setters),
+		Indicators:       indicators,
 	}
 }
 
