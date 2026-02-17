@@ -407,6 +407,16 @@ def _placement_score(
     next_power = bucket["powerTotal"] + unit["powerTotal"]
     penalty += abs(next_power - power_target) * 0.42
 
+    # Keep strongest centrals opposite strongest attackers.
+    if unit.get("role") == "central":
+        central_strength = _to_float(unit.get("skillTotals", {}).get("block"), 0.0) * 1.1 + _to_float(
+            unit.get("skillTotals", {}).get("attack"), 0.0
+        ) * 0.35
+        penalty += central_strength * _bucket_attacker_load(bucket) * 0.08
+    elif unit.get("role") == "attacker":
+        attacker_strength = _to_float(unit.get("skillTotals", {}).get("attack"), 0.0)
+        penalty += attacker_strength * _bucket_central_load(bucket) * 0.08
+
     for code, target in skill_target.items():
         next_skill = bucket["skillTotals"].get(code, 0.0) + unit["skillTotals"].get(code, 0.0)
         penalty += abs(next_skill - target) * SKILL_WEIGHT.get(code, 0.3)
@@ -470,6 +480,77 @@ def _choose_bucket_for_unit(
     if chosen is None:
         return buckets[team_codes[0]]
     return chosen
+
+
+def _unit_set_skill(unit):
+    size = max(_to_int(unit.get("size"), 1), 1)
+    skills = unit.get("skillTotals", {}) or {}
+    set_total = _to_float(skills.get("set"), 0.0)
+    return set_total / float(size)
+
+
+def _unit_attack_skill(unit):
+    size = max(_to_int(unit.get("size"), 1), 1)
+    skills = unit.get("skillTotals", {}) or {}
+    attack_total = _to_float(skills.get("attack"), 0.0)
+    return attack_total / float(size)
+
+
+def _bucket_setter_quality(bucket):
+    total = 0.0
+    count = 0
+    for unit in bucket.get("units", []):
+        if unit.get("role") != "setter":
+            continue
+        total += _unit_set_skill(unit)
+        count += 1
+    if count <= 0:
+        return 0.0
+    return total / float(count)
+
+
+def _bucket_attacker_load(bucket):
+    total = 0.0
+    for unit in bucket.get("units", []):
+        if unit.get("role") == "attacker":
+            total += _unit_attack_skill(unit)
+    return total
+
+
+def _bucket_central_load(bucket):
+    total = 0.0
+    for unit in bucket.get("units", []):
+        if unit.get("role") != "central":
+            continue
+        skills = unit.get("skillTotals", {}) or {}
+        size = max(_to_int(unit.get("size"), 1), 1)
+        block_avg = _to_float(skills.get("block"), 0.0) / float(size)
+        attack_avg = _to_float(skills.get("attack"), 0.0) / float(size)
+        total += block_avg * 1.1 + attack_avg * 0.25
+    return total
+
+
+def _unit_prefer_to_users(unit, target_users, relations):
+    if not target_users:
+        return 0.0
+    score = 0.0
+    for player in unit.get("players", []):
+        for edge in relations.get(player["userID"], []):
+            if edge.get("type") != "prefer_together":
+                continue
+            if edge.get("other") in target_users:
+                score += float(edge.get("weight", 0))
+    return score
+
+
+def _team_setter_user_ids(bucket):
+    out = set()
+    for unit in bucket.get("units", []):
+        if unit.get("role") != "setter":
+            continue
+        for player in unit.get("players", []):
+            out.add(player["userID"])
+    return out
 
 
 def _assign_unit_to_bucket(unit, bucket, assigned_team_by_user):
@@ -749,7 +830,81 @@ def split_teams(req: dict):
     assigned_team_by_user = {}
     remaining_units = list(units)
 
-    # First satisfy mandatory role targets team-by-team.
+    # Stage 1: setters first by pass skill ("set"), not by overall rating.
+    for code in team_codes:
+        target = role_targets.get("setter", {}).get(code, 0)
+        for _ in range(target):
+            best_idx = -1
+            best_set = -math.inf
+            for idx, unit in enumerate(remaining_units):
+                if unit.get("role") != "setter":
+                    continue
+                bucket = buckets[code]
+                if bucket["playerCount"] + unit["size"] > bucket["capacity"]:
+                    continue
+                set_score = _unit_set_skill(unit)
+                if best_idx == -1 or set_score > best_set:
+                    best_idx = idx
+                    best_set = set_score
+            if best_idx < 0:
+                break
+            setter_unit = remaining_units.pop(best_idx)
+            _assign_unit_to_bucket(setter_unit, buckets[code], assigned_team_by_user)
+
+    # Stage 2: pull prefer_together links to already assigned setters.
+    for code in team_codes:
+        bucket = buckets[code]
+        setter_users = _team_setter_user_ids(bucket)
+        if not setter_users:
+            continue
+        while bucket["playerCount"] < bucket["capacity"]:
+            best_idx = -1
+            best_metric = -math.inf
+            for idx, unit in enumerate(remaining_units):
+                if bucket["playerCount"] + unit["size"] > bucket["capacity"]:
+                    continue
+                prefer = _unit_prefer_to_users(unit, setter_users, relations)
+                if prefer <= 0:
+                    continue
+                base_penalty = _placement_score(
+                    unit,
+                    bucket,
+                    role_targets,
+                    skill_targets.get(code, {}),
+                    power_targets.get(code, 0.0),
+                    relations,
+                    assigned_team_by_user,
+                )
+                # Strongly prioritize explicit preference links to setter core.
+                metric = prefer * 100.0 - base_penalty
+                if best_idx == -1 or metric > best_metric:
+                    best_idx = idx
+                    best_metric = metric
+            if best_idx < 0:
+                break
+            linked_unit = remaining_units.pop(best_idx)
+            _assign_unit_to_bucket(linked_unit, bucket, assigned_team_by_user)
+
+    # Stage 3: strongest attackers go to teams with weaker setters.
+    attacker_indices = [idx for idx, unit in enumerate(remaining_units) if unit.get("role") == "attacker"]
+    attacker_indices.sort(key=lambda idx: (-_unit_attack_skill(remaining_units[idx]), remaining_units[idx]["id"]))
+    teams_by_setter = sorted(team_codes, key=lambda code: (_bucket_setter_quality(buckets[code]), code))
+    for code in teams_by_setter:
+        chosen_pos = -1
+        for pos, idx in enumerate(attacker_indices):
+            unit = remaining_units[idx]
+            bucket = buckets[code]
+            if bucket["playerCount"] + unit["size"] <= bucket["capacity"]:
+                chosen_pos = pos
+                break
+        if chosen_pos < 0:
+            continue
+        chosen_idx = attacker_indices.pop(chosen_pos)
+        attacker_unit = remaining_units.pop(chosen_idx)
+        _assign_unit_to_bucket(attacker_unit, buckets[code], assigned_team_by_user)
+        attacker_indices = [i - 1 if i > chosen_idx else i for i in attacker_indices]
+
+    # Stage 4: satisfy remaining mandatory role targets (libero/central + extra setter if needed).
     for role in ROLE_TARGET_ORDER:
         for code in team_codes:
             target = role_targets.get(role, {}).get(code, 0)
@@ -779,15 +934,8 @@ def split_teams(req: dict):
                 forced_unit = remaining_units.pop(best_idx)
                 _assign_unit_to_bucket(forced_unit, buckets[code], assigned_team_by_user)
 
-    remaining_units.sort(
-        key=lambda unit: (
-            _role_priority(unit["role"]),
-            -unit["relationWeight"],
-            -unit["powerTotal"],
-            -unit["size"],
-            unit["id"],
-        )
-    )
+    # Stage 5: weak-first balancing for the rest.
+    remaining_units.sort(key=lambda unit: (unit["powerTotal"], unit["id"]))
     for unit in remaining_units:
         chosen = _choose_bucket_for_unit(
             unit,

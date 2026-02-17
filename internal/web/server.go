@@ -1668,6 +1668,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
+			_ = s.enrichTeamSplitStateAnalysis(r.Context(), chatID, state)
 			writeJSON(w, http.StatusOK, state)
 			return
 		}
@@ -1680,15 +1681,12 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
-			if err := s.store.SaveEventTeamSplit(r.Context(), chatID, eventID, postID, req.Assignments); err != nil {
-				writeError(w, http.StatusBadRequest, err)
-				return
-			}
-			state, err := s.store.GetEventTeamSplitState(r.Context(), chatID, eventID, postID)
+			state, err := s.store.SaveAndReanalyzeEventTeamSplit(r.Context(), chatID, eventID, postID, req.Assignments)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err)
 				return
 			}
+			_ = s.enrichTeamSplitStateAnalysis(r.Context(), chatID, state)
 			writeJSON(w, http.StatusOK, state)
 			return
 		}
@@ -1733,6 +1731,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
+		_ = s.enrichTeamSplitStateAnalysis(r.Context(), chatID, state)
 		writeJSON(w, http.StatusOK, state)
 		return
 	}
@@ -2026,8 +2025,7 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 	if state == nil || len(state.Players) == 0 {
 		return errors.New("no players to publish")
 	}
-	roleByUser, skillByUser, err := s.store.GetTeamSplitPlayerProfiles(ctx, chatID, state.Players)
-	if err != nil {
+	if err := s.enrichTeamSplitStateAnalysis(ctx, chatID, state); err != nil {
 		return err
 	}
 
@@ -2052,7 +2050,7 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 			return teams[key][i].Position < teams[key][j].Position
 		})
 	}
-	teamFormation := buildTeamFormationRecommendations(teams, roleByUser, skillByUser)
+	teamFormation := state.Formations
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Состав команд: %q\n", event.Name)
@@ -2072,8 +2070,8 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 			fmt.Fprintf(&b, "%s. %s\n", label, teamPlayerDisplayName(p))
 		}
 		if rec, ok := teamFormation[code]; ok {
-			fmt.Fprintf(&b, "Рекомендованная схема: %s\n", rec.Scheme)
-			fmt.Fprintf(&b, "Анализ схемы: %s\n", formatTeamFormationAnalysis(rec))
+			fmt.Fprintf(&b, "Рекомендованная схема: %s\n", strings.TrimSpace(rec.Scheme))
+			fmt.Fprintf(&b, "Анализ схемы: %s\n", strings.TrimSpace(rec.Analysis))
 		}
 		b.WriteString("\n")
 	}
@@ -2397,6 +2395,47 @@ type teamFormationRecommendation struct {
 	HasSecondSetter  bool
 }
 
+func (s *Server) enrichTeamSplitStateAnalysis(ctx context.Context, chatID int64, state *postgres.EventTeamSplitState) error {
+	if state == nil || len(state.Players) == 0 {
+		return nil
+	}
+	roleByUser, skillByUser, err := s.store.GetTeamSplitPlayerProfiles(ctx, chatID, state.Players)
+	if err != nil {
+		return err
+	}
+
+	teams := map[string][]postgres.TeamSplitPlayer{
+		"A":          {},
+		"B":          {},
+		"C":          {},
+		"unassigned": {},
+	}
+	for _, player := range state.Players {
+		key := strings.ToUpper(strings.TrimSpace(player.Team))
+		if key == "" {
+			key = "unassigned"
+		}
+		if key != "A" && key != "B" && key != "C" {
+			key = "unassigned"
+		}
+		teams[key] = append(teams[key], player)
+	}
+
+	recs := buildTeamFormationRecommendations(teams, roleByUser, skillByUser)
+	if len(recs) == 0 {
+		state.Formations = nil
+		return nil
+	}
+	state.Formations = make(map[string]postgres.TeamFormationView, len(recs))
+	for code, rec := range recs {
+		state.Formations[code] = postgres.TeamFormationView{
+			Scheme:   rec.Scheme,
+			Analysis: formatTeamFormationAnalysis(rec),
+		}
+	}
+	return nil
+}
+
 func buildTeamFormationRecommendations(
 	teams map[string][]postgres.TeamSplitPlayer,
 	roleByUser map[int64]string,
@@ -2428,7 +2467,7 @@ func recommendTeamFormation(
 		receiveTotal += skills["receive"]
 
 		if role == "setter" {
-			setters = append(setters, p.Rating)
+			setters = append(setters, skills["set"])
 		}
 		if role == "attacker" && skills["attack"] >= 7.0 {
 			strongAttackers++

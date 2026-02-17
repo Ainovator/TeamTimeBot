@@ -2324,6 +2324,7 @@ export default function App() {
       return {
         ...prev,
         players,
+        formations: undefined,
         chance: (() => {
           let a = 0
           let b = 0
@@ -2373,6 +2374,7 @@ export default function App() {
       return {
         ...prev,
         players,
+        formations: undefined,
       }
     })
     setTeamCEnabled(false)
@@ -2394,7 +2396,7 @@ export default function App() {
         })),
       )
       setTeamSplit(saved)
-      setSuccess('Распределение команд сохранено')
+      setSuccess('Распределение сохранено, стартовые позиции и схема пересчитаны')
       await reloadActiveOrganization(activeChatID, { silent: true })
     } catch (err) {
       setTeamSplitError((err as Error).message)
@@ -5598,7 +5600,14 @@ export default function App() {
                           }}
                         >
                           <div className="team-column-head">
-                            <h5>{`Команда ${teamCode}`}</h5>
+                            <div>
+                              <h5>{`Команда ${teamCode}`}</h5>
+                              {teamSplit.formations?.[teamCode]?.scheme ? (
+                                <small className="muted" title={teamSplit.formations?.[teamCode]?.analysis || ''}>
+                                  Схема: {teamSplit.formations?.[teamCode]?.scheme}
+                                </small>
+                              ) : null}
+                            </div>
                             {teamCode === 'C' ? (
                               <button type="button" className="team-remove-btn" onClick={removeTeamC} title="Убрать команду C">
                                 −

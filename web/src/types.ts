@@ -154,11 +154,17 @@ export type TeamWinChance = {
   teamBProb: number
 }
 
+export type TeamFormationView = {
+  scheme: string
+  analysis: string
+}
+
 export type EventTeamSplitState = {
   eventID: number
   postID: number
   players: TeamSplitPlayer[]
   chance: TeamWinChance
+  formations?: Record<string, TeamFormationView>
 }
 
 export type EventHistoryItem = {

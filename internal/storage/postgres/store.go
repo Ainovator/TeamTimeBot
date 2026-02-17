@@ -317,11 +317,17 @@ type TeamWinChance struct {
 	TeamBProb  float64 `json:"teamBProb"`
 }
 
+type TeamFormationView struct {
+	Scheme   string `json:"scheme"`
+	Analysis string `json:"analysis"`
+}
+
 type EventTeamSplitState struct {
-	EventID uint64            `json:"eventID"`
-	PostID  uint64            `json:"postID"`
-	Players []TeamSplitPlayer `json:"players"`
-	Chance  TeamWinChance     `json:"chance"`
+	EventID    uint64                       `json:"eventID"`
+	PostID     uint64                       `json:"postID"`
+	Players    []TeamSplitPlayer            `json:"players"`
+	Chance     TeamWinChance                `json:"chance"`
+	Formations map[string]TeamFormationView `json:"formations,omitempty"`
 }
 
 type GroupMemberView struct {
@@ -4205,6 +4211,83 @@ func (s *Store) GetTeamSplitPlayerProfiles(
 	return roleByUser, skillByUser, nil
 }
 
+func (s *Store) SaveAndReanalyzeEventTeamSplit(
+	ctx context.Context,
+	chatID int64,
+	eventID, postID uint64,
+	updates []TeamSplitAssignmentInput,
+) (*EventTeamSplitState, error) {
+	if err := s.SaveEventTeamSplit(ctx, chatID, eventID, postID, updates); err != nil {
+		return nil, err
+	}
+	return s.ReanalyzeEventTeamSplit(ctx, chatID, eventID, postID)
+}
+
+func (s *Store) ReanalyzeEventTeamSplit(
+	ctx context.Context,
+	chatID int64,
+	eventID, postID uint64,
+) (*EventTeamSplitState, error) {
+	state, err := s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil || len(state.Players) == 0 {
+		return state, nil
+	}
+
+	roleByUser, skillByUser, err := s.GetTeamSplitPlayerProfiles(ctx, chatID, state.Players)
+	if err != nil {
+		return nil, err
+	}
+
+	playersByTeam := map[string][]TeamSplitPlayer{
+		"A":          {},
+		"B":          {},
+		"C":          {},
+		"unassigned": {},
+	}
+	for _, p := range state.Players {
+		team := normalizeTeamValue(p.Team)
+		playersByTeam[team] = append(playersByTeam[team], p)
+	}
+
+	assignments := make([]TeamSplitAssignmentInput, 0, len(state.Players))
+	for _, code := range []string{"A", "B", "C"} {
+		ordered := orderTeamPlayersForLineup(playersByTeam[code], roleByUser, skillByUser)
+		for pos, p := range ordered {
+			assignments = append(assignments, TeamSplitAssignmentInput{
+				UserID:   p.UserID,
+				Team:     code,
+				Position: pos,
+			})
+		}
+	}
+
+	unassigned := playersByTeam["unassigned"]
+	sort.SliceStable(unassigned, func(i, j int) bool {
+		if unassigned[i].Position != unassigned[j].Position {
+			return unassigned[i].Position < unassigned[j].Position
+		}
+		return unassigned[i].UserID < unassigned[j].UserID
+	})
+	for pos, p := range unassigned {
+		assignments = append(assignments, TeamSplitAssignmentInput{
+			UserID:   p.UserID,
+			Team:     "unassigned",
+			Position: pos,
+		})
+	}
+
+	assignments = enforceGuestOwnerAssignments(state.Players, assignments)
+	assignments = normalizeTeamAssignmentPositions(assignments)
+
+	if err := s.SaveEventTeamSplit(ctx, chatID, eventID, postID, assignments); err != nil {
+		return nil, err
+	}
+	return s.GetEventTeamSplitState(ctx, chatID, eventID, postID)
+}
+
 func (s *Store) SaveEventTeamSplit(ctx context.Context, chatID int64, eventID, postID uint64, updates []TeamSplitAssignmentInput) error {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
@@ -4513,7 +4596,169 @@ func (s *Store) AutoSplitEventTeams(ctx context.Context, chatID int64, eventID, 
 	})
 
 	assignedTeamByUser := make(map[int64]string, len(state.Players))
-	for _, unit := range units {
+	remainingUnits := make([]*teamSplitUnit, len(units))
+	copy(remainingUnits, units)
+
+	// Stage 1: setters first by pass skill ("set"), not by overall rating.
+	for _, code := range teamCodes {
+		target := 0
+		if byTeam, ok := roleTargets["setter"]; ok {
+			target = byTeam[code]
+		}
+		for buckets[code].RoleCounts["setter"] < target {
+			bestIdx := -1
+			bestSet := -math.MaxFloat64
+			for idx, unit := range remainingUnits {
+				if unit.Role != "setter" {
+					continue
+				}
+				bucket := buckets[code]
+				if bucket.PlayerCount+unit.Size > bucket.Capacity {
+					continue
+				}
+				setScore := teamSplitUnitSkillAvg(unit, "set")
+				if bestIdx == -1 || setScore > bestSet {
+					bestIdx = idx
+					bestSet = setScore
+				}
+			}
+			if bestIdx < 0 {
+				break
+			}
+			chosen := remainingUnits[bestIdx]
+			assignUnitToBucket(chosen, buckets[code], assignedTeamByUser)
+			remainingUnits = append(remainingUnits[:bestIdx], remainingUnits[bestIdx+1:]...)
+		}
+	}
+
+	// Stage 2: pull prefer_together links to assigned setters.
+	for _, code := range teamCodes {
+		bucket := buckets[code]
+		setterUsers := teamSplitBucketSetterUsers(bucket)
+		if len(setterUsers) == 0 {
+			continue
+		}
+		for bucket.PlayerCount < bucket.Capacity {
+			bestIdx := -1
+			bestMetric := -math.MaxFloat64
+			for idx, unit := range remainingUnits {
+				if bucket.PlayerCount+unit.Size > bucket.Capacity {
+					continue
+				}
+				prefer := teamSplitUnitPreferToUsers(unit, setterUsers, relations)
+				if prefer <= 0 {
+					continue
+				}
+				basePenalty := teamSplitPlacementScore(
+					unit,
+					bucket,
+					roleTargets,
+					skillTargets[code],
+					powerTargets[code],
+					relations,
+					assignedTeamByUser,
+				)
+				metric := prefer*100.0 - basePenalty
+				if bestIdx == -1 || metric > bestMetric {
+					bestIdx = idx
+					bestMetric = metric
+				}
+			}
+			if bestIdx < 0 {
+				break
+			}
+			linked := remainingUnits[bestIdx]
+			assignUnitToBucket(linked, bucket, assignedTeamByUser)
+			remainingUnits = append(remainingUnits[:bestIdx], remainingUnits[bestIdx+1:]...)
+		}
+	}
+
+	// Stage 3: strongest attackers go to teams with weaker setters.
+	teamsBySetter := append([]string{}, teamCodes...)
+	sort.SliceStable(teamsBySetter, func(i, j int) bool {
+		qi := teamSplitBucketSetterQuality(buckets[teamsBySetter[i]])
+		qj := teamSplitBucketSetterQuality(buckets[teamsBySetter[j]])
+		if qi != qj {
+			return qi < qj
+		}
+		return teamsBySetter[i] < teamsBySetter[j]
+	})
+	for _, code := range teamsBySetter {
+		bestIdx := -1
+		bestAttack := -math.MaxFloat64
+		for idx, unit := range remainingUnits {
+			if unit.Role != "attacker" {
+				continue
+			}
+			bucket := buckets[code]
+			if bucket.PlayerCount+unit.Size > bucket.Capacity {
+				continue
+			}
+			attack := teamSplitUnitSkillAvg(unit, "attack")
+			if bestIdx == -1 || attack > bestAttack {
+				bestIdx = idx
+				bestAttack = attack
+			}
+		}
+		if bestIdx < 0 {
+			continue
+		}
+		attacker := remainingUnits[bestIdx]
+		assignUnitToBucket(attacker, buckets[code], assignedTeamByUser)
+		remainingUnits = append(remainingUnits[:bestIdx], remainingUnits[bestIdx+1:]...)
+	}
+
+	// Stage 4: satisfy remaining mandatory role quotas team-by-team.
+	for _, role := range []string{"setter", "libero", "central"} {
+		for _, code := range teamCodes {
+			target := 0
+			if byTeam, ok := roleTargets[role]; ok {
+				target = byTeam[code]
+			}
+			for buckets[code].RoleCounts[role] < target {
+				bestIdx := -1
+				bestScore := math.MaxFloat64
+				for idx, unit := range remainingUnits {
+					if unit.Role != role {
+						continue
+					}
+					bucket := buckets[code]
+					if bucket.PlayerCount+unit.Size > bucket.Capacity {
+						continue
+					}
+					score := teamSplitPlacementScore(
+						unit,
+						bucket,
+						roleTargets,
+						skillTargets[code],
+						powerTargets[code],
+						relations,
+						assignedTeamByUser,
+					)
+					if bestIdx == -1 || score < bestScore {
+						bestIdx = idx
+						bestScore = score
+					}
+				}
+				if bestIdx < 0 {
+					break
+				}
+				chosen := remainingUnits[bestIdx]
+				assignUnitToBucket(chosen, buckets[code], assignedTeamByUser)
+				remainingUnits = append(remainingUnits[:bestIdx], remainingUnits[bestIdx+1:]...)
+			}
+		}
+	}
+
+	// Stage 5: weak-first balancing for the rest.
+	sort.SliceStable(remainingUnits, func(i, j int) bool {
+		if remainingUnits[i].PowerTotal != remainingUnits[j].PowerTotal {
+			return remainingUnits[i].PowerTotal < remainingUnits[j].PowerTotal
+		}
+		return remainingUnits[i].ID < remainingUnits[j].ID
+	})
+
+	for _, unit := range remainingUnits {
 		chosen := chooseTeamBucketForUnit(
 			unit,
 			teamCodes,
@@ -4844,6 +5089,15 @@ func teamSplitPlacementScore(
 	nextPower := bucket.PowerTotal + unit.PowerTotal
 	penalty += math.Abs(nextPower-powerTarget) * 0.42
 
+	// Keep strongest centrals opposite strongest attackers.
+	if unit.Role == "central" {
+		centralStrength := unit.SkillTotals["block"]*1.1 + unit.SkillTotals["attack"]*0.35
+		penalty += centralStrength * teamSplitBucketAttackerLoad(bucket) * 0.08
+	} else if unit.Role == "attacker" {
+		attackerStrength := unit.SkillTotals["attack"]
+		penalty += attackerStrength * teamSplitBucketCentralLoad(bucket) * 0.08
+	}
+
 	skillWeight := map[string]float64{
 		"attack":  0.45,
 		"block":   0.48,
@@ -4882,6 +5136,95 @@ func teamSplitPlacementScore(
 	}
 
 	return penalty
+}
+
+func teamSplitUnitSkillAvg(unit *teamSplitUnit, code string) float64 {
+	if unit == nil || unit.Size <= 0 {
+		return 0
+	}
+	return unit.SkillTotals[code] / float64(unit.Size)
+}
+
+func teamSplitBucketSetterQuality(bucket *teamSplitBucket) float64 {
+	if bucket == nil || len(bucket.Units) == 0 {
+		return 0
+	}
+	total := 0.0
+	count := 0
+	for _, unit := range bucket.Units {
+		if unit.Role != "setter" {
+			continue
+		}
+		total += teamSplitUnitSkillAvg(unit, "set")
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return total / float64(count)
+}
+
+func teamSplitBucketAttackerLoad(bucket *teamSplitBucket) float64 {
+	if bucket == nil || len(bucket.Units) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, unit := range bucket.Units {
+		if unit.Role == "attacker" {
+			total += teamSplitUnitSkillAvg(unit, "attack")
+		}
+	}
+	return total
+}
+
+func teamSplitBucketCentralLoad(bucket *teamSplitBucket) float64 {
+	if bucket == nil || len(bucket.Units) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, unit := range bucket.Units {
+		if unit.Role != "central" {
+			continue
+		}
+		blockAvg := teamSplitUnitSkillAvg(unit, "block")
+		attackAvg := teamSplitUnitSkillAvg(unit, "attack")
+		total += blockAvg*1.1 + attackAvg*0.25
+	}
+	return total
+}
+
+func teamSplitBucketSetterUsers(bucket *teamSplitBucket) map[int64]struct{} {
+	out := make(map[int64]struct{})
+	if bucket == nil {
+		return out
+	}
+	for _, unit := range bucket.Units {
+		if unit.Role != "setter" {
+			continue
+		}
+		for _, p := range unit.Players {
+			out[p.UserID] = struct{}{}
+		}
+	}
+	return out
+}
+
+func teamSplitUnitPreferToUsers(unit *teamSplitUnit, users map[int64]struct{}, relations map[int64][]teamSplitRelEdge) float64 {
+	if unit == nil || len(users) == 0 {
+		return 0
+	}
+	score := 0.0
+	for _, p := range unit.Players {
+		for _, edge := range relations[p.UserID] {
+			if edge.Type != "prefer_together" {
+				continue
+			}
+			if _, ok := users[edge.Other]; ok {
+				score += float64(edge.Weight)
+			}
+		}
+	}
+	return score
 }
 
 func assignUnitToBucket(unit *teamSplitUnit, bucket *teamSplitBucket, assignedTeamByUser map[int64]string) {
