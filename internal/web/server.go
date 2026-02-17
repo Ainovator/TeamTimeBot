@@ -2062,12 +2062,21 @@ func (s *Server) publishEventTeamSplitNow(ctx context.Context, chatID int64, eve
 			return
 		}
 		fmt.Fprintf(&b, "Команда %s (%d):\n", code, len(list))
-		for idx, p := range list {
-			label := strconv.Itoa(idx + 1)
-			if idx >= 6 {
-				label = "З"
+		startCount := len(list)
+		if startCount > 6 {
+			startCount = 6
+		}
+		if startCount > 0 {
+			b.WriteString("Стартовая расстановка:\n")
+			for idx := 0; idx < startCount; idx++ {
+				fmt.Fprintf(&b, "П%d. %s\n", idx+1, teamPlayerDisplayName(list[idx]))
 			}
-			fmt.Fprintf(&b, "%s. %s\n", label, teamPlayerDisplayName(p))
+		}
+		if len(list) > 6 {
+			b.WriteString("Запас:\n")
+			for idx, p := range list[6:] {
+				fmt.Fprintf(&b, "З%d. %s\n", idx+1, teamPlayerDisplayName(p))
+			}
 		}
 		if rec, ok := teamFormation[code]; ok {
 			fmt.Fprintf(&b, "Рекомендованная схема: %s\n", strings.TrimSpace(rec.Scheme))
@@ -2388,11 +2397,9 @@ func teamPlayerDisplayName(p postgres.TeamSplitPlayer) string {
 type teamFormationRecommendation struct {
 	Scheme           string
 	BestSetterRating float64
-	SetterGap        float64
 	AvgReceive       float64
-	StrongAttackers  int
+	CentralCount     int
 	SetterCount      int
-	HasSecondSetter  bool
 }
 
 func (s *Server) enrichTeamSplitStateAnalysis(ctx context.Context, chatID int64, state *postgres.EventTeamSplitState) error {
@@ -2459,7 +2466,7 @@ func recommendTeamFormation(
 ) teamFormationRecommendation {
 	setters := make([]float64, 0, 2)
 	receiveTotal := 0.0
-	strongAttackers := 0
+	centralCount := 0
 
 	for _, p := range players {
 		role := teamFormationPlayerRole(p, roleByUser)
@@ -2469,23 +2476,15 @@ func recommendTeamFormation(
 		if role == "setter" {
 			setters = append(setters, skills["set"])
 		}
-		if role == "attacker" && skills["attack"] >= 7.0 {
-			strongAttackers++
+		if role == "central" {
+			centralCount++
 		}
 	}
 
 	sort.SliceStable(setters, func(i, j int) bool { return setters[i] > setters[j] })
 	bestSetter := 0.0
-	setterGap := 0.0
-	hasSecondSetter := false
 	if len(setters) > 0 {
 		bestSetter = setters[0]
-		if len(setters) > 1 {
-			hasSecondSetter = true
-			setterGap = bestSetter - setters[1]
-		} else {
-			setterGap = bestSetter
-		}
 	}
 
 	avgReceive := 0.0
@@ -2494,10 +2493,9 @@ func recommendTeamFormation(
 	}
 
 	useFiveOne := len(setters) > 0 &&
-		bestSetter >= 7.5 &&
-		setterGap >= 1.0 &&
-		avgReceive >= 6.5 &&
-		strongAttackers >= 2
+		bestSetter >= 7.0 &&
+		centralCount >= 2 &&
+		avgReceive >= 6.0
 
 	scheme := "4/2"
 	if useFiveOne {
@@ -2507,22 +2505,17 @@ func recommendTeamFormation(
 	return teamFormationRecommendation{
 		Scheme:           scheme,
 		BestSetterRating: bestSetter,
-		SetterGap:        setterGap,
 		AvgReceive:       avgReceive,
-		StrongAttackers:  strongAttackers,
+		CentralCount:     centralCount,
 		SetterCount:      len(setters),
-		HasSecondSetter:  hasSecondSetter,
 	}
 }
 
 func formatTeamFormationAnalysis(rec teamFormationRecommendation) string {
 	if rec.SetterCount == 0 {
-		return fmt.Sprintf("связка не найдена, прием %.1f, атакующие 7+ (%d)", rec.AvgReceive, rec.StrongAttackers)
+		return fmt.Sprintf("связка не найдена, центральных %d, прием %.1f", rec.CentralCount, rec.AvgReceive)
 	}
-	if rec.HasSecondSetter {
-		return fmt.Sprintf("лучшая связка %.1f, отрыв %.1f, прием %.1f, атакующие 7+ (%d)", rec.BestSetterRating, rec.SetterGap, rec.AvgReceive, rec.StrongAttackers)
-	}
-	return fmt.Sprintf("лучшая связка %.1f, второй связки нет, прием %.1f, атакующие 7+ (%d)", rec.BestSetterRating, rec.AvgReceive, rec.StrongAttackers)
+	return fmt.Sprintf("лучшая связка %.1f, центральных %d, прием %.1f", rec.BestSetterRating, rec.CentralCount, rec.AvgReceive)
 }
 
 func teamFormationPlayerRole(player postgres.TeamSplitPlayer, roleByUser map[int64]string) string {
