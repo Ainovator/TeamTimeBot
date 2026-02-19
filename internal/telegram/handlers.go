@@ -14,7 +14,10 @@ import (
 
 var sessions = newSessionStore()
 
-const defaultTimezone = "Europe/Moscow"
+const (
+	defaultTimezone           = "Europe/Moscow"
+	manualSetupDisabledNotice = "Ручная настройка через команды временно отключена.\nДоступные команды: /start, /help, /setgroup, /updategroup."
+)
 
 func RegisterHandlers(bot *tele.Bot, store *postgres.Store) {
 	bot.Handle("/start", func(c tele.Context) {
@@ -31,50 +34,21 @@ func RegisterHandlers(bot *tele.Bot, store *postgres.Store) {
 			"Как начать:\n"+
 				"1) Добавь бота в нужную группу.\n"+
 				"2) В группе выполни /setgroup (сохраняет группу и админов).\n"+
-				"3) В личке боту выполни /settings.\n"+
-				"4) Выбери группу -> выбери/создай шаблон -> настрой расписание.\n\n"+
-				"Если ты новый админ и группа не видна в /settings:\n"+
-				"- Выполни /updategroup в группе (или попроси другого админа сделать это).\n\n"+
+				"3) Когда состав админов меняется, выполни /updategroup.\n\n"+
 				"Команды:\n"+
 				"/start - краткий старт\n"+
 				"/help - эта справка\n"+
-				"/settings - меню настройки\n"+
+				"/poll - очередь по последнему опросу (варианты с «учёт»)\n"+
 				"/setgroup - подключить группу (только в группе)\n"+
-				"/updategroup - обновить список админов (только в группе)",
+				"/updategroup - обновить список админов (только в группе)\n\n"+
+				"Ручные команды настройки (/settings, /setpoll, /setschedule) временно отключены.",
 			nil,
 		)
 	})
 
 	bot.Handle("/settings", func(c tele.Context) {
-		state := sessions.get(c.Message.Chat.ID)
-		state.Action = actionNone
-		state.MenuSection = ""
-		state.SelectedTemplate = ""
-		state.AvailableTemplates = nil
-		state.ScheduleName = ""
-		state.ScheduleDays = nil
-		state.ScheduleTimes = nil
-		state.SchedulePendingDay = 0
-		state.ManageScheduleID = 0
-		state.EventName = ""
-		state.EventStartDay = 0
-		state.EventPublishTime = ""
-		state.EventStartTime = ""
-		state.EventEndTime = ""
-		state.EventCostAmount = nil
-		state.EventOptionCount = 0
-		sessions.set(c.Message.Chat.ID, state)
-
-		if isPrivateChat(c.Message.Chat) {
-			sendGroupSelectorMenu(c.Bot, store, c.Message.Chat, c.Message.Sender)
-			return
-		}
-		if !ensureGroupAdmin(c.Bot, c.Message) {
-			return
-		}
-
-		setTargetGroup(c.Message.Chat.ID, c.Message.Chat.ID)
-		sendSettingsMenu(c.Bot, c.Message.Chat, formatGroupTitle(c.Message.Chat.ID, c.Message.Chat.Title))
+		resetManualSetupState(c.Message.Chat.ID)
+		sendManualSetupDisabled(c.Bot, c.Message.Chat)
 	})
 
 	bot.Handle("/setgroup", func(c tele.Context) {
@@ -123,71 +97,25 @@ func RegisterHandlers(bot *tele.Bot, store *postgres.Store) {
 		_ = c.Bot.SendMessage(c.Message.Chat, "Список админов обновлен.", nil)
 	})
 
+	bot.Handle("/poll", func(c tele.Context) {
+		if isPrivateChat(c.Message.Chat) {
+			_ = c.Bot.SendMessage(c.Message.Chat, "Команду /poll нужно запускать в группе.", nil)
+			return
+		}
+		HandlePollCommand(store, c)
+	})
+
 	bot.Handle("/setpoll", func(c tele.Context) {
-		if !isPrivateChat(c.Message.Chat) && !ensureGroupAdmin(c.Bot, c.Message) {
-			return
-		}
-		targetChatID := resolveTargetGroupChatID(c.Message)
-		if targetChatID == 0 {
-			_ = c.Bot.SendMessage(c.Message.Chat, "Сначала выбери группу через /settings.", nil)
-			return
-		}
-
-		payload := extractCommandPayload(c.Message.Text, "/setpoll")
-		if payload == "" {
-			_ = c.Bot.SendMessage(c.Message.Chat, "Использование: /setpoll name|question|Да,Нет", nil)
-			return
-		}
-
-		name, question, options, err := postgres.ParsePollSpec(payload)
-		if err != nil {
-			_ = c.Bot.SendMessage(c.Message.Chat, err.Error(), nil)
-			return
-		}
-
-		_, err = store.UpsertPollTemplate(context.Background(), targetChatID, name, question, options)
-		if err != nil {
-			_ = c.Bot.SendMessage(c.Message.Chat, "Ошибка сохранения шаблона: "+err.Error(), nil)
-			return
-		}
-
-		_ = c.Bot.SendMessage(c.Message.Chat, fmt.Sprintf("Шаблон %s сохранен. Опций: %d", name, len(options)), nil)
+		resetManualSetupState(c.Message.Chat.ID)
+		sendManualSetupDisabled(c.Bot, c.Message.Chat)
 	})
 
 	bot.Handle("/setschedule", func(c tele.Context) {
-		if !isPrivateChat(c.Message.Chat) && !ensureGroupAdmin(c.Bot, c.Message) {
-			return
-		}
-		targetChatID := resolveTargetGroupChatID(c.Message)
-		if targetChatID == 0 {
-			_ = c.Bot.SendMessage(c.Message.Chat, "Сначала выбери группу через /settings.", nil)
-			return
-		}
-
-		payload := extractCommandPayload(c.Message.Text, "/setschedule")
-		if payload == "" {
-			_ = c.Bot.SendMessage(c.Message.Chat, "Использование: /setschedule template_name|HH:MM или /setschedule template_name|1,3,5|HH:MM", nil)
-			return
-		}
-
-		templateName, cronExpr, err := postgres.ParseScheduleSpec(payload)
-		if err != nil {
-			_ = c.Bot.SendMessage(c.Message.Chat, err.Error(), nil)
-			return
-		}
-
-		_, err = store.UpsertSchedule(context.Background(), targetChatID, templateName, cronExpr)
-		if err != nil {
-			_ = c.Bot.SendMessage(c.Message.Chat, "Ошибка сохранения расписания: "+err.Error(), nil)
-			return
-		}
-
-		_ = c.Bot.SendMessage(c.Message.Chat, fmt.Sprintf("Расписание для %s сохранено: %s", templateName, postgres.FormatScheduleExprForDisplay(cronExpr)), nil)
+		resetManualSetupState(c.Message.Chat.ID)
+		sendManualSetupDisabled(c.Bot, c.Message.Chat)
 	})
 
-	bot.Handle(tele.Default, func(c tele.Context) {
-		handleStatefulText(c.Bot, store, c.Message)
-	})
+	bot.Handle(tele.Default, func(_ tele.Context) {})
 }
 
 func handleStatefulText(bot *tele.Bot, store *postgres.Store, message tele.Message) {
@@ -824,6 +752,36 @@ func containsInt(values []int, target int) bool {
 		}
 	}
 	return false
+}
+
+func sendManualSetupDisabled(bot *tele.Bot, chat tele.Chat) {
+	_ = bot.SendMessage(chat, manualSetupDisabledNotice, nil)
+}
+
+func resetManualSetupState(chatID int64) {
+	state := sessions.get(chatID)
+	state.Action = actionNone
+	state.MenuSection = ""
+	state.SelectedTemplate = ""
+	state.AvailableTemplates = nil
+	state.ScheduleName = ""
+	state.ScheduleDays = nil
+	state.ScheduleTimes = nil
+	state.SchedulePendingDay = 0
+	state.ManageScheduleID = 0
+	state.PollName = ""
+	state.PollQuestion = ""
+	state.PollOptions = nil
+	state.EventName = ""
+	state.EventStartDay = 0
+	state.EventPublishTime = ""
+	state.EventStartTime = ""
+	state.EventEndTime = ""
+	state.EventCostAmount = nil
+	state.EventBindEventID = 0
+	state.EventOptionCount = 0
+	state.EventCountedOptions = nil
+	sessions.set(chatID, state)
 }
 
 func syncGroupAdmins(bot *tele.Bot, store *postgres.Store, chat tele.Chat) error {

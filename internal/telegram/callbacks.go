@@ -18,6 +18,11 @@ func HandleCallback(bot *tele.Bot, store *postgres.Store, callback tele.Callback
 
 	chat := callback.Message.Chat
 	data := strings.TrimSpace(callback.Data)
+	if strings.HasPrefix(data, "settings:") {
+		resetManualSetupState(chat.ID)
+		sendManualSetupDisabled(bot, chat)
+		return
+	}
 
 	switch {
 	case data == "settings:main_menu":

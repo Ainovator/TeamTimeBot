@@ -3583,6 +3583,34 @@ func (s *Store) ListEventPollHistory(ctx context.Context, chatID int64, eventID 
 	return items, nil
 }
 
+func (s *Store) GetLatestGroupPollByChatID(ctx context.Context, chatID int64) (*uint64, error) {
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	type row struct {
+		PostID uint64
+	}
+	var r row
+
+	err = s.db.WithContext(ctx).
+		Table("event_poll_posts").
+		Select("id AS post_id").
+		Where("group_id = ?", group.ID).
+		Order("published_at DESC, id DESC").
+		Take(&r).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	id := r.PostID
+	return &id, nil
+}
+
 func (s *Store) ListEventPollHistoryByInstance(ctx context.Context, chatID int64, instanceID uint64) ([]EventPollHistoryItem, error) {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
