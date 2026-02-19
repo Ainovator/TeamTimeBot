@@ -254,7 +254,7 @@ func formatPollQueueReport(seats []pollQueueSeat, loc *time.Location, limit int)
 		limit = pollQueueLimit
 	}
 	if len(seats) == 0 {
-		return "Очередь пока пуста."
+		return "Запись пока пустая."
 	}
 
 	headCount := len(seats)
@@ -263,7 +263,11 @@ func formatPollQueueReport(seats []pollQueueSeat, loc *time.Location, limit int)
 	}
 
 	var b strings.Builder
-	b.WriteString("Очередь:\n\n")
+	if len(seats) > limit {
+		b.WriteString(fmt.Sprintf("Записаны на тренировку (1-%d место):\n\n", limit))
+	} else {
+		b.WriteString("Записаны на тренировку:\n\n")
+	}
 	for i := 0; i < headCount; i++ {
 		b.WriteString(formatPollQueueSeatLine(i+1, seats[i], loc))
 		if i+1 < headCount {
@@ -272,7 +276,7 @@ func formatPollQueueReport(seats []pollQueueSeat, loc *time.Location, limit int)
 	}
 
 	if len(seats) > limit {
-		b.WriteString("\n\nРезерв:\n\n")
+		b.WriteString(fmt.Sprintf("\n\nРезерв (с %d места):\n\n", limit+1))
 		for i := limit; i < len(seats); i++ {
 			b.WriteString(formatPollQueueSeatLine(i+1, seats[i], loc))
 			if i+1 < len(seats) {
