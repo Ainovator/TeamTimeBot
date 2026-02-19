@@ -231,6 +231,7 @@ export async function createEvent(
     teamsAutoSplit: boolean
     teamsPublishList: boolean
     teamSize: number
+    maxPlaces: number
     minVotesToHold: number
     cancelLeadMinutes: number
     cancelNotifyEnabled: boolean
@@ -281,6 +282,7 @@ export async function updateEventDetails(
     teamsAutoSplit: boolean
     teamsPublishList: boolean
     teamSize: number
+    maxPlaces: number
     minVotesToHold: number
     cancelLeadMinutes: number
     cancelNotifyEnabled: boolean

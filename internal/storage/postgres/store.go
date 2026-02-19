@@ -25,6 +25,8 @@ type Store struct {
 	db *gorm.DB
 }
 
+const defaultPollMaxPlaces = 18
+
 type DueSchedule struct {
 	ScheduleID   uint64
 	ChatID       int64
@@ -92,6 +94,7 @@ type EventView struct {
 	TeamsAutoSplit          bool     `json:"teamsAutoSplit"`
 	TeamsPublishList        bool     `json:"teamsPublishList"`
 	TeamSize                int      `json:"teamSize"`
+	MaxPlaces               int      `json:"maxPlaces"`
 	MinVotesToHold          int      `json:"minVotesToHold"`
 	CancelLeadMinutes       int      `json:"cancelLeadMinutes"`
 	CancelNotifyEnabled     bool     `json:"cancelNotifyEnabled"`
@@ -430,6 +433,7 @@ type EventWithGroupView struct {
 	TeamsAutoSplit          bool
 	TeamsPublishList        bool
 	TeamSize                int
+	MaxPlaces               int
 	MinVotesToHold          int
 	CancelLeadMinutes       int
 	CancelNotifyEnabled     bool
@@ -546,6 +550,13 @@ func normalizeOptionWeightsLen(optionsLen int, weights []int) []int {
 	return out
 }
 
+func normalizePollMaxPlaces(value int) int {
+	if value <= 0 {
+		return defaultPollMaxPlaces
+	}
+	return value
+}
+
 func guestSlotUserID(postID uint64, userID int64, ordinal int) int64 {
 	// Stable synthetic negative IDs so guest slots can be saved in event_team_assignments.
 	// Collisions are extremely unlikely and acceptable for this use-case.
@@ -599,6 +610,7 @@ type EventTemplateDetails struct {
 	TemplateName     string
 	TemplateQuestion string
 	TemplateOptions  []string
+	MaxPlaces        int
 }
 
 func New(dsn string) (*Store, error) {
@@ -676,6 +688,7 @@ func ensureEventInstanceTx(
 		PollOptions             datatypes.JSON
 		PollCountedOptions      datatypes.JSON
 		PollOptionWeights       datatypes.JSON
+		PollMaxPlaces           int
 	}
 	var snap snapshotRow
 	if err := tx.WithContext(ctx).
@@ -705,7 +718,8 @@ func ensureEventInstanceTx(
 			COALESCE(pt.question, '') AS poll_question,
 			COALESCE(pt.options, '[]'::jsonb) AS poll_options,
 			COALESCE(pt.counted_options, '[]'::jsonb) AS poll_counted_options,
-			COALESCE(pt.option_weights, '[]'::jsonb) AS poll_option_weights
+			COALESCE(pt.option_weights, '[]'::jsonb) AS poll_option_weights,
+			COALESCE(ge.max_places, 18) AS poll_max_places
 		`).
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE", eventID, groupID).
@@ -752,6 +766,7 @@ func ensureEventInstanceTx(
 	record["poll_options"] = snap.PollOptions
 	record["poll_counted_options"] = snap.PollCountedOptions
 	record["poll_option_weights"] = snap.PollOptionWeights
+	record["poll_max_places"] = normalizePollMaxPlaces(snap.PollMaxPlaces)
 
 	if err := tx.WithContext(ctx).Table("event_instances").
 		Clauses(clause.OnConflict{
@@ -1314,11 +1329,12 @@ func (s *Store) recalculateEventSettlementByInstanceTx(ctx context.Context, tx *
 		PollOptions    datatypes.JSON
 		CountedOptions datatypes.JSON
 		OptionWeights  datatypes.JSON
+		PollMaxPlaces  int
 		Status         string
 	}
 	if err := tx.WithContext(ctx).
 		Table("event_instances").
-		Select("id, group_id, event_id, local_date, poll_post_id, cost_amount, COALESCE(poll_options, '[]'::jsonb) AS poll_options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, COALESCE(poll_option_weights, '[]'::jsonb) AS option_weights, status").
+		Select("id, group_id, event_id, local_date, poll_post_id, cost_amount, COALESCE(poll_options, '[]'::jsonb) AS poll_options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, COALESCE(poll_option_weights, '[]'::jsonb) AS option_weights, COALESCE(poll_max_places, 18) AS poll_max_places, status").
 		Where("id = ? AND group_id = ? AND is_active = TRUE", instanceID, groupID).
 		Take(&inst).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1345,6 +1361,7 @@ func (s *Store) recalculateEventSettlementByInstanceTx(ctx context.Context, tx *
 	if len(counted) == 0 {
 		return nil
 	}
+	maxPlaces := normalizePollMaxPlaces(inst.PollMaxPlaces)
 
 	choices := make([]string, 0, len(counted))
 	weightByChoice := make(map[string]int, len(counted))
@@ -1373,6 +1390,7 @@ func (s *Store) recalculateEventSettlementByInstanceTx(ctx context.Context, tx *
 		Table("event_poll_votes").
 		Select("user_id, COALESCE(username, '') AS username, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name, choice").
 		Where("post_id = ? AND choice IN ?", *inst.PollPostID, choices).
+		Order("voted_at ASC, user_id ASC").
 		Scan(&rows).Error; err != nil {
 		return err
 	}
@@ -1385,7 +1403,11 @@ func (s *Store) recalculateEventSettlementByInstanceTx(ctx context.Context, tx *
 		Seats     int
 	}
 	payers := make(map[int64]*payer, len(rows))
+	participants := 0
 	for _, row := range rows {
+		if maxPlaces > 0 && participants >= maxPlaces {
+			break
+		}
 		p, ok := payers[row.UserID]
 		if !ok {
 			p = &payer{
@@ -1401,13 +1423,21 @@ func (s *Store) recalculateEventSettlementByInstanceTx(ctx context.Context, tx *
 		if w <= 0 {
 			w = 1
 		}
-		p.Seats += w
-	}
-	participants := 0
-	for _, p := range payers {
-		if p.Seats > 0 {
-			participants += p.Seats
+		admit := w
+		if maxPlaces > 0 {
+			remaining := maxPlaces - participants
+			if remaining <= 0 {
+				break
+			}
+			if admit > remaining {
+				admit = remaining
+			}
 		}
+		if admit <= 0 {
+			continue
+		}
+		p.Seats += admit
+		participants += admit
 	}
 
 	totalAmount := 4000.0
@@ -1587,7 +1617,7 @@ func (s *Store) ListActiveEventsWithGroups(ctx context.Context) ([]EventWithGrou
 	var rows []EventWithGroupView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id AS event_id, ge.group_id, g.chat_id, g.timezone, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.id AS event_id, ge.group_id, g.chat_id, g.timezone, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.max_places, 18) AS max_places, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(pt.name, '') AS poll_template").
 		Joins("JOIN telegram_groups g ON g.id = ge.group_id").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.is_active = TRUE AND ge.publish_enabled = TRUE AND g.is_active = TRUE").
@@ -1824,6 +1854,7 @@ type EventInstanceSnapshotView struct {
 
 	PollCountedOptions datatypes.JSON
 	PollOptionWeights  datatypes.JSON
+	PollMaxPlaces      int
 }
 
 func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID uint64, eventID uint64, localDate time.Time) (*EventInstanceSnapshotView, error) {
@@ -1847,6 +1878,7 @@ func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID
 		SettlementPublishAfter  bool
 		PollCountedOptions      datatypes.JSON
 		PollOptionWeights       datatypes.JSON
+		PollMaxPlaces           int
 	}
 	var r row
 	err := s.db.WithContext(ctx).
@@ -1870,7 +1902,8 @@ func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID
 			ei.settlement_publish_before,
 			ei.settlement_publish_after,
 			COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options,
-			COALESCE(ei.poll_option_weights, '[]'::jsonb) AS poll_option_weights
+			COALESCE(ei.poll_option_weights, '[]'::jsonb) AS poll_option_weights,
+			COALESCE(ei.poll_max_places, 18) AS poll_max_places
 		`).
 		Joins("JOIN telegram_groups g ON g.id = ei.group_id").
 		Where("ei.group_id = ? AND ei.event_id = ? AND ei.local_date = ? AND ei.is_active = TRUE AND g.is_active = TRUE", groupID, eventID, localDate.Format("2006-01-02")).
@@ -1901,6 +1934,7 @@ func (s *Store) GetEventInstanceSnapshotByEventDate(ctx context.Context, groupID
 		SettlementPublishAfter:  r.SettlementPublishAfter,
 		PollCountedOptions:      r.PollCountedOptions,
 		PollOptionWeights:       r.PollOptionWeights,
+		PollMaxPlaces:           normalizePollMaxPlaces(r.PollMaxPlaces),
 	}, nil
 }
 
@@ -1923,6 +1957,7 @@ func (s *Store) ListEventInstancesForCancellation(ctx context.Context, nowUTC ti
 		CancelNotifyEnabled bool
 		PollCountedOptions  datatypes.JSON
 		PollOptionWeights   datatypes.JSON
+		PollMaxPlaces       int
 	}
 	var rows []row
 	if err := s.db.WithContext(ctx).
@@ -1940,10 +1975,11 @@ func (s *Store) ListEventInstancesForCancellation(ctx context.Context, nowUTC ti
 			ei.poll_post_id,
 			ei.min_votes_to_hold,
 			ei.cancel_lead_minutes,
-			ei.cancel_notify_enabled,
-			COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options,
-			COALESCE(ei.poll_option_weights, '[]'::jsonb) AS poll_option_weights
-		`).
+				ei.cancel_notify_enabled,
+				COALESCE(ei.poll_counted_options, '[]'::jsonb) AS poll_counted_options,
+				COALESCE(ei.poll_option_weights, '[]'::jsonb) AS poll_option_weights,
+				COALESCE(ei.poll_max_places, 18) AS poll_max_places
+			`).
 		Joins("JOIN telegram_groups g ON g.id = ei.group_id").
 		Where(`
 			ei.is_active = TRUE
@@ -1976,6 +2012,7 @@ func (s *Store) ListEventInstancesForCancellation(ctx context.Context, nowUTC ti
 			CancelNotifyEnabled: r.CancelNotifyEnabled,
 			PollCountedOptions:  r.PollCountedOptions,
 			PollOptionWeights:   r.PollOptionWeights,
+			PollMaxPlaces:       normalizePollMaxPlaces(r.PollMaxPlaces),
 		})
 	}
 	return out, nil
@@ -2135,15 +2172,17 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 	var options []string
 	var counted []int
 	var weights []int
+	maxPlaces := defaultPollMaxPlaces
 	if settlement.InstanceID != nil {
 		var snap struct {
 			Options        datatypes.JSON
 			CountedOptions datatypes.JSON
 			OptionWeights  datatypes.JSON
+			MaxPlaces      int
 		}
 		if err := tx.WithContext(ctx).
 			Table("event_instances").
-			Select("COALESCE(poll_options, '[]'::jsonb) AS options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, COALESCE(poll_option_weights, '[]'::jsonb) AS option_weights").
+			Select("COALESCE(poll_options, '[]'::jsonb) AS options, COALESCE(poll_counted_options, '[]'::jsonb) AS counted_options, COALESCE(poll_option_weights, '[]'::jsonb) AS option_weights, COALESCE(poll_max_places, 18) AS max_places").
 			Where("id = ?", *settlement.InstanceID).
 			Take(&snap).Error; err != nil {
 			return err
@@ -2151,16 +2190,19 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 		_ = json.Unmarshal(snap.Options, &options)
 		_ = json.Unmarshal(snap.CountedOptions, &counted)
 		_ = json.Unmarshal(snap.OptionWeights, &weights)
+		maxPlaces = normalizePollMaxPlaces(snap.MaxPlaces)
 	} else {
 		var template struct {
 			Options        datatypes.JSON
 			CountedOptions datatypes.JSON
 			OptionWeights  datatypes.JSON
+			MaxPlaces      int
 		}
 		if err := tx.WithContext(ctx).
 			Table("event_poll_posts epp").
-			Select("COALESCE(pt.options, '[]'::jsonb) AS options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights").
+			Select("COALESCE(pt.options, '[]'::jsonb) AS options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights, COALESCE(ge.max_places, 18) AS max_places").
 			Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+			Joins("LEFT JOIN group_events ge ON ge.id = epp.event_id").
 			Where("epp.id = ?", *settlement.PostID).
 			Take(&template).Error; err != nil {
 			return err
@@ -2168,6 +2210,7 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 		_ = json.Unmarshal(template.Options, &options)
 		_ = json.Unmarshal(template.CountedOptions, &counted)
 		_ = json.Unmarshal(template.OptionWeights, &weights)
+		maxPlaces = normalizePollMaxPlaces(template.MaxPlaces)
 	}
 	counted = normalizeCountedOptionIndexes(len(options), counted)
 	weights = normalizeOptionWeightsLen(len(options), weights)
@@ -2202,6 +2245,7 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 		Table("event_poll_votes").
 		Select("user_id, COALESCE(username, '') AS username, COALESCE(first_name, '') AS first_name, COALESCE(last_name, '') AS last_name, choice").
 		Where("post_id = ? AND choice IN ?", *settlement.PostID, choices).
+		Order("voted_at ASC, user_id ASC").
 		Scan(&rows).Error; err != nil {
 		return err
 	}
@@ -2215,7 +2259,11 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 		Seats     int
 	}
 	payers := make(map[int64]*payer, len(rows))
+	admittedSeats := 0
 	for _, row := range rows {
+		if maxPlaces > 0 && admittedSeats >= maxPlaces {
+			break
+		}
 		p, ok := payers[row.UserID]
 		if !ok {
 			p = &payer{
@@ -2231,7 +2279,21 @@ func (s *Store) ensureSettlementPaymentsTx(ctx context.Context, tx *gorm.DB, set
 		if w <= 0 {
 			w = 1
 		}
-		p.Seats += w
+		admit := w
+		if maxPlaces > 0 {
+			remaining := maxPlaces - admittedSeats
+			if remaining <= 0 {
+				break
+			}
+			if admit > remaining {
+				admit = remaining
+			}
+		}
+		if admit <= 0 {
+			continue
+		}
+		p.Seats += admit
+		admittedSeats += admit
 	}
 
 	for _, p := range payers {
@@ -3094,10 +3156,11 @@ func (s *Store) GetEventTemplateDetails(ctx context.Context, chatID int64, event
 		TemplateName     string
 		TemplateQuestion string
 		TemplateOptions  datatypes.JSON
+		MaxPlaces        int
 	}
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id AS event_id, ge.name AS event_name, pt.name AS template_name, pt.question AS template_question, pt.options AS template_options").
+		Select("ge.id AS event_id, ge.name AS event_name, pt.name AS template_name, pt.question AS template_question, pt.options AS template_options, COALESCE(ge.max_places, 18) AS max_places").
 		Joins("JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE AND pt.is_active = TRUE", eventID, group.ID).
 		Take(&row).Error; err != nil {
@@ -3116,6 +3179,7 @@ func (s *Store) GetEventTemplateDetails(ctx context.Context, chatID int64, event
 		TemplateName:     row.TemplateName,
 		TemplateQuestion: row.TemplateQuestion,
 		TemplateOptions:  options,
+		MaxPlaces:        normalizePollMaxPlaces(row.MaxPlaces),
 	}, nil
 }
 
@@ -3279,6 +3343,16 @@ type PollSeatCountItem struct {
 }
 
 func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64, choices []string, weightByChoice map[string]int) ([]PollSeatCountItem, int, error) {
+	return s.ListSeatCountsForPostChoicesWithLimit(ctx, postID, choices, weightByChoice, 0)
+}
+
+func (s *Store) ListSeatCountsForPostChoicesWithLimit(
+	ctx context.Context,
+	postID uint64,
+	choices []string,
+	weightByChoice map[string]int,
+	maxSeats int,
+) ([]PollSeatCountItem, int, error) {
 	if postID == 0 {
 		return nil, 0, errors.New("post_id is required")
 	}
@@ -3300,6 +3374,7 @@ func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64,
 		FirstName string
 		LastName  string
 		Choice    string
+		VotedAt   time.Time
 	}
 	var rows []voteRow
 	if err := s.db.WithContext(ctx).
@@ -3310,7 +3385,8 @@ func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64,
 			COALESCE(tu.username, ev.username, '') AS username,
 			COALESCE(tu.first_name, ev.first_name, '') AS first_name,
 			COALESCE(tu.last_name, ev.last_name, '') AS last_name,
-			ev.choice
+			ev.choice,
+			ev.voted_at
 		`).
 		Joins("LEFT JOIN telegram_users tu ON tu.telegram_id = ev.user_id").
 		Joins("JOIN event_poll_posts epp ON epp.id = ev.post_id").
@@ -3321,9 +3397,17 @@ func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64,
 		return nil, 0, err
 	}
 
+	limit := maxSeats
+	if limit > 0 {
+		limit = normalizePollMaxPlaces(limit)
+	}
+
 	byUser := make(map[int64]*PollSeatCountItem, len(rows))
 	totalSeats := 0
 	for _, r := range rows {
+		if limit > 0 && totalSeats >= limit {
+			break
+		}
 		item, ok := byUser[r.UserID]
 		if !ok {
 			item = &PollSeatCountItem{
@@ -3342,8 +3426,21 @@ func (s *Store) ListSeatCountsForPostChoices(ctx context.Context, postID uint64,
 				w = ww
 			}
 		}
-		item.Seats += w
-		totalSeats += w
+		admit := w
+		if limit > 0 {
+			remaining := limit - totalSeats
+			if remaining <= 0 {
+				break
+			}
+			if admit > remaining {
+				admit = remaining
+			}
+		}
+		if admit <= 0 {
+			continue
+		}
+		item.Seats += admit
+		totalSeats += admit
 	}
 
 	out := make([]PollSeatCountItem, 0, len(byUser))
@@ -3864,6 +3961,59 @@ func (s *Store) ListGroupPollsByChatID(ctx context.Context, chatID int64) ([]Gro
 	return out, nil
 }
 
+func (s *Store) GetPollSeatConfigByPostID(ctx context.Context, chatID int64, postID uint64) ([]string, map[string]int, int, error) {
+	if postID == 0 {
+		return nil, nil, 0, errors.New("post_id is required")
+	}
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	type row struct {
+		TemplateOptions datatypes.JSON
+		CountedOptions  datatypes.JSON
+		OptionWeights   datatypes.JSON
+		MaxPlaces       int
+	}
+	var r row
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts epp").
+		Select("COALESCE(ei.poll_options, pt.options, '[]'::jsonb) AS template_options, COALESCE(ei.poll_counted_options, pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(ei.poll_option_weights, pt.option_weights, '[]'::jsonb) AS option_weights, COALESCE(ei.poll_max_places, ge.max_places, 18) AS max_places").
+		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Joins("LEFT JOIN event_instances ei ON ei.id = epp.instance_id").
+		Joins("LEFT JOIN group_events ge ON ge.id = epp.event_id").
+		Where("epp.id = ? AND epp.group_id = ?", postID, group.ID).
+		Take(&r).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, 0, errors.New("poll post not found")
+		}
+		return nil, nil, 0, err
+	}
+
+	var options []string
+	_ = json.Unmarshal(r.TemplateOptions, &options)
+	var counted []int
+	_ = json.Unmarshal(r.CountedOptions, &counted)
+	var weights []int
+	_ = json.Unmarshal(r.OptionWeights, &weights)
+	counted = normalizeCountedOptionIndexes(len(options), counted)
+	weights = normalizeOptionWeightsLen(len(options), weights)
+
+	choices := make([]string, 0, len(counted))
+	weightByChoice := make(map[string]int, len(counted))
+	for _, idx := range counted {
+		choice := "option_" + strconv.Itoa(idx)
+		choices = append(choices, choice)
+		w := 1
+		if idx >= 0 && idx < len(weights) && weights[idx] > 0 {
+			w = weights[idx]
+		}
+		weightByChoice[choice] = w
+	}
+	return choices, weightByChoice, normalizePollMaxPlaces(r.MaxPlaces), nil
+}
+
 func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, postID uint64) ([]GroupPollVoteItem, error) {
 	if postID == 0 {
 		return nil, errors.New("post_id is required")
@@ -3881,8 +4031,9 @@ func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, po
 	var post postRow
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights").
+		Select("COALESCE(ei.poll_options, pt.options, '[]'::jsonb) AS template_options, COALESCE(ei.poll_counted_options, pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(ei.poll_option_weights, pt.option_weights, '[]'::jsonb) AS option_weights").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Joins("LEFT JOIN event_instances ei ON ei.id = epp.instance_id").
 		Where("epp.id = ? AND epp.group_id = ?", postID, group.ID).
 		Take(&post).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -3975,13 +4126,15 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 		TemplateOptions datatypes.JSON
 		CountedOptions  datatypes.JSON
 		OptionWeights   datatypes.JSON
+		MaxPlaces       int
 	}
 	var post postRow
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("epp.id AS post_id, epp.instance_id, COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(ei.poll_option_weights, pt.option_weights, '[]'::jsonb) AS option_weights").
+		Select("epp.id AS post_id, epp.instance_id, COALESCE(ei.poll_options, pt.options, '[]'::jsonb) AS template_options, COALESCE(ei.poll_counted_options, pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(ei.poll_option_weights, pt.option_weights, '[]'::jsonb) AS option_weights, COALESCE(ei.poll_max_places, ge.max_places, 18) AS max_places").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 		Joins("LEFT JOIN event_instances ei ON ei.id = epp.instance_id").
+		Joins("LEFT JOIN group_events ge ON ge.id = epp.event_id").
 		Where("epp.id = ? AND epp.group_id = ? AND epp.event_id = ?", postID, group.ID, eventID).
 		Take(&post).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -4022,7 +4175,7 @@ func (s *Store) GetEventTeamSplitState(ctx context.Context, chatID int64, eventI
 		}
 	}
 
-	seatItems, _, err := s.ListSeatCountsForPostChoices(ctx, postID, keysOfMap(choiceSet), weightByChoice)
+	seatItems, _, err := s.ListSeatCountsForPostChoicesWithLimit(ctx, postID, keysOfMap(choiceSet), weightByChoice, normalizePollMaxPlaces(post.MaxPlaces))
 	if err != nil {
 		return nil, err
 	}

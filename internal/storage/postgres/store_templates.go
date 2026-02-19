@@ -88,7 +88,6 @@ func (s *Store) UpsertPollTemplateWithCountedAndWeights(
 	if question == "" {
 		return nil, errors.New("question is required")
 	}
-
 	payload, err := json.Marshal(sanitizedOptions)
 	if err != nil {
 		return nil, err
@@ -382,7 +381,6 @@ func (s *Store) UpdateTemplateByNameWithCountedAndWeights(
 	if question == "" {
 		return nil, errors.New("question is required")
 	}
-
 	sanitizedOptions := make([]string, 0, len(options))
 	for _, option := range options {
 		option = strings.TrimSpace(option)

@@ -95,7 +95,13 @@ func HandlePollCommand(store *postgres.Store, c tele.Context) {
 		sendPollCommandMessage(c.Bot, chat, "В последнем опросе нет мест для формирования очереди.")
 		return
 	}
-	report := formatPollQueueReport(seats, loc, pollQueueLimit)
+	maxPlaces := pollQueueLimit
+	if _, _, configuredMaxPlaces, cfgErr := store.GetPollSeatConfigByPostID(context.Background(), chat.ID, *postID); cfgErr == nil {
+		maxPlaces = configuredMaxPlaces
+	} else {
+		log.Printf("poll_command: failed to resolve max places for chat %d post %d: %v", chat.ID, *postID, cfgErr)
+	}
+	report := formatPollQueueReport(seats, loc, maxPlaces)
 
 	messageID, err := sendPollReportWithMessageID(c.Bot, chat, report)
 	if err != nil {

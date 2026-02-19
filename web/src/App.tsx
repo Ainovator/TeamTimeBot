@@ -218,6 +218,7 @@ export default function App() {
     teamsAutoSplit: false,
     teamsPublishList: false,
     teamSize: '6',
+    maxPlaces: '18',
     minVotesToHold: '0',
     cancelLeadMinutes: '180',
     cancelNotifyEnabled: false,
@@ -250,6 +251,7 @@ export default function App() {
     teamsAutoSplit: false,
     teamsPublishList: false,
     teamSize: '6',
+    maxPlaces: '18',
     minVotesToHold: '0',
     cancelLeadMinutes: '180',
     cancelNotifyEnabled: false,
@@ -678,6 +680,7 @@ export default function App() {
       eventEditor.teamsAutoSplit !== selectedEvent.teamsAutoSplit ||
       eventEditor.teamsPublishList !== selectedEvent.teamsPublishList ||
       Number(eventEditor.teamSize) !== (selectedEvent.teamSize || 6) ||
+      Number(eventEditor.maxPlaces) !== (selectedEvent.maxPlaces || 18) ||
       Number(eventEditor.minVotesToHold) !== (selectedEvent.minVotesToHold || 0) ||
       Number(eventEditor.cancelLeadMinutes) !== (selectedEvent.cancelLeadMinutes || 180) ||
       eventEditor.cancelNotifyEnabled !== (selectedEvent.cancelNotifyEnabled || false) ||
@@ -1045,6 +1048,7 @@ export default function App() {
         teamsAutoSplit: false,
         teamsPublishList: false,
         teamSize: '6',
+        maxPlaces: '18',
         minVotesToHold: '0',
         cancelLeadMinutes: '180',
         cancelNotifyEnabled: false,
@@ -1071,6 +1075,7 @@ export default function App() {
       teamsAutoSplit: selectedEvent.teamsAutoSplit,
       teamsPublishList: selectedEvent.teamsPublishList,
       teamSize: String(selectedEvent.teamSize || 6),
+      maxPlaces: String(selectedEvent.maxPlaces || 18),
       minVotesToHold: String(selectedEvent.minVotesToHold || 0),
       cancelLeadMinutes: String(selectedEvent.cancelLeadMinutes || 180),
       cancelNotifyEnabled: selectedEvent.cancelNotifyEnabled || false,
@@ -1911,6 +1916,7 @@ export default function App() {
     const templateName = eventForm.templateName.trim()
     const announcementLeadMinutes = Number(eventForm.announcementLeadMinutes)
     const teamSize = Number(eventForm.teamSize)
+    const maxPlaces = Number(eventForm.maxPlaces)
     const minVotesToHold = Number(eventForm.minVotesToHold)
     const cancelLeadMinutes = Number(eventForm.cancelLeadMinutes)
     const cancelNotifyEnabled = eventForm.cancelNotifyEnabled
@@ -1932,6 +1938,10 @@ export default function App() {
     }
     if (eventType === 'training' && (Number.isNaN(teamSize) || teamSize < 2)) {
       setError('Количество игроков в команде должно быть не меньше 2')
+      return
+    }
+    if (Number.isNaN(maxPlaces) || maxPlaces <= 0) {
+      setError('Максимальное количество мест должно быть больше 0')
       return
     }
     if (Number.isNaN(minVotesToHold) || minVotesToHold < 0) {
@@ -2005,6 +2015,7 @@ export default function App() {
         teamsAutoSplit,
         teamsPublishList,
         teamSize,
+        maxPlaces,
         minVotesToHold,
         cancelLeadMinutes,
         cancelNotifyEnabled,
@@ -2036,6 +2047,7 @@ export default function App() {
       teamsAutoSplit: false,
       teamsPublishList: false,
       teamSize: '6',
+      maxPlaces: '18',
       minVotesToHold: '0',
       cancelLeadMinutes: '180',
       cancelNotifyEnabled: false,
@@ -2071,6 +2083,7 @@ export default function App() {
     let publishWeekday = Number(eventEditor.publishWeekday)
     const announcementLeadMinutes = Number(eventEditor.announcementLeadMinutes)
     const teamSize = Number(eventEditor.teamSize)
+    const maxPlaces = Number(eventEditor.maxPlaces)
     const minVotesToHold = Number(eventEditor.minVotesToHold)
     const cancelLeadMinutes = Number(eventEditor.cancelLeadMinutes)
     const cancelNotifyEnabled = eventEditor.cancelNotifyEnabled
@@ -2117,6 +2130,10 @@ export default function App() {
     }
     if (eventType === 'training' && (Number.isNaN(teamSize) || teamSize < 2)) {
       setError('Количество игроков в команде должно быть не меньше 2')
+      return
+    }
+    if (Number.isNaN(maxPlaces) || maxPlaces <= 0) {
+      setError('Максимальное количество мест должно быть больше 0')
       return
     }
     if (Number.isNaN(minVotesToHold) || minVotesToHold < 0) {
@@ -2178,6 +2195,7 @@ export default function App() {
       teamsAutoSplit !== selectedEvent.teamsAutoSplit ||
       teamsPublishList !== selectedEvent.teamsPublishList ||
       teamSize !== (selectedEvent.teamSize || 6) ||
+      maxPlaces !== (selectedEvent.maxPlaces || 18) ||
       minVotesToHold !== (selectedEvent.minVotesToHold || 0) ||
       cancelLeadMinutes !== (selectedEvent.cancelLeadMinutes || 180) ||
       cancelNotifyEnabled !== (selectedEvent.cancelNotifyEnabled || false) ||
@@ -2209,6 +2227,7 @@ export default function App() {
             teamsAutoSplit,
             teamsPublishList,
             teamSize,
+            maxPlaces,
             minVotesToHold,
             cancelLeadMinutes,
             cancelNotifyEnabled,
@@ -4662,6 +4681,17 @@ export default function App() {
                 ))}
               </select>
             </label>
+            <label className="field">
+              <span>Максимум мест</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={eventForm.maxPlaces}
+                onChange={(e) => setEventForm((prev) => ({ ...prev, maxPlaces: e.target.value }))}
+                required
+              />
+            </label>
           </div>
           <div className="event-editor-row event-editor-row-announcement-full">
             <label className="field announcement-text">
@@ -5029,6 +5059,17 @@ export default function App() {
                 onChange={(e) => setEventEditor((prev) => ({ ...prev, publishAt: e.target.value }))}
                 required={eventEditorHasTemplate}
                 disabled={!eventEditorHasTemplate}
+              />
+            </label>
+            <label className="field">
+              <span>Максимум мест</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={eventEditor.maxPlaces}
+                onChange={(e) => setEventEditor((prev) => ({ ...prev, maxPlaces: e.target.value }))}
+                required
               />
             </label>
           </div>

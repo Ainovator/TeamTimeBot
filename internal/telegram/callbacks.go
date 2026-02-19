@@ -1435,6 +1435,7 @@ func loadEventTemplateDetails(ctx context.Context, store *postgres.Store, target
 		TemplateName:     template.Name,
 		TemplateQuestion: template.Question,
 		TemplateOptions:  template.Options,
+		MaxPlaces:        selected.MaxPlaces,
 	}, nil
 }
 

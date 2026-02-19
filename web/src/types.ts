@@ -71,6 +71,7 @@ export type EventView = {
   teamsAutoSplit: boolean
   teamsPublishList: boolean
   teamSize: number
+  maxPlaces: number
   minVotesToHold: number
   cancelLeadMinutes: number
   cancelNotifyEnabled: boolean

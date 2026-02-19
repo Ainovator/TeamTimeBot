@@ -24,6 +24,7 @@ type GroupEvent struct {
 	TeamsAutoSplit          bool  `gorm:"not null;default:false"`
 	TeamsPublishList        bool  `gorm:"not null;default:false"`
 	TeamSize                int16 `gorm:"not null;default:6"`
+	MaxPlaces               int32 `gorm:"not null;default:18"`
 	MinVotesToHold          int32 `gorm:"not null;default:0"`
 	CancelLeadMinutes       int32 `gorm:"not null;default:180"`
 	CancelNotifyEnabled     bool  `gorm:"not null;default:false"`
@@ -73,6 +74,7 @@ type EventInstance struct {
 	PollQuestion   string         `gorm:"not null;default:''"`
 	PollOptions    datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'"`
 	PollCounted    datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'"`
+	PollMaxPlaces  int32          `gorm:"not null;default:18"`
 	IsActive       bool           `gorm:"not null;default:true"`
 	CreatedAt      time.Time      `gorm:"not null;default:now()"`
 	UpdatedAt      time.Time      `gorm:"not null;default:now()"`

@@ -1076,6 +1076,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			TeamsAutoSplit          *bool    `json:"teamsAutoSplit"`
 			TeamsPublishList        *bool    `json:"teamsPublishList"`
 			TeamSize                int      `json:"teamSize"`
+			MaxPlaces               int      `json:"maxPlaces"`
 			MinVotesToHold          int      `json:"minVotesToHold"`
 			CancelLeadMinutes       int      `json:"cancelLeadMinutes"`
 			CancelNotifyEnabled     *bool    `json:"cancelNotifyEnabled"`
@@ -1141,6 +1142,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			teamsAutoSplit,
 			teamsPublishList,
 			teamSize,
+			req.MaxPlaces,
 			req.MinVotesToHold,
 			req.CancelLeadMinutes,
 			cancelNotifyEnabled,
@@ -1407,6 +1409,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			TeamsAutoSplit          *bool  `json:"teamsAutoSplit"`
 			TeamsPublishList        *bool  `json:"teamsPublishList"`
 			TeamSize                int    `json:"teamSize"`
+			MaxPlaces               int    `json:"maxPlaces"`
 			MinVotesToHold          int    `json:"minVotesToHold"`
 			CancelLeadMinutes       int    `json:"cancelLeadMinutes"`
 			CancelNotifyEnabled     *bool  `json:"cancelNotifyEnabled"`
@@ -1472,6 +1475,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			teamsAutoSplit,
 			teamsPublishList,
 			teamSize,
+			req.MaxPlaces,
 			req.MinVotesToHold,
 			req.CancelLeadMinutes,
 			cancelNotifyEnabled,
@@ -1934,13 +1938,6 @@ func (s *Server) publishSettlementNow(ctx context.Context, chatID int64, eventID
 	if strings.TrimSpace(event.PollTemplate) == "" {
 		return errors.New("no poll template is bound to event")
 	}
-	countedOptions, optionWeights, err := s.store.GetEventTemplateCountedOptionsAndWeights(ctx, eventID)
-	if err != nil {
-		return err
-	}
-	if len(countedOptions) == 0 {
-		return errors.New("template has no options marked with accounting flag")
-	}
 
 	post, err := s.store.GetLatestEventPollPost(ctx, eventID)
 	if err != nil {
@@ -1950,21 +1947,14 @@ func (s *Server) publishSettlementNow(ctx context.Context, chatID int64, eventID
 		return errors.New("no published poll found for this event")
 	}
 
-	choices := make([]string, 0, len(countedOptions))
-	weightByChoice := make(map[string]int, len(countedOptions))
-	for _, idx := range countedOptions {
-		choice := fmt.Sprintf("option_%d", idx)
-		choices = append(choices, choice)
-		w := 1
-		if idx >= 0 && idx < len(optionWeights) {
-			w = optionWeights[idx]
-		}
-		if w <= 0 {
-			w = 1
-		}
-		weightByChoice[choice] = w
+	choices, weightByChoice, maxPlaces, err := s.store.GetPollSeatConfigByPostID(ctx, chatID, post.ID)
+	if err != nil {
+		return err
 	}
-	payers, seats, err := s.store.ListSeatCountsForPostChoices(ctx, post.ID, choices, weightByChoice)
+	if len(choices) == 0 {
+		return errors.New("template has no options marked with accounting flag")
+	}
+	payers, seats, err := s.store.ListSeatCountsForPostChoicesWithLimit(ctx, post.ID, choices, weightByChoice, maxPlaces)
 	if err != nil {
 		return err
 	}
