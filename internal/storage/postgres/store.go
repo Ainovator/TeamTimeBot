@@ -282,17 +282,18 @@ type GroupPollItem struct {
 }
 
 type GroupPollVoteItem struct {
-	UserID      int64     `json:"userID"`
-	RealName    string    `json:"realName"`
-	Username    string    `json:"username"`
-	FirstName   string    `json:"firstName"`
-	LastName    string    `json:"lastName"`
-	Choice      string    `json:"choice"`
-	ChoiceIndex *int      `json:"choiceIndex,omitempty"`
-	ChoiceLabel string    `json:"choiceLabel"`
-	Counted     bool      `json:"counted"`
-	Source      string    `json:"source"`
-	VotedAt     time.Time `json:"votedAt"`
+	UserID       int64     `json:"userID"`
+	RealName     string    `json:"realName"`
+	Username     string    `json:"username"`
+	FirstName    string    `json:"firstName"`
+	LastName     string    `json:"lastName"`
+	Choice       string    `json:"choice"`
+	ChoiceIndex  *int      `json:"choiceIndex,omitempty"`
+	ChoiceLabel  string    `json:"choiceLabel"`
+	ChoiceWeight int       `json:"choiceWeight"`
+	Counted      bool      `json:"counted"`
+	Source       string    `json:"source"`
+	VotedAt      time.Time `json:"votedAt"`
 }
 
 type TeamSplitPlayer struct {
@@ -3875,11 +3876,12 @@ func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, po
 	type postRow struct {
 		TemplateOptions datatypes.JSON
 		CountedOptions  datatypes.JSON
+		OptionWeights   datatypes.JSON
 	}
 	var post postRow
 	if err := s.db.WithContext(ctx).
 		Table("event_poll_posts epp").
-		Select("COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options").
+		Select("COALESCE(pt.options, '[]'::jsonb) AS template_options, COALESCE(pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(pt.option_weights, '[]'::jsonb) AS option_weights").
 		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
 		Where("epp.id = ? AND epp.group_id = ?", postID, group.ID).
 		Take(&post).Error; err != nil {
@@ -3893,7 +3895,10 @@ func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, po
 	_ = json.Unmarshal(post.TemplateOptions, &options)
 	var counted []int
 	_ = json.Unmarshal(post.CountedOptions, &counted)
+	var weights []int
+	_ = json.Unmarshal(post.OptionWeights, &weights)
 	counted = normalizeCountedOptionIndexes(len(options), counted)
+	weights = normalizeOptionWeightsLen(len(options), weights)
 	countedChoices := make(map[string]struct{}, len(counted))
 	for _, idx := range counted {
 		countedChoices["option_"+strconv.Itoa(idx)] = struct{}{}
@@ -3932,19 +3937,27 @@ func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, po
 				choiceLabel = options[idx]
 			}
 		}
+		choiceWeight := 1
+		if choiceIndex != nil {
+			idx := *choiceIndex
+			if idx >= 0 && idx < len(weights) && weights[idx] > 0 {
+				choiceWeight = weights[idx]
+			}
+		}
 		_, countedChoice := countedChoices[row.Choice]
 		items = append(items, GroupPollVoteItem{
-			UserID:      row.UserID,
-			RealName:    strings.TrimSpace(row.RealName),
-			Username:    row.Username,
-			FirstName:   row.FirstName,
-			LastName:    row.LastName,
-			Choice:      row.Choice,
-			ChoiceIndex: choiceIndex,
-			ChoiceLabel: choiceLabel,
-			Counted:     countedChoice,
-			Source:      row.Source,
-			VotedAt:     row.VotedAt,
+			UserID:       row.UserID,
+			RealName:     strings.TrimSpace(row.RealName),
+			Username:     row.Username,
+			FirstName:    row.FirstName,
+			LastName:     row.LastName,
+			Choice:       row.Choice,
+			ChoiceIndex:  choiceIndex,
+			ChoiceLabel:  choiceLabel,
+			ChoiceWeight: choiceWeight,
+			Counted:      countedChoice,
+			Source:       row.Source,
+			VotedAt:      row.VotedAt,
 		})
 	}
 	return items, nil

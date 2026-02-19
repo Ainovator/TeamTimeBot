@@ -47,11 +47,12 @@ type pollQueueSeat struct {
 
 func HandlePollCommand(store *postgres.Store, c tele.Context) {
 	chat := c.Message.Chat
-	now := time.Now().UTC()
-	if remaining, blocked := pollState.reserveCooldown(chat.ID, now); blocked {
-		sendPollCommandMessage(c.Bot, chat, "Команда /poll доступна раз в 10 минут.\nДо следующего вызова: "+formatCooldownRemaining(remaining))
-		return
-	}
+	// Temporary: cooldown is disabled for /poll.
+	// now := time.Now().UTC()
+	// if remaining, blocked := pollState.reserveCooldown(chat.ID, now); blocked {
+	// 	sendPollCommandMessage(c.Bot, chat, "Команда /poll доступна раз в 10 минут.\nДо следующего вызова: "+formatCooldownRemaining(remaining))
+	// 	return
+	// }
 
 	postID, err := store.GetLatestGroupPollByChatID(context.Background(), chat.ID)
 	if err != nil {
@@ -161,16 +162,26 @@ func pollVoteShortName(vote postgres.GroupPollVoteItem) string {
 	return first + " " + string(lastRunes[0]) + "."
 }
 
-func parseGuestSeats(choiceLabel string) (int, bool) {
+func hasGuestMarker(choiceLabel string) bool {
 	label := strings.TrimSpace(choiceLabel)
-	if !strings.HasPrefix(label, "+") || len(label) < 2 {
-		return 0, false
+	if len(label) < 2 {
+		return false
 	}
-	n, err := strconv.Atoi(strings.TrimPrefix(label, "+"))
-	if err != nil || n <= 0 {
-		return 0, false
+	for i := 0; i < len(label)-1; i++ {
+		if label[i] != '+' {
+			continue
+		}
+		j := i + 1
+		hasDigit := false
+		for j < len(label) && label[j] >= '0' && label[j] <= '9' {
+			hasDigit = true
+			j++
+		}
+		if hasDigit {
+			return true
+		}
 	}
-	return n, true
+	return false
 }
 
 func buildPollQueueSeats(votes []postgres.GroupPollVoteItem) []pollQueueSeat {
@@ -182,8 +193,13 @@ func buildPollQueueSeats(votes []postgres.GroupPollVoteItem) []pollQueueSeat {
 			continue
 		}
 
-		if guestCount, ok := parseGuestSeats(vote.ChoiceLabel); ok {
-			for i := 0; i < guestCount; i++ {
+		weight := vote.ChoiceWeight
+		if weight <= 0 {
+			weight = 1
+		}
+
+		if hasGuestMarker(vote.ChoiceLabel) {
+			for i := 0; i < weight; i++ {
 				seats = append(seats, pollQueueSeat{
 					UserID:   vote.UserID,
 					Name:     name,
@@ -204,6 +220,16 @@ func buildPollQueueSeats(votes []postgres.GroupPollVoteItem) []pollQueueSeat {
 			SortRank: rank,
 		})
 		rank++
+		for i := 1; i < weight; i++ {
+			seats = append(seats, pollQueueSeat{
+				UserID:   vote.UserID,
+				Name:     name,
+				IsGuest:  true,
+				VotedAt:  vote.VotedAt,
+				SortRank: rank,
+			})
+			rank++
+		}
 	}
 
 	sort.SliceStable(seats, func(i, j int) bool {
