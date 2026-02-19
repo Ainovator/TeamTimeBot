@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 )
 
 const pollCommandCooldown = 10 * time.Minute
+const pollQueueLimit = 18
 
 type pollCommandState struct {
 	mu         sync.Mutex
@@ -35,6 +37,14 @@ func newPollCommandState() *pollCommandState {
 
 var pollState = newPollCommandState()
 
+type pollQueueSeat struct {
+	UserID   int64
+	Name     string
+	IsGuest  bool
+	VotedAt  time.Time
+	SortRank int
+}
+
 func HandlePollCommand(store *postgres.Store, c tele.Context) {
 	chat := c.Message.Chat
 	now := time.Now().UTC()
@@ -45,7 +55,8 @@ func HandlePollCommand(store *postgres.Store, c tele.Context) {
 
 	postID, err := store.GetLatestGroupPollByChatID(context.Background(), chat.ID)
 	if err != nil {
-		sendPollCommandMessage(c.Bot, chat, "Не удалось получить последний опрос: "+err.Error())
+		log.Printf("poll_command: failed to resolve latest poll in chat %d: %v", chat.ID, err)
+		sendPollCommandMessage(c.Bot, chat, "Не удалось получить последний опрос.")
 		return
 	}
 	if postID == nil {
@@ -55,17 +66,18 @@ func HandlePollCommand(store *postgres.Store, c tele.Context) {
 
 	votes, err := store.ListGroupPollVotesByPostID(context.Background(), chat.ID, *postID)
 	if err != nil {
-		sendPollCommandMessage(c.Bot, chat, "Не удалось получить голоса последнего опроса: "+err.Error())
+		log.Printf("poll_command: failed to load poll votes for chat %d post %d: %v", chat.ID, *postID, err)
+		sendPollCommandMessage(c.Bot, chat, "Не удалось получить голоса последнего опроса.")
 		return
 	}
 
-	queue := make([]postgres.GroupPollVoteItem, 0, len(votes))
+	countedVotes := make([]postgres.GroupPollVoteItem, 0, len(votes))
 	for _, vote := range votes {
 		if vote.Counted {
-			queue = append(queue, vote)
+			countedVotes = append(countedVotes, vote)
 		}
 	}
-	if len(queue) == 0 {
+	if len(countedVotes) == 0 {
 		sendPollCommandMessage(c.Bot, chat, "В последнем опросе нет голосов по вариантам с опцией «учёт».")
 		return
 	}
@@ -77,25 +89,22 @@ func HandlePollCommand(store *postgres.Store, c tele.Context) {
 		}
 	}
 
-	var b strings.Builder
-	b.WriteString("Текущая очередь:\n\n")
-	for i, vote := range queue {
-		b.WriteString(strconv.Itoa(i + 1))
-		b.WriteString(". ")
-		b.WriteString(pollVoteDisplayName(vote))
-		b.WriteString(" (")
-		b.WriteString(strings.TrimSpace(vote.ChoiceLabel))
-		b.WriteString(") - ")
-		b.WriteString(vote.VotedAt.In(loc).Format("02.01 15:04"))
-		if i+1 < len(queue) {
-			b.WriteByte('\n')
-		}
+	seats := buildPollQueueSeats(countedVotes)
+	if len(seats) == 0 {
+		sendPollCommandMessage(c.Bot, chat, "В последнем опросе нет мест для формирования очереди.")
+		return
 	}
+	report := formatPollQueueReport(seats, loc, pollQueueLimit)
 
-	messageID, err := sendPollReportWithMessageID(c.Bot, chat, b.String())
+	messageID, err := sendPollReportWithMessageID(c.Bot, chat, report)
 	if err != nil {
 		log.Printf("poll_command: failed to send poll report in chat %d: %v", chat.ID, err)
-		sendPollCommandMessage(c.Bot, chat, "Не удалось опубликовать список: "+err.Error())
+		sendPollCommandMessage(c.Bot, chat, "Не удалось опубликовать список.")
+		return
+	}
+	if messageID == 0 {
+		// Do not publish technical transport errors in group chat.
+		log.Printf("poll_command: report published in chat %d, but message_id is missing; skipping pin flow", chat.ID)
 		return
 	}
 
@@ -129,6 +138,132 @@ func pollVoteDisplayName(vote postgres.GroupPollVoteItem) string {
 		return "@" + u
 	}
 	return strconv.FormatInt(vote.UserID, 10)
+}
+
+func pollVoteShortName(vote postgres.GroupPollVoteItem) string {
+	full := pollVoteDisplayName(vote)
+	full = strings.TrimSpace(full)
+	if full == "" {
+		return strconv.FormatInt(vote.UserID, 10)
+	}
+	if strings.HasPrefix(full, "@") {
+		return full
+	}
+	parts := strings.Fields(full)
+	if len(parts) < 2 {
+		return parts[0]
+	}
+	first := parts[0]
+	lastRunes := []rune(parts[1])
+	if len(lastRunes) == 0 {
+		return first
+	}
+	return first + " " + string(lastRunes[0]) + "."
+}
+
+func parseGuestSeats(choiceLabel string) (int, bool) {
+	label := strings.TrimSpace(choiceLabel)
+	if !strings.HasPrefix(label, "+") || len(label) < 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(label, "+"))
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+func buildPollQueueSeats(votes []postgres.GroupPollVoteItem) []pollQueueSeat {
+	seats := make([]pollQueueSeat, 0, len(votes))
+	rank := 0
+	for _, vote := range votes {
+		name := pollVoteShortName(vote)
+		if name == "" {
+			continue
+		}
+
+		if guestCount, ok := parseGuestSeats(vote.ChoiceLabel); ok {
+			for i := 0; i < guestCount; i++ {
+				seats = append(seats, pollQueueSeat{
+					UserID:   vote.UserID,
+					Name:     name,
+					IsGuest:  true,
+					VotedAt:  vote.VotedAt,
+					SortRank: rank,
+				})
+				rank++
+			}
+			continue
+		}
+
+		seats = append(seats, pollQueueSeat{
+			UserID:   vote.UserID,
+			Name:     name,
+			IsGuest:  false,
+			VotedAt:  vote.VotedAt,
+			SortRank: rank,
+		})
+		rank++
+	}
+
+	sort.SliceStable(seats, func(i, j int) bool {
+		a := seats[i]
+		b := seats[j]
+		if !a.VotedAt.Equal(b.VotedAt) {
+			return a.VotedAt.Before(b.VotedAt)
+		}
+		if a.UserID != b.UserID {
+			return a.UserID < b.UserID
+		}
+		if a.IsGuest != b.IsGuest {
+			return !a.IsGuest
+		}
+		return a.SortRank < b.SortRank
+	})
+	return seats
+}
+
+func formatPollQueueReport(seats []pollQueueSeat, loc *time.Location, limit int) string {
+	if limit <= 0 {
+		limit = pollQueueLimit
+	}
+	if len(seats) == 0 {
+		return "Очередь пока пуста."
+	}
+
+	headCount := len(seats)
+	if headCount > limit {
+		headCount = limit
+	}
+
+	var b strings.Builder
+	b.WriteString("Очередь:\n\n")
+	for i := 0; i < headCount; i++ {
+		b.WriteString(formatPollQueueSeatLine(i+1, seats[i], loc))
+		if i+1 < headCount {
+			b.WriteByte('\n')
+		}
+	}
+
+	if len(seats) > limit {
+		b.WriteString("\n\nРезерв:\n\n")
+		for i := limit; i < len(seats); i++ {
+			b.WriteString(formatPollQueueSeatLine(i+1, seats[i], loc))
+			if i+1 < len(seats) {
+				b.WriteByte('\n')
+			}
+		}
+	}
+
+	return b.String()
+}
+
+func formatPollQueueSeatLine(position int, seat pollQueueSeat, loc *time.Location) string {
+	name := seat.Name
+	if seat.IsGuest {
+		name += " (Гость)"
+	}
+	return fmt.Sprintf("%d. %s - %s", position, name, seat.VotedAt.In(loc).Format("02.01 15:04"))
 }
 
 func (s *pollCommandState) reserveCooldown(chatID int64, now time.Time) (time.Duration, bool) {
@@ -245,7 +380,7 @@ func sendPollReportWithMessageID(bot *tele.Bot, chat tele.Chat, text string) (in
 		}
 	}
 	if firstMessageID == 0 {
-		return 0, errors.New("telegram did not return message id")
+		return 0, nil
 	}
 	return firstMessageID, nil
 }
@@ -256,14 +391,12 @@ func sendMessageWithMeta(bot *tele.Bot, chatID int64, text string) (int64, error
 		"text":    text,
 	}
 	var response struct {
-		Result struct {
-			MessageID int64 `json:"message_id"`
-		} `json:"result"`
+		MessageID int64 `json:"message_id"`
 	}
 	if err := callTelegramAPI(bot.Token, "sendMessage", payload, &response); err != nil {
 		return 0, err
 	}
-	return response.Result.MessageID, nil
+	return response.MessageID, nil
 }
 
 func pinChatMessage(bot *tele.Bot, chatID int64, messageID int64) error {

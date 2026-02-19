@@ -1122,6 +1122,26 @@ func (s *Store) ReplaceEventPollVotes(
 			return err
 		}
 
+		type existingVoteRow struct {
+			Choice  string
+			VotedAt time.Time
+		}
+		var existingVotes []existingVoteRow
+		if err := tx.Table("event_poll_votes").
+			Select("choice, voted_at").
+			Where("post_id = ? AND user_id = ?", postID, userID).
+			Scan(&existingVotes).Error; err != nil {
+			return err
+		}
+		existingVotedAtByChoice := make(map[string]time.Time, len(existingVotes))
+		for _, row := range existingVotes {
+			choice := strings.TrimSpace(row.Choice)
+			if choice == "" {
+				continue
+			}
+			existingVotedAtByChoice[choice] = row.VotedAt
+		}
+
 		// Telegram can send updates with empty OptionIDs (user removed vote).
 		// In this case we just clear all choices for this user.
 		if err := tx.Table("event_poll_votes").
@@ -1135,6 +1155,11 @@ func (s *Store) ReplaceEventPollVotes(
 
 		votes := make([]EventPollVote, 0, len(uniq))
 		for _, c := range uniq {
+			choiceVotedAt := votedAt.UTC()
+			if existing, ok := existingVotedAtByChoice[c]; ok && !existing.IsZero() {
+				// Preserve queue position for choices that user keeps selected.
+				choiceVotedAt = existing.UTC()
+			}
 			votes = append(votes, EventPollVote{
 				PostID:    postID,
 				UserID:    userID,
@@ -1143,7 +1168,7 @@ func (s *Store) ReplaceEventPollVotes(
 				LastName:  lastName,
 				Choice:    c,
 				Source:    source,
-				VotedAt:   votedAt.UTC(),
+				VotedAt:   choiceVotedAt,
 			})
 		}
 		return tx.Create(&votes).Error
