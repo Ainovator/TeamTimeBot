@@ -563,6 +563,47 @@ func (s *Server) handlePollRoutes(w http.ResponseWriter, r *http.Request, chatID
 		writeJSON(w, http.StatusOK, items)
 		return
 	}
+	if len(parts) == 2 && parts[1] == "options" && r.Method == http.MethodGet {
+		postID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid post id")
+			return
+		}
+		options, err := s.store.ListGroupPollOptionsByPostID(r.Context(), chatID, postID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if options == nil {
+			options = make([]postgres.GroupPollOptionItem, 0)
+		}
+		writeJSON(w, http.StatusOK, options)
+		return
+	}
+	if len(parts) == 2 && parts[1] == "votes" && r.Method == http.MethodPost {
+		if _, _, ok := s.requireGroupPermission(w, r, chatID, "roles_manage"); !ok {
+			return
+		}
+		postID, err := strconv.ParseUint(parts[0], 10, 64)
+		if err != nil {
+			writeErrorMessage(w, http.StatusBadRequest, "invalid post id")
+			return
+		}
+		var req struct {
+			UserID int64  `json:"userID"`
+			Choice string `json:"choice"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := s.store.AddGroupPollVoteChoiceByPostUser(r.Context(), chatID, postID, req.UserID, req.Choice); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
 	if len(parts) == 2 && parts[1] == "votes" && r.Method == http.MethodGet {
 		postID, err := strconv.ParseUint(parts[0], 10, 64)
 		if err != nil {

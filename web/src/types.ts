@@ -133,6 +133,14 @@ export type GroupPollVoteItem = {
   votedAt: string
 }
 
+export type GroupPollOptionItem = {
+  choice: string
+  choiceIndex: number
+  choiceLabel: string
+  choiceWeight: number
+  counted: boolean
+}
+
 export type TeamSplitPlayer = {
   userID: number
   guestOwnerID?: number

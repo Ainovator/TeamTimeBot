@@ -1,5 +1,6 @@
 import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  addGroupPollVoteForUser,
   activateEventPublications,
   archiveEvent,
   assignGroupRole,
@@ -29,6 +30,7 @@ import {
   fetchGroupGames,
   fetchGroupMembers,
   fetchGroupPermissions,
+  fetchGroupPollOptions,
   fetchGroupPolls,
   fetchGroupPollVotes,
   fetchGroupRoles,
@@ -94,6 +96,7 @@ import type {
   GroupDetails,
   GroupGameRow,
   GroupPollItem,
+  GroupPollOptionItem,
   GroupPollVoteItem,
   GroupMember,
   GroupDebtor,
@@ -280,6 +283,13 @@ export default function App() {
   const [groupPollVotes, setGroupPollVotes] = useState<GroupPollVoteItem[]>([])
   const [groupPollVotesLoading, setGroupPollVotesLoading] = useState(false)
   const [groupPollVotesError, setGroupPollVotesError] = useState('')
+  const [pollOptions, setPollOptions] = useState<GroupPollOptionItem[]>([])
+  const [pollOptionsLoading, setPollOptionsLoading] = useState(false)
+  const [pollOptionsError, setPollOptionsError] = useState('')
+  const [manualVoteDraft, setManualVoteDraft] = useState({
+    userID: '',
+    choice: '',
+  })
   const [eventPollHistoryLoading, setEventPollHistoryLoading] = useState(false)
   const [eventPollHistoryError, setEventPollHistoryError] = useState('')
   const [selectedHistoryPostID, setSelectedHistoryPostID] = useState<number | null>(null)
@@ -416,6 +426,15 @@ export default function App() {
     () => groupPolls.find((poll) => poll.postID === activePollPostID) ?? null,
     [groupPolls, activePollPostID],
   )
+  const currentVotePostID = useMemo(() => {
+    if (activeSection === 'polls') {
+      return activePollPostID
+    }
+    if (activeSection === 'events') {
+      return selectedHistoryPostID
+    }
+    return null
+  }, [activePollPostID, activeSection, selectedHistoryPostID])
   const displayedEvents = useMemo(() => {
     const source = eventsMode === 'active' ? events : ensureList(archivedEvents)
     if (eventsTypeFilter === '') {
@@ -1276,6 +1295,53 @@ export default function App() {
       cancelled = true
     }
   }, [activeSection, activeChatID, activePollPostID, success])
+
+  useEffect(() => {
+    setManualVoteDraft({
+      userID: '',
+      choice: '',
+    })
+  }, [currentVotePostID])
+
+  useEffect(() => {
+    if ((activeSection !== 'events' && activeSection !== 'polls') || activeChatID === null || currentVotePostID === null) {
+      setPollOptions([])
+      setPollOptionsError('')
+      setPollOptionsLoading(false)
+      return
+    }
+    let cancelled = false
+    setPollOptionsLoading(true)
+    setPollOptionsError('')
+    void fetchGroupPollOptions(activeChatID, currentVotePostID)
+      .then((items) => {
+        if (cancelled) {
+          return
+        }
+        setPollOptions(items)
+        setManualVoteDraft((prev) => {
+          if (prev.choice !== '' && items.some((item) => item.choice === prev.choice)) {
+            return prev
+          }
+          return { ...prev, choice: '' }
+        })
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return
+        }
+        setPollOptions([])
+        setPollOptionsError((err as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPollOptionsLoading(false)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSection, activeChatID, currentVotePostID, success])
 
   useEffect(() => {
     if (activeSection !== 'events' || activeChatID === null || activeHistoryEventID === null) {
@@ -2445,6 +2511,31 @@ export default function App() {
     )
   }
 
+  async function onAddManualPollVote(postID: number) {
+    if (activeChatID === null) {
+      return
+    }
+    const userID = Number(manualVoteDraft.userID)
+    if (!Number.isInteger(userID) || userID <= 0) {
+      setError('Выбери игрока для добавления голоса')
+      return
+    }
+    const choice = manualVoteDraft.choice.trim()
+    if (choice === '') {
+      setError('Выбери вариант голоса')
+      return
+    }
+    await runAction(
+      () =>
+        addGroupPollVoteForUser(activeChatID, postID, {
+          userID,
+          choice,
+        }),
+      'Голос добавлен, расчёт обновлён',
+    )
+    setManualVoteDraft((prev) => ({ ...prev, userID: '' }))
+  }
+
   async function onCreateFromTemplate(eventID: number) {
     if (activeChatID === null) {
       return
@@ -2846,6 +2937,87 @@ export default function App() {
       return `@${vote.username}`
     }
     return `ID ${vote.userID}`
+  }
+
+  function renderManualPollVoteForm(postID: number | null) {
+    if (!isAdmin || postID === null) {
+      return null
+    }
+
+    const sortedMembers = [...members].sort((left, right) => {
+      const leftLabel = relationMemberOptionLabel(left)
+      const rightLabel = relationMemberOptionLabel(right)
+      const byName = leftLabel.localeCompare(rightLabel, 'ru')
+      if (byName !== 0) {
+        return byName
+      }
+      return left.userTelegramID - right.userTelegramID
+    })
+    const canSubmit =
+      manualVoteDraft.userID.trim() !== '' &&
+      manualVoteDraft.choice.trim() !== '' &&
+      !pollOptionsLoading &&
+      pollOptionsError === '' &&
+      sortedMembers.length > 0 &&
+      pollOptions.length > 0
+
+    return (
+      <section className="settings-group manual-vote-card">
+        <p className="settings-group-title">Добавить голос игрока</p>
+        {pollOptionsLoading ? <p className="muted">Загрузка вариантов голосования...</p> : null}
+        {pollOptionsError ? <p className="muted">Ошибка: {pollOptionsError}</p> : null}
+        {sortedMembers.length === 0 ? <p className="muted">Список игроков пуст. Добавь игроков в организацию.</p> : null}
+        {!pollOptionsLoading && !pollOptionsError && pollOptions.length === 0 ? (
+          <p className="muted">В этом голосовании не найдено вариантов.</p>
+        ) : null}
+        <div className="settings-row settings-row-3 manual-vote-row">
+          <label className="field">
+            <span>Игрок</span>
+            <select
+              value={manualVoteDraft.userID}
+              onChange={(e) => setManualVoteDraft((prev) => ({ ...prev, userID: e.target.value }))}
+            >
+              <option value="">Выбери игрока</option>
+              {sortedMembers.map((member) => (
+                <option key={member.userTelegramID} value={member.userTelegramID}>
+                  {`${relationMemberOptionLabel(member)} · ID ${member.userTelegramID}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Вариант</span>
+            <select
+              value={manualVoteDraft.choice}
+              onChange={(e) => setManualVoteDraft((prev) => ({ ...prev, choice: e.target.value }))}
+            >
+              <option value="">Выбери вариант</option>
+              {pollOptions.map((option) => {
+                const suffix: string[] = []
+                if (!option.counted) {
+                  suffix.push('без учёта')
+                }
+                if (option.choiceWeight > 1) {
+                  suffix.push(`x${option.choiceWeight}`)
+                }
+                const label = suffix.length > 0 ? `${option.choiceLabel} (${suffix.join(', ')})` : option.choiceLabel
+                return (
+                  <option key={option.choice} value={option.choice}>
+                    {label}
+                  </option>
+                )
+              })}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label-placeholder" />
+            <button type="button" onClick={() => void onAddManualPollVote(postID)} disabled={!canSubmit}>
+              Добавить голос
+            </button>
+          </label>
+        </div>
+      </section>
+    )
   }
 
   function scrollDocsTo(id: string) {
@@ -5934,6 +6106,7 @@ export default function App() {
                     </table>
                   </div>
                 ) : null}
+                {renderManualPollVoteForm(selectedHistoryPostID)}
                 {selectedHistoryPostID !== null ? (
                   <div className="manual-controls">
                     <button
@@ -6308,7 +6481,7 @@ export default function App() {
                 </thead>
                 <tbody>
                   {groupPollVotes.map((vote) => (
-                    <tr key={vote.userID}>
+                    <tr key={`${vote.userID}-${vote.choice}-${vote.votedAt}`}>
                       <td>{pollVoteDisplayName(vote)}</td>
                       <td>{vote.choiceLabel || vote.choice}</td>
                       <td>{vote.counted ? 'да' : 'нет'}</td>
@@ -6320,6 +6493,7 @@ export default function App() {
               </table>
             </div>
           ) : null}
+          {renderManualPollVoteForm(activePollPostID)}
         </section>
       )
     }

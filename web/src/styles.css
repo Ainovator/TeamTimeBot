@@ -1017,6 +1017,14 @@ h4 {
   margin-top: 8px;
 }
 
+.manual-vote-card {
+  margin-top: 12px;
+}
+
+.manual-vote-row {
+  margin-top: 6px;
+}
+
 .team-save-controls {
   margin-top: 34px;
   justify-content: flex-end;

@@ -3,6 +3,7 @@ import type {
   EventHistoryItem,
   EventPollHistoryItem,
   GroupPollItem,
+  GroupPollOptionItem,
   GroupPollVoteItem,
   EventTeamSplitState,
   EventActivitySummary,
@@ -400,6 +401,20 @@ export async function fetchGroupPolls(chatID: number): Promise<GroupPollItem[]> 
 export async function fetchGroupPollVotes(chatID: number, postID: number): Promise<GroupPollVoteItem[]> {
   const res = await fetch(`/api/groups/${chatID}/polls/${postID}/votes`)
   return parseResponse<GroupPollVoteItem[]>(res)
+}
+
+export async function fetchGroupPollOptions(chatID: number, postID: number): Promise<GroupPollOptionItem[]> {
+  const res = await fetch(`/api/groups/${chatID}/polls/${postID}/options`)
+  return parseResponse<GroupPollOptionItem[]>(res)
+}
+
+export async function addGroupPollVoteForUser(chatID: number, postID: number, payload: { userID: number; choice: string }) {
+  const res = await fetch(`/api/groups/${chatID}/polls/${postID}/votes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  await parseResponse<{ status: string }>(res)
 }
 
 export async function deleteGroupPollVotesForUser(chatID: number, postID: number, userID: number, choice?: string) {

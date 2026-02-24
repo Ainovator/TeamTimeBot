@@ -299,6 +299,14 @@ type GroupPollVoteItem struct {
 	VotedAt      time.Time `json:"votedAt"`
 }
 
+type GroupPollOptionItem struct {
+	Choice       string `json:"choice"`
+	ChoiceIndex  int    `json:"choiceIndex"`
+	ChoiceLabel  string `json:"choiceLabel"`
+	ChoiceWeight int    `json:"choiceWeight"`
+	Counted      bool   `json:"counted"`
+}
+
 type TeamSplitPlayer struct {
 	UserID       int64   `json:"userID"`
 	GuestOwnerID int64   `json:"guestOwnerID,omitempty"`
@@ -1289,6 +1297,120 @@ func (s *Store) DeleteGroupPollVotesByPostAndUser(ctx context.Context, chatID in
 		}
 
 		// Settlement might not exist yet: recalc creates it if possible.
+		return s.recalculateEventSettlementByInstanceTx(ctx, tx, group.ID, *post.InstanceID)
+	})
+}
+
+// AddGroupPollVoteChoiceByPostUser adds one option choice for a user in a poll post.
+// If this poll is bound to an event instance, settlement/payments are recalculated immediately.
+func (s *Store) AddGroupPollVoteChoiceByPostUser(ctx context.Context, chatID int64, postID uint64, userID int64, choice string) error {
+	if postID == 0 || userID == 0 {
+		return errors.New("post_id and user_id are required")
+	}
+	choice = strings.TrimSpace(choice)
+	if choice == "" {
+		return errors.New("choice is required")
+	}
+	choiceIndex, ok := parsePollOptionChoice(choice)
+	if !ok {
+		return errors.New("choice must be in option_<index> format")
+	}
+
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		type postRow struct {
+			InstanceID      *uint64
+			TemplateOptions datatypes.JSON
+		}
+		var post postRow
+		if err := tx.
+			Table("event_poll_posts epp").
+			Select("epp.instance_id, COALESCE(ei.poll_options, pt.options, '[]'::jsonb) AS template_options").
+			Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+			Joins("LEFT JOIN event_instances ei ON ei.id = epp.instance_id").
+			Where("epp.id = ? AND epp.group_id = ?", postID, group.ID).
+			Take(&post).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("poll post not found")
+			}
+			return err
+		}
+
+		var options []string
+		_ = json.Unmarshal(post.TemplateOptions, &options)
+		if choiceIndex < 0 || choiceIndex >= len(options) {
+			return errors.New("choice index is out of range for this poll")
+		}
+
+		type userRow struct {
+			Username  string
+			FirstName string
+			LastName  string
+		}
+		var user userRow
+		userExists := false
+		if err := tx.Table("telegram_users").
+			Select("username, first_name, last_name").
+			Where("telegram_id = ?", userID).
+			Take(&user).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		} else {
+			userExists = true
+		}
+
+		if userExists {
+			if err := upsertTelegramUserTx(tx, userID, user.Username, user.FirstName, user.LastName); err != nil {
+				return err
+			}
+		}
+		if err := upsertGroupMemberTx(tx, group.ID, userID, "member", "active"); err != nil {
+			return err
+		}
+		if err := ensureDefaultMemberSkillsTx(tx, group.ID, userID); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		vote := EventPollVote{
+			PostID:    postID,
+			UserID:    userID,
+			Username:  strings.TrimSpace(user.Username),
+			FirstName: strings.TrimSpace(user.FirstName),
+			LastName:  strings.TrimSpace(user.LastName),
+			Choice:    choice,
+			Source:    "inline",
+			VotedAt:   now,
+		}
+		if err := tx.Table("event_poll_votes").
+			Clauses(clause.OnConflict{
+				Columns: []clause.Column{
+					{Name: "post_id"},
+					{Name: "user_id"},
+					{Name: "choice"},
+				},
+				DoUpdates: clause.Assignments(map[string]interface{}{
+					"username":   vote.Username,
+					"first_name": vote.FirstName,
+					"last_name":  vote.LastName,
+					"source":     vote.Source,
+					"voted_at":   vote.VotedAt,
+					"updated_at": gorm.Expr("NOW()"),
+				}),
+			}).
+			Create(&vote).Error; err != nil {
+			return err
+		}
+
+		if post.InstanceID == nil || *post.InstanceID == 0 {
+			return nil
+		}
+
 		return s.recalculateEventSettlementByInstanceTx(ctx, tx, group.ID, *post.InstanceID)
 	})
 }
@@ -4012,6 +4134,65 @@ func (s *Store) GetPollSeatConfigByPostID(ctx context.Context, chatID int64, pos
 		weightByChoice[choice] = w
 	}
 	return choices, weightByChoice, normalizePollMaxPlaces(r.MaxPlaces), nil
+}
+
+func (s *Store) ListGroupPollOptionsByPostID(ctx context.Context, chatID int64, postID uint64) ([]GroupPollOptionItem, error) {
+	if postID == 0 {
+		return nil, errors.New("post_id is required")
+	}
+	group, err := s.getGroupByChatID(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	type postRow struct {
+		TemplateOptions datatypes.JSON
+		CountedOptions  datatypes.JSON
+		OptionWeights   datatypes.JSON
+	}
+	var post postRow
+	if err := s.db.WithContext(ctx).
+		Table("event_poll_posts epp").
+		Select("COALESCE(ei.poll_options, pt.options, '[]'::jsonb) AS template_options, COALESCE(ei.poll_counted_options, pt.counted_options, '[]'::jsonb) AS counted_options, COALESCE(ei.poll_option_weights, pt.option_weights, '[]'::jsonb) AS option_weights").
+		Joins("JOIN poll_templates pt ON pt.id = epp.template_id").
+		Joins("LEFT JOIN event_instances ei ON ei.id = epp.instance_id").
+		Where("epp.id = ? AND epp.group_id = ?", postID, group.ID).
+		Take(&post).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("poll post not found")
+		}
+		return nil, err
+	}
+
+	var options []string
+	_ = json.Unmarshal(post.TemplateOptions, &options)
+	var counted []int
+	_ = json.Unmarshal(post.CountedOptions, &counted)
+	var weights []int
+	_ = json.Unmarshal(post.OptionWeights, &weights)
+	counted = normalizeCountedOptionIndexes(len(options), counted)
+	weights = normalizeOptionWeightsLen(len(options), weights)
+	countedIdx := make(map[int]struct{}, len(counted))
+	for _, idx := range counted {
+		countedIdx[idx] = struct{}{}
+	}
+
+	items := make([]GroupPollOptionItem, 0, len(options))
+	for idx, label := range options {
+		_, isCounted := countedIdx[idx]
+		choiceLabel := strings.TrimSpace(label)
+		if choiceLabel == "" {
+			choiceLabel = "option_" + strconv.Itoa(idx)
+		}
+		items = append(items, GroupPollOptionItem{
+			Choice:       "option_" + strconv.Itoa(idx),
+			ChoiceIndex:  idx,
+			ChoiceLabel:  choiceLabel,
+			ChoiceWeight: weights[idx],
+			Counted:      isCounted,
+		})
+	}
+	return items, nil
 }
 
 func (s *Store) ListGroupPollVotesByPostID(ctx context.Context, chatID int64, postID uint64) ([]GroupPollVoteItem, error) {
