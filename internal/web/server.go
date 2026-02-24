@@ -22,6 +22,7 @@ import (
 	"time"
 
 	tele "gopkg.in/telebot.v4"
+	"gopkg.in/telebot.v4/internal/polls"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
 )
 
@@ -1931,8 +1932,24 @@ func (s *Server) publishEventPollNow(ctx context.Context, chatID int64, eventID 
 		return errors.New("template requires at least 2 options")
 	}
 
+	group, err := s.store.GetGroupByChatID(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	loc, err := time.LoadLocation(group.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	nowLocal := time.Now().In(loc)
+	startHour, startMin, err := parseHourMinute(event.StartTime)
+	if err != nil {
+		return err
+	}
+	nextStart := nextEventStartLocal(nowLocal, event.StartWeekday, startHour, startMin)
+	pollQuestion := polls.WithEventDate(template.TemplateQuestion, nextStart)
+
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
-	sent, err := s.bot.SendPollWithMeta(chat, template.TemplateQuestion, template.TemplateOptions, nil)
+	sent, err := s.bot.SendPollWithMeta(chat, pollQuestion, template.TemplateOptions, nil)
 	if err != nil {
 		return err
 	}
@@ -1953,9 +1970,14 @@ func (s *Server) publishEventPollForInstanceNow(ctx context.Context, chatID int6
 	if len(template.TemplateOptions) < 2 {
 		return errors.New("template requires at least 2 options")
 	}
+	_, localDate, err := s.store.GetEventInstanceHeader(ctx, chatID, instanceID)
+	if err != nil {
+		return err
+	}
+	pollQuestion := polls.WithEventDate(template.TemplateQuestion, localDate)
 
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
-	sent, err := s.bot.SendPollWithMeta(chat, template.TemplateQuestion, template.TemplateOptions, nil)
+	sent, err := s.bot.SendPollWithMeta(chat, pollQuestion, template.TemplateOptions, nil)
 	if err != nil {
 		return err
 	}

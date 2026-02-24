@@ -10,6 +10,7 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
+	"gopkg.in/telebot.v4/internal/polls"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
 )
 
@@ -233,25 +234,38 @@ func HandleCallback(bot *tele.Bot, store *postgres.Store, callback tele.Callback
 			return
 		}
 
+		pollQuestion := template.Question
+		var eventID *uint64
+		group, groupErr := store.GetGroupByChatID(context.Background(), targetChatID)
+		if groupErr == nil {
+			loc, locErr := time.LoadLocation(group.Timezone)
+			if locErr == nil {
+				nowLocal := time.Now().UTC().In(loc)
+				weekday := isoWeekday(nowLocal.Weekday())
+				foundEventID, findErr := store.FindBoundEventIDByTemplateAndWeekday(context.Background(), targetChatID, template.Name, weekday)
+				if findErr == nil {
+					eventID = foundEventID
+				}
+				if eventID != nil {
+					event, eventErr := store.GetEventByID(context.Background(), targetChatID, *eventID)
+					if eventErr == nil {
+						startHour, startMinute, startErr := parseClockHourMinute(event.StartTime)
+						if startErr == nil {
+							targetStartLocal := nextWeekdayTimeLocal(nowLocal, event.StartWeekday, startHour, startMinute)
+							pollQuestion = polls.WithEventDate(template.Question, targetStartLocal)
+						}
+					}
+				}
+			}
+		}
+
 		target := tele.Chat{ID: targetChatID, Type: tele.ChatGroup}
-		sent, err := bot.SendPollWithMeta(target, template.Question, template.Options, nil)
+		sent, err := bot.SendPollWithMeta(target, pollQuestion, template.Options, nil)
 		if err != nil {
 			_ = bot.SendMessage(chat, "Ошибка отправки опроса: "+err.Error(), nil)
 			return
 		}
 		if sent != nil {
-			var eventID *uint64
-			group, groupErr := store.GetGroupByChatID(context.Background(), targetChatID)
-			if groupErr == nil {
-				loc, locErr := time.LoadLocation(group.Timezone)
-				if locErr == nil {
-					weekday := isoWeekday(time.Now().UTC().In(loc).Weekday())
-					foundEventID, findErr := store.FindBoundEventIDByTemplateAndWeekday(context.Background(), targetChatID, template.Name, weekday)
-					if findErr == nil {
-						eventID = foundEventID
-					}
-				}
-			}
 			if _, err := store.CreateEventPollPost(
 				context.Background(),
 				targetChatID,
@@ -1437,6 +1451,36 @@ func loadEventTemplateDetails(ctx context.Context, store *postgres.Store, target
 		TemplateOptions:  template.Options,
 		MaxPlaces:        selected.MaxPlaces,
 	}, nil
+}
+
+func parseClockHourMinute(value string) (int, int, error) {
+	layouts := []string{"15:04:05", "15:04"}
+	var parsed time.Time
+	var err error
+	for _, layout := range layouts {
+		parsed, err = time.Parse(layout, strings.TrimSpace(value))
+		if err == nil {
+			return parsed.Hour(), parsed.Minute(), nil
+		}
+	}
+	return 0, 0, err
+}
+
+func nextWeekdayTimeLocal(now time.Time, weekday int, hour int, minute int) time.Time {
+	if weekday < 1 || weekday > 7 {
+		return now
+	}
+	currentWeekday := isoWeekday(now.Weekday())
+	delta := weekday - currentWeekday
+	if delta < 0 {
+		delta += 7
+	}
+	candidateDate := now.AddDate(0, 0, delta)
+	candidate := time.Date(candidateDate.Year(), candidateDate.Month(), candidateDate.Day(), hour, minute, 0, 0, now.Location())
+	if !candidate.After(now) {
+		candidate = candidate.AddDate(0, 0, 7)
+	}
+	return candidate
 }
 
 func sendEventEditMenu(bot *tele.Bot, chat tele.Chat, event postgres.EventView) {

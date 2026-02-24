@@ -7,6 +7,7 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
+	"gopkg.in/telebot.v4/internal/polls"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
 )
 
@@ -55,27 +56,44 @@ func (s *PollScheduler) tick(ctx context.Context) {
 			continue
 		}
 
+		pollQuestion := schedule.Question
+		var eventID *uint64
+		loc, locErr := time.LoadLocation(schedule.Timezone)
+		if locErr != nil {
+			log.Printf("scheduler: invalid timezone %q for schedule %d chat %d: %v", schedule.Timezone, schedule.ScheduleID, schedule.ChatID, locErr)
+		} else {
+			nowLocal := nowUTC.In(loc)
+			localWeekday := isoWeekday(nowLocal.Weekday())
+			foundEventID, findErr := s.store.FindBoundEventIDByTemplateAndWeekday(ctx, schedule.ChatID, schedule.TemplateName, localWeekday)
+			if findErr != nil {
+				log.Printf("scheduler: find bound event failed for schedule %d: %v", schedule.ScheduleID, findErr)
+			} else {
+				eventID = foundEventID
+			}
+			if eventID != nil {
+				event, eventErr := s.store.GetEventByID(ctx, schedule.ChatID, *eventID)
+				if eventErr != nil {
+					log.Printf("scheduler: load event failed for schedule %d event %d: %v", schedule.ScheduleID, *eventID, eventErr)
+				} else {
+					startHour, startMinute, startErr := parseClockHourMinute(event.StartTime)
+					if startErr != nil {
+						log.Printf("scheduler: invalid event start time %q for event %d: %v", event.StartTime, event.ID, startErr)
+					} else {
+						targetStartLocal := nextWeekdayTimeLocal(nowLocal, event.StartWeekday, startHour, startMinute)
+						pollQuestion = polls.WithEventDate(schedule.Question, targetStartLocal)
+					}
+				}
+			}
+		}
+
 		chat := tele.Chat{ID: schedule.ChatID, Type: tele.ChatGroup}
-		sent, err := s.bot.SendPollWithMeta(chat, schedule.Question, schedule.Options, nil)
+		sent, err := s.bot.SendPollWithMeta(chat, pollQuestion, schedule.Options, nil)
 		if err != nil {
 			log.Printf("scheduler: send poll failed for schedule %d chat %d: %v", schedule.ScheduleID, schedule.ChatID, err)
 			_ = s.store.SetNextRunAt(ctx, schedule.ScheduleID, nowUTC.Add(2*time.Minute))
 			continue
 		}
 		if sent != nil {
-			var eventID *uint64
-			loc, locErr := time.LoadLocation(schedule.Timezone)
-			if locErr != nil {
-				log.Printf("scheduler: invalid timezone %q for schedule %d chat %d: %v", schedule.Timezone, schedule.ScheduleID, schedule.ChatID, locErr)
-			} else {
-				localWeekday := isoWeekday(nowUTC.In(loc).Weekday())
-				foundEventID, findErr := s.store.FindBoundEventIDByTemplateAndWeekday(ctx, schedule.ChatID, schedule.TemplateName, localWeekday)
-				if findErr != nil {
-					log.Printf("scheduler: find bound event failed for schedule %d: %v", schedule.ScheduleID, findErr)
-				} else {
-					eventID = foundEventID
-				}
-			}
 			if _, err := s.store.CreateEventPollPost(
 				ctx,
 				schedule.ChatID,

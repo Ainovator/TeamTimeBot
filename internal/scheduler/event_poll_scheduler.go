@@ -7,6 +7,7 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
+	"gopkg.in/telebot.v4/internal/polls"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
 )
 
@@ -152,10 +153,11 @@ func (s *EventPollScheduler) tick(ctx context.Context) {
 		}
 
 		chat := tele.Chat{ID: event.ChatID, Type: tele.ChatGroup}
+		pollQuestion := polls.WithEventDate(template.TemplateQuestion, targetEventDate)
 		if debug {
-			log.Printf("event_poll: posting event %d chat %d template=%q question_len=%d options=%d", event.EventID, event.ChatID, template.TemplateName, len(template.TemplateQuestion), len(template.TemplateOptions))
+			log.Printf("event_poll: posting event %d chat %d template=%q question_len=%d options=%d", event.EventID, event.ChatID, template.TemplateName, len(pollQuestion), len(template.TemplateOptions))
 		}
-		sent, err := s.bot.SendPollWithMeta(chat, template.TemplateQuestion, template.TemplateOptions, nil)
+		sent, err := s.bot.SendPollWithMeta(chat, pollQuestion, template.TemplateOptions, nil)
 		if err != nil {
 			log.Printf("event_poll: send poll failed for event %d chat %d: %v", event.EventID, event.ChatID, err)
 			continue
