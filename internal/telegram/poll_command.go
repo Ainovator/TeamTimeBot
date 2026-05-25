@@ -1,13 +1,11 @@
 package telegram
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -429,7 +427,7 @@ func sendMessageWithMeta(bot *tele.Bot, chatID int64, text string) (int64, error
 	var response struct {
 		MessageID int64 `json:"message_id"`
 	}
-	if err := callTelegramAPI(bot.Token, "sendMessage", payload, &response); err != nil {
+	if err := callTelegramAPI(bot, "sendMessage", payload, &response); err != nil {
 		return 0, err
 	}
 	return response.MessageID, nil
@@ -441,7 +439,7 @@ func pinChatMessage(bot *tele.Bot, chatID int64, messageID int64) error {
 		"message_id":           messageID,
 		"disable_notification": true,
 	}
-	return callTelegramAPI(bot.Token, "pinChatMessage", payload, nil)
+	return callTelegramAPI(bot, "pinChatMessage", payload, nil)
 }
 
 func unpinChatMessage(bot *tele.Bot, chatID int64, messageID int64) error {
@@ -449,29 +447,25 @@ func unpinChatMessage(bot *tele.Bot, chatID int64, messageID int64) error {
 		"chat_id":    chatID,
 		"message_id": messageID,
 	}
-	return callTelegramAPI(bot.Token, "unpinChatMessage", payload, nil)
+	return callTelegramAPI(bot, "unpinChatMessage", payload, nil)
 }
 
-func callTelegramAPI(token, method string, payload interface{}, result interface{}) error {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/%s", token, method)
-
-	var body bytes.Buffer
-	if err := json.NewEncoder(&body).Encode(payload); err != nil {
-		return err
+func callTelegramAPI(bot *tele.Bot, method string, payload interface{}, result interface{}) error {
+	if bot == nil {
+		return errors.New("telegram bot is not configured")
 	}
 
-	resp, err := http.Post(url, "application/json", &body)
+	responseJSON, err := bot.CallAPI(method, payload)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 
 	var envelope struct {
 		Ok          bool            `json:"ok"`
 		Description string          `json:"description"`
 		Result      json.RawMessage `json:"result"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+	if err := json.Unmarshal(responseJSON, &envelope); err != nil {
 		return err
 	}
 	if !envelope.Ok {

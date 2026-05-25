@@ -28,7 +28,13 @@ func (b *Bot) sendCommand(method string, payload interface{}) ([]byte, error) {
 		return []byte{}, wrapSystem(err)
 	}
 
-	resp, err := http.Post(url, "application/json", &buf)
+	req, err := http.NewRequest("POST", url, &buf)
+	if err != nil {
+		return []byte{}, wrapSystem(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := b.httpClient().Do(req)
 	if err != nil {
 		return []byte{}, errors.Wrap(err, "http.Post failed")
 	}
@@ -76,10 +82,11 @@ func (b *Bot) sendFile(method, name, path string, params map[string]string) ([]b
 
 	req.Header.Add("Content-Type", writer.FormDataContentType())
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := b.httpClient().Do(req)
 	if err != nil {
 		return []byte{}, errors.Wrap(err, "http.Post failed")
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusInternalServerError {
 		return []byte{}, errors.New("api error: internal server error")
@@ -91,6 +98,11 @@ func (b *Bot) sendFile(method, name, path string, params map[string]string) ([]b
 	}
 
 	return json, nil
+}
+
+// CallAPI sends a raw Telegram API request through the bot's configured client.
+func (b *Bot) CallAPI(method string, payload interface{}) ([]byte, error) {
+	return b.sendCommand(method, payload)
 }
 
 func embedSendOptions(params map[string]string, options *SendOptions) {

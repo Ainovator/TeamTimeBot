@@ -27,7 +27,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	bot, err := tele.NewBot(cfg.BotToken)
+	bot, err := tele.NewBot(cfg.BotToken, tele.WithProxy(cfg.TelegramProxyURL))
 	if err != nil {
 		log.Fatal(err)
 	}

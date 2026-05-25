@@ -25,7 +25,7 @@ func main() {
 
 	var bot *tele.Bot
 	if cfg.BotToken != "" {
-		loadedBot, err := tele.NewBot(cfg.BotToken)
+		loadedBot, err := tele.NewBot(cfg.BotToken, tele.WithProxy(cfg.TelegramProxyURL))
 		if err != nil {
 			log.Fatalf("failed to init bot for manual controls: %v", err)
 		}

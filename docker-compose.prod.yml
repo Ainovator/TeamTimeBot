@@ -40,6 +40,7 @@ services:
     restart: unless-stopped
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
       DATABASE_URL: ${DATABASE_URL:-}
       POSTGRES_HOST: ${POSTGRES_HOST:-db}
       POSTGRES_DB: ${POSTGRES_DB:-teamtimebot}
@@ -64,6 +65,7 @@ services:
     entrypoint: ["/web"]
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
+      TELEGRAM_PROXY_URL: ${TELEGRAM_PROXY_URL:-}
       WEB_ADDR: ${WEB_ADDR:-:8080}
       WEB_STATIC_DIR: ${WEB_STATIC_DIR:-/web-static}
       WEB_TELEGRAM_LOGIN_BOT: ${WEB_TELEGRAM_LOGIN_BOT:-}

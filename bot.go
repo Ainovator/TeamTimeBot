@@ -3,6 +3,7 @@ package telebot
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -24,14 +25,25 @@ type Bot struct {
 	Errors chan error
 
 	tree *radix.Tree
+	client *http.Client
 }
 
 // NewBot does try to build a Bot with token `token`, which
 // is a secret API key assigned to particular bot.
-func NewBot(token string) (*Bot, error) {
+func NewBot(token string, options ...BotOption) (*Bot, error) {
 	bot := &Bot{
-		Token: token,
-		tree:  radix.New(),
+		Token:  token,
+		tree:   radix.New(),
+		client: defaultHTTPClient(),
+	}
+
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+		if err := option(bot); err != nil {
+			return nil, err
+		}
 	}
 
 	user, err := bot.getMe()

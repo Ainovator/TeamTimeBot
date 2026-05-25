@@ -6,17 +6,21 @@ import (
 	"time"
 )
 
+const defaultTelegramProxyURL = "http://user219754:s9r0aq@93.127.145.234:5243"
+
 type Config struct {
-	BotToken      string
-	DatabaseURL   string
-	PollerTimeout time.Duration
+	BotToken         string
+	DatabaseURL      string
+	TelegramProxyURL string
+	PollerTimeout    time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		BotToken:      os.Getenv("BOT_TOKEN"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		PollerTimeout: 10 * time.Second,
+		BotToken:         os.Getenv("BOT_TOKEN"),
+		DatabaseURL:      os.Getenv("DATABASE_URL"),
+		TelegramProxyURL: getEnvOrDefault("TELEGRAM_PROXY_URL", defaultTelegramProxyURL),
+		PollerTimeout:    10 * time.Second,
 	}
 
 	if cfg.DatabaseURL == "" {
