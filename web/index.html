@@ -4,9 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TeamTime</title>
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <meta name="description" content="TeamTime — события, запись игроков, взносы и абонементы для спортивных команд и тренировочных групп. Организуйте встречи с интеграцией с Telegram." />
     <script>
       // Apply the saved product theme before the first paint. The design lab has its own themes.
-      if (!/^\/design-lab\/?$/.test(location.pathname)) {
+      if (!/^\/(?:design-lab\/?|landing\/?)?$/.test(location.pathname)) {
         let theme = 'club';
         try {
           const saved = localStorage.getItem('teamtime-theme-v2');

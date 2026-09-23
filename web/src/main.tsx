@@ -3,9 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { AppBoundary, StartupScreen } from './components/AppBoundary'
 
 const isDesignLab = /^\/design-lab\/?$/.test(window.location.pathname)
+const isLanding = /^\/(?:landing\/?)?$/.test(window.location.pathname)
 const Page = lazy(() => isDesignLab
   ? import('./features/design-lab/DesignLab')
-  : import('./ProductApp'))
+  : isLanding ? import('./features/landing/LandingPage') : import('./ProductApp'))
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

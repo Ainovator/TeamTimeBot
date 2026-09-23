@@ -9,7 +9,7 @@ const { outputText } = ts.transpileModule(source, { compilerOptions: { module: t
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
 const initialScript = html.match(/<script>([\s\S]*?)<\/script>/)[1]
 
-function readThemes(values = {}, blocked = false, path = '/') {
+function readThemes(values = {}, blocked = false, path = '/app') {
   const localStorage = { getItem(key) { if (blocked) throw new Error('Storage unavailable'); return values[key] ?? null } }
   const context = { exports: {}, localStorage }
   runInNewContext(outputText, context)
@@ -37,4 +37,11 @@ test('invalid or unavailable storage falls back to club in both entry paths', ()
 })
 test('prepaint theme does not override the independent design lab', () => {
   assert.equal(readThemes({}, false, '/design-lab').initial, undefined)
+})
+
+test('public landing stays light without changing the saved product theme', () => {
+  for (const path of ['/', '/landing', '/landing/']) {
+    assert.deepEqual(readThemes({ 'teamtime-theme-v2': 'arena' }, false, path), { app: 'arena', initial: undefined })
+  }
+  assert.equal(readThemes({ 'teamtime-theme-v2': 'arena' }, false, '/org/team--1').initial, 'arena')
 })

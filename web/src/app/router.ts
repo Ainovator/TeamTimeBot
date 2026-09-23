@@ -213,7 +213,7 @@ export function parseRoute(pathname: string): RouteState {
 export function buildRoutePath(route: RouteState): string {
   const orgSegment = route.orgKey || (route.chatID ? String(route.chatID) : '')
   if (!orgSegment) {
-    return '/'
+    return '/app'
   }
 
   if (route.section === 'overview') {
