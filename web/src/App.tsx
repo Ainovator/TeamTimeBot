@@ -24,6 +24,7 @@ import { EventSetsEditor, type SetRowDraft } from './features/studio/EventSetsEd
 import { LineupAnalysis } from './features/studio/LineupAnalysis'
 import { ThemeSwitcher, useProductTheme } from './features/studio/ThemeSwitcher'
 import { LoginPage } from './features/auth/LoginPage'
+import { watchMediaQuery } from './app/mediaQuery'
 import { Select } from './components/Select'
 import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -1607,25 +1608,11 @@ export default function App() {
     }
   }, [success])
 
-  useEffect(() => {
-    const mql = window.matchMedia('(pointer: coarse)')
-    const onChange = () => setTouchDragMode(mql.matches)
-    onChange()
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
+  useEffect(() => watchMediaQuery('(pointer: coarse)', setTouchDragMode), [])
 
-  useEffect(() => {
-    const mql = window.matchMedia('(max-width: 900px)')
-    const onChange = () => {
-      if (!mql.matches) {
-        setMobileNavOpen(false)
-      }
-    }
-    onChange()
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
+  useEffect(() => watchMediaQuery('(max-width: 900px)', matches => {
+    if (!matches) setMobileNavOpen(false)
+  }), [])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -5113,10 +5100,10 @@ export default function App() {
     )
   }
 
-  if (authLoading || (authConfig?.enabled && !authUser)) {
+  if (authLoading || !authConfig || (authConfig.enabled && !authUser)) {
     return <>
       <ErrorNotifications/>
-      <LoginPage checking={authLoading} configured={Boolean(authConfig?.telegramLoginBot)} widgetError={loginWidgetError} onRetry={() => setLoginWidgetAttempt(attempt => attempt + 1)}>
+      <LoginPage checking={authLoading} configured={Boolean(authConfig?.telegramLoginBot)} startupError={!authLoading && !authConfig} widgetError={loginWidgetError} onRetry={() => setLoginWidgetAttempt(attempt => attempt + 1)}>
         <div id="telegram-login-widget"/>
       </LoginPage>
     </>

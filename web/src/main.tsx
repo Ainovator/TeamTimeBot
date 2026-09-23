@@ -1,15 +1,16 @@
 import React, { lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
+import { AppBoundary, StartupScreen } from './components/AppBoundary'
 
 const isDesignLab = /^\/design-lab\/?$/.test(window.location.pathname)
 const Page = lazy(() => isDesignLab
   ? import('./features/design-lab/DesignLab')
-  : import('./styles.css').then(() => import('./studio-theme.css')).then(() => import('@fontsource-variable/golos-text')).then(() => import('./App')))
+  : import('./ProductApp'))
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <Suspense fallback={<div role="status" style={{ padding: 32, fontFamily: 'sans-serif' }}>Загружаем TeamTime…</div>}>
+    <AppBoundary><Suspense fallback={<StartupScreen/>}>
       <Page />
-    </Suspense>
+    </Suspense></AppBoundary>
   </React.StrictMode>,
 )

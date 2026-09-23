@@ -2862,7 +2862,7 @@ func (s *Server) handleStaticOrInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requested := filepath.Clean(r.URL.Path)
-	if requested == "." || requested == "/" {
+	if requested == "." || requested == "/" || requested == "/index.html" {
 		s.serveIndex(w, r)
 		return
 	}
@@ -2872,11 +2872,19 @@ func (s *Server) handleStaticOrInfo(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, fullPath)
 		return
 	}
+	// Missing versioned bundles belong to an older deployment, not to the SPA router.
+	if strings.HasPrefix(requested, "/assets/") {
+		w.Header().Set("Cache-Control", "no-store")
+		http.NotFound(w, r)
+		return
+	}
 	// SPA fallback
 	s.serveIndex(w, r)
 }
 
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
+	// Always revalidate the HTML so it cannot keep pointing at removed JS/CSS bundles.
+	w.Header().Set("Cache-Control", "no-cache")
 	indexPath := filepath.Join(s.staticDir, "index.html")
 	if _, err := os.Stat(indexPath); err != nil {
 		writeErrorMessage(w, http.StatusNotFound, "frontend static files not found")
