@@ -1,5 +1,9 @@
+.studio-event-billing-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:24px; }
+.studio-event-billing-heading h4 { font-size:19px; margin:0 0 8px; }
+.studio-event-billing-heading p { font-size:12px; line-height:1.6; color:var(--text-muted); margin:0; }
 .studio-event-debt-action { display:grid; gap:6px; }
 .studio-event-debt-action > small { color:var(--text-muted); font-size:11px; }
+@media(max-width:700px) { .studio-event-billing-heading { gap:16px; }.studio-event-debt-action { width:100%; }.studio-event-debt-action > button { width:100%; } }
 .studio-event-debt-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin:20px 0 12px; }
 .studio-event-debt-heading > h3 { font-size:15px; margin:0; }
 .studio-event-debt-recipients { max-height:240px; overflow:auto; border-block:1px solid var(--border-color); }

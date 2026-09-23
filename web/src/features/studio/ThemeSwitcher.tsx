@@ -1,16 +1,7 @@
 import { useLayoutEffect, useState } from 'react'
 import { Icon } from '../../components/Icon'
+import { savedTheme, themeStorageKey as storageKey, type ProductTheme } from '../../app/theme'
 import '../../product-themes.css'
-
-type ProductTheme = 'arena' | 'club' | 'cherry' | 'light'
-const storageKey = 'teamtime-theme'
-
-function savedTheme(): ProductTheme {
-  try {
-    const stored = localStorage.getItem(storageKey)
-    return stored === 'light' || stored === 'cherry' || stored === 'club' ? stored : 'arena'
-  } catch { return 'arena' }
-}
 
 export function useProductTheme() {
   const [theme, setTheme] = useState<ProductTheme>(savedTheme)
@@ -33,8 +24,8 @@ export function useProductTheme() {
 
 export function ThemeSwitcher({ theme, choose }: { theme: ProductTheme; choose: (theme: ProductTheme) => void }) {
   const options = [
-    { id:'arena', label:'Ночная арена', description:'Глубокий синий и ледяной голубой' },
     { id:'club', label:'Спортивный клуб', description:'Белые карточки и тёмно-синее меню' },
+    { id:'arena', label:'Ночная арена', description:'Глубокий синий и ледяной голубой' },
     { id:'cherry', label:'Вишня', description:'Тёплый графит и вишнёвые акценты' },
     { id:'light', label:'Светлая', description:'Светлые поверхности и мягкий зелёный' },
   ] as const

@@ -82,7 +82,7 @@ window.fetch = async (input, init) => {
   if(params.has('networkError') && /\/events\/history$/.test(path))throw new TypeError('Failed to fetch')
   if(params.has('historyError') && /\/events\/history$/.test(path))return json({error:'internal server error'},500)
   if(path==='/api/auth/config')return json({enabled:true})
-  if(path==='/api/auth/me')return json({enabled:true,user:{id:101,firstName:'Алексей',lastName:'Морозов',username:'qa_alex',authDate:Math.floor(Date.now()/1000)}})
+  if(path==='/api/auth/me')return json({enabled:true,user:params.get('auth') === 'guest' ? null : {id:101,firstName:'Алексей',lastName:'Морозов',username:'qa_alex',authDate:Math.floor(Date.now()/1000)}})
   if(path==='/api/groups')return json(groups)
   if(/\/permissions$/.test(path))return json({roleCode:memberMode?'member':'admin',roleTitle:memberMode?'Участник':'Организатор',permissions:Object.fromEntries(['events_read','events_manage','polls_read','members_read','members_manage','billing_manage','templates_manage','event_templates_manage','roles_manage','profile_read'].map(key=>[key,!memberMode||allowedPermissions.includes(key)]))})
   if(/\/groups\/-?\d+$/.test(path))return json({group:groups.find(g=>path.endsWith(String(g.chatID)))||group,templateNames:Object.keys(templates),templates:Object.values(templates).map(t=>({name:t.name,question:t.question,countedOptionsCount:t.countedOptions.length})),events,schedules:[]})

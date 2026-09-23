@@ -23,6 +23,7 @@ import { EventDebtReminder } from './features/studio/EventDebtReminder'
 import { EventSetsEditor, type SetRowDraft } from './features/studio/EventSetsEditor'
 import { LineupAnalysis } from './features/studio/LineupAnalysis'
 import { ThemeSwitcher, useProductTheme } from './features/studio/ThemeSwitcher'
+import { LoginPage } from './features/auth/LoginPage'
 import { Select } from './components/Select'
 import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -159,6 +160,8 @@ export default function App() {
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null)
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [loginWidgetError, setLoginWidgetError] = useState(false)
+  const [loginWidgetAttempt, setLoginWidgetAttempt] = useState(0)
   const [groups, setGroups] = useState<Group[]>([])
   const [groupsLoaded, setGroupsLoaded] = useState(false)
   const [activeChatID, setActiveChatID] = useState<number | null>(initialRoute.chatID)
@@ -872,6 +875,7 @@ export default function App() {
       return
     }
     container.innerHTML = ''
+    setLoginWidgetError(false)
 
     window.onTelegramAuth = (payload) => {
       void (async () => {
@@ -893,13 +897,21 @@ export default function App() {
     script.setAttribute('data-userpic', 'false')
     script.setAttribute('data-request-access', 'write')
     script.setAttribute('data-onauth', 'onTelegramAuth(user)')
+    script.onerror = () => setLoginWidgetError(true)
+    script.onload = () => setLoginWidgetError(false)
     container.appendChild(script)
+    const widgetTimeout = window.setTimeout(() => {
+      if (!container.querySelector('iframe')) setLoginWidgetError(true)
+    }, 15000)
 
     return () => {
+      window.clearTimeout(widgetTimeout)
+      script.onerror = null
+      script.onload = null
       delete window.onTelegramAuth
       container.innerHTML = ''
     }
-  }, [authConfig, authUser, authLoading])
+  }, [authConfig, authUser, authLoading, loginWidgetAttempt])
 
   useEffect(() => {
     // Keep the requested detail route while authentication and organizations load.
@@ -4523,8 +4535,19 @@ export default function App() {
             {historyDetailTab === 'attendance' && activeChatID !== null && isAdmin && <TrainingAttendance key={`${activeChatID}-${activeHistoryEventID}`} chatID={activeChatID} instanceID={selectedHistoryEvent.instanceID} cancelled={selectedHistoryEvent.status === 'not_held'} startAt={selectedHistoryEvent.nextStartAt} onChanged={() => setAttendanceRevision(value => value + 1)}/>}
 {historyDetailTab === 'billing' ? (
               <section className="content-card">
-                <div className="template-head">
-                  <h4>Оплата события</h4>
+                <div className="studio-event-billing-heading">
+                  <div><h4>Оплата события</h4><p>Взносы и задолженность только за эту тренировку.</p></div>
+                  {(!authConfig?.enabled || activePerms?.permissions.billing_manage) && <EventDebtReminder
+                    key={`${activeChatID}:${selectedHistoryEvent.instanceID}`}
+                    chatID={activeChatID}
+                    instanceID={selectedHistoryEvent.instanceID}
+                    eventName={selectedHistoryEvent.name}
+                    groupTitle={details?.group.title || 'Группа команды'}
+                    billing={eventBilling}
+                    pendingChanges={Boolean(eventBilling?.players.some(player => Boolean(eventBillingDraft[player.userID]) !== player.isPaid))}
+                    unavailable={eventBillingLoading || Boolean(eventBillingError)}
+                    onPublished={() => setSuccess('Должники по этому событию опубликованы в Telegram')}
+                  />}
                 </div>
                 {eventBillingLoading ? <p className="muted">Загружаю оплаты...</p> : null}
 
@@ -4602,17 +4625,6 @@ export default function App() {
                       </table>
                     </div>
                     <div className="manual-controls">
-                      {(!authConfig?.enabled || activePerms?.permissions.billing_manage) && <EventDebtReminder
-                        key={`${activeChatID}:${selectedHistoryEvent.instanceID}`}
-                        chatID={activeChatID}
-                        instanceID={selectedHistoryEvent.instanceID}
-                        eventName={selectedHistoryEvent.name}
-                        groupTitle={details?.group.title || 'Группа команды'}
-                        billing={eventBilling}
-                        pendingChanges={eventBilling.players.some(player => Boolean(eventBillingDraft[player.userID]) !== player.isPaid)}
-                        unavailable={eventBillingLoading || Boolean(eventBillingError)}
-                        onPublished={() => setSuccess('Задолженность опубликована в Telegram')}
-                      />}
                       <button
                         type="button"
                         className="btn-secondary"
@@ -5100,6 +5112,15 @@ export default function App() {
     )
   }
 
+  if (authLoading || (authConfig?.enabled && !authUser)) {
+    return <>
+      <ErrorNotifications/>
+      <LoginPage checking={authLoading} configured={Boolean(authConfig?.telegramLoginBot)} widgetError={loginWidgetError} onRetry={() => setLoginWidgetAttempt(attempt => attempt + 1)}>
+        <div id="telegram-login-widget"/>
+      </LoginPage>
+    </>
+  }
+
   return (
     <div className={`console-shell studio-product${mobileNavOpen ? ' nav-open' : ''}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`} onInvalid={event => {
       if (event.defaultPrevented) return
@@ -5282,15 +5303,7 @@ export default function App() {
 
         {success ? <section className={`toast toast-success ${successVisible ? 'show' : 'hide'}`}>{success}</section> : null}
 
-        {authLoading ? (
-          <section className="content-card">Проверка авторизации...</section>
-        ) : authConfig?.enabled && !authUser ? (
-          <section className="content-card">
-            <h3>Вход через Telegram</h3>
-            <p className="muted">Авторизуйся через Telegram, чтобы видеть только свои админские группы.</p>
-            <div id="telegram-login-widget" />
-          </section>
-        ) : isTemplateSection(activeSection) ? (
+        {isTemplateSection(activeSection) ? (
           <section className="content-card studio-template-workspace">
             <OrganizationTemplateNavigation active={activeSection} available={availableTemplateSections} open={openStudioSection}/>
             <div className="studio-template-content">{renderContent()}</div>

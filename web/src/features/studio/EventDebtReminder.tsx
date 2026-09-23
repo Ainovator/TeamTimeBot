@@ -11,7 +11,7 @@ import './eventDebtReminder.css'
 const playerName = (player: EventBillingPlayer) => player.realName?.trim() || `${player.firstName ?? ''} ${player.lastName ?? ''}`.trim() || (player.username ? `@${player.username}` : `Игрок ${player.userID}`)
 
 export function EventDebtReminder({ chatID, instanceID, eventName, groupTitle, billing, pendingChanges, unavailable, onPublished }: {
-  chatID: number; instanceID: number; eventName: string; groupTitle: string; billing: EventBilling
+  chatID: number; instanceID: number; eventName: string; groupTitle: string; billing: EventBilling | null
   pendingChanges: boolean; unavailable: boolean; onPublished: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -25,8 +25,9 @@ export function EventDebtReminder({ chatID, instanceID, eventName, groupTitle, b
   const debtors = (preview?.players ?? []).filter(player => !player.isPaid && player.amountDue > 0)
   const included = debtors.filter(player => selected.includes(player.userID))
   const total = included.reduce((sum, player) => sum + player.amountDue, 0)
-  const hasDebt = billing.players.some(player => !player.isPaid && player.amountDue > 0)
-  const date = new Date(preview?.localDate ?? billing.localDate).toLocaleDateString('ru-RU', { timeZone: 'UTC' })
+  const hasDebt = billing?.players.some(player => !player.isPaid && player.amountDue > 0) ?? false
+  const localDate = preview?.localDate ?? billing?.localDate
+  const date = localDate ? new Date(localDate).toLocaleDateString('ru-RU', { timeZone: 'UTC' }) : ''
 
   async function showPreview() {
     if (lock.current || pendingChanges || unavailable || !hasDebt) return
@@ -64,11 +65,11 @@ export function EventDebtReminder({ chatID, instanceID, eventName, groupTitle, b
 
   return <>
     <div className="studio-event-debt-action">
-      <button type="button" className="btn-secondary" aria-haspopup="dialog" onClick={() => void showPreview()}
+      <button type="button" aria-haspopup="dialog" onClick={() => void showPreview()}
         disabled={busy || pendingChanges || unavailable || !hasDebt}>
-        <Icon name="arrow" size={16}/>Опубликовать задолженность
+        <Icon name="arrow" size={16}/>Опубликовать должников
       </button>
-      {pendingChanges && <small>Сначала сохраните изменения оплаты.</small>}
+      <small>{unavailable ? 'Ожидаем актуальные данные об оплатах.' : pendingChanges ? 'Сначала сохраните изменения оплаты.' : !billing ? 'Сначала сформируйте расчёт события.' : !hasDebt ? 'Должников по этому событию нет.' : 'В Telegram · только по этому событию'}</small>
     </div>
     {open && <Modal title="Задолженность за тренировку" busy={busy} close={() => setOpen(false)}>
       <p className="muted">В группу «{groupTitle}» будет опубликован долг за «{eventName}» ({date}). Имена выбранных игроков будут упоминаниями Telegram.</p>

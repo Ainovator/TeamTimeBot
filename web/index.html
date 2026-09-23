@@ -7,10 +7,10 @@
     <script>
       // Apply the saved product theme before the first paint. The design lab has its own themes.
       if (!/^\/design-lab\/?$/.test(location.pathname)) {
-        let theme = 'arena';
+        let theme = 'club';
         try {
-          const saved = localStorage.getItem('teamtime-theme');
-          if (saved === 'light' || saved === 'cherry' || saved === 'club') theme = saved;
+          const saved = localStorage.getItem('teamtime-theme-v2');
+          if (saved === 'arena' || saved === 'light' || saved === 'cherry' || saved === 'club') theme = saved;
         } catch {}
         document.documentElement.dataset.theme = theme;
       }

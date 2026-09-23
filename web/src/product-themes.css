@@ -220,7 +220,7 @@
 :root:is([data-theme=cherry],[data-theme=arena]) .nav-item.active { background:var(--dark-nav-active); color:var(--dark-active-text); }
 :root:is([data-theme=cherry],[data-theme=arena]) .nav-item:hover { background:var(--bg-panel-soft); color:var(--accent); }
 :root:is([data-theme=cherry],[data-theme=arena]) :is(.brand-mark,.primary-btn,.studio-calendar-days > button.today,.members-sort-arrow.active) { background:var(--theme-action); border-color:var(--theme-action); color:white; }
-:root:is([data-theme=cherry],[data-theme=arena]) :is(.brand-mark,.primary-btn):hover { background:var(--theme-hover); }
+:root:is([data-theme=cherry],[data-theme=arena]) .primary-btn:hover { background:var(--theme-hover); }
 :root:is([data-theme=cherry],[data-theme=arena]) input::placeholder,:root:is([data-theme=cherry],[data-theme=arena]) textarea::placeholder { color:var(--dark-placeholder); }
 :root:is([data-theme=cherry],[data-theme=arena]) :is(input,textarea):focus { box-shadow:0 0 0 3px var(--dark-focus-ring); }
 :root:is([data-theme=cherry],[data-theme=arena]) .option-weight input[type=number] { background:var(--bg-input); border-color:var(--dark-input-border); }
