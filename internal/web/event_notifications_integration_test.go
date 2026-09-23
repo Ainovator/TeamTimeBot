@@ -89,6 +89,7 @@ func TestEventNotificationsIntegration(t *testing.T) {
 	exec(`INSERT INTO telegram_groups(id,chat_id,title,timezone) VALUES (1,-100,'Команда <A>','UTC'),(2,-200,'Другая команда','UTC');
 		INSERT INTO telegram_users(telegram_id,first_name) VALUES (101,'Анна & Оля'),(102,'Борис'),(103,'Другой'),(999,'Чужой');
 		INSERT INTO group_members(group_id,user_telegram_id,real_name) VALUES (1,101,'Анна <b> & Оля'),(1,102,'Борис'),(1,103,'Другой'),(2,999,'Чужой');
+		UPDATE group_members SET role='admin' WHERE group_id=1 AND user_telegram_id=101;
 		INSERT INTO poll_templates(group_id,name,question,options,counted_options) VALUES (1,'Запись','Кто играет?','["Да","Нет"]','[0]');`)
 	store, err := postgres.New(testDSN)
 	if err != nil {
@@ -111,13 +112,23 @@ func TestEventNotificationsIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := NewServer(store, bot, Config{})
-	post := func(path, body string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	server := NewServer(store, bot, Config{TelegramLoginBotUsername: "fixture_bot", TelegramBotToken: "fixture-token", SessionSecret: "fixture-session-secret"})
+	requestAs := func(userID int64, method, path, body string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, path, strings.NewReader(body))
 		request.Header.Set("Content-Type", "application/json")
+		if userID != 0 {
+			token, err := server.buildSessionToken(AuthUser{ID: userID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.AddCookie(&http.Cookie{Name: server.auth.cookieName, Value: token})
+		}
 		response := httptest.NewRecorder()
 		server.Handler().ServeHTTP(response, request)
 		return response
+	}
+	post := func(path, body string) *httptest.ResponseRecorder {
+		return requestAs(101, http.MethodPost, path, body)
 	}
 	t.Run("settings persist, validate organization and preserve omitted fields", func(t *testing.T) {
 		view, err := store.GetEventByID(ctx, -100, event.ID)
@@ -187,6 +198,61 @@ func TestEventNotificationsIntegration(t *testing.T) {
 			t.Fatal("published debt for paid players")
 		}
 		exec("UPDATE event_settlement_payments SET is_paid=FALSE WHERE settlement_id=201 AND user_id=101")
+	})
+	t.Run("event billing uses real authenticated role permissions", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			userID     int64
+			role       string
+			wantStatus int
+		}{
+			{"admin", 101, "", http.StatusOK},
+			{"captain", 103, "captain", http.StatusForbidden},
+			{"trainer", 103, "trainer", http.StatusForbidden},
+			{"member", 102, "", http.StatusForbidden},
+			{"anonymous", 0, "", http.StatusUnauthorized},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				if tc.role != "" {
+					if err := store.AssignGroupRole(ctx, -100, tc.userID, tc.role); err != nil {
+						t.Fatal(err)
+					}
+				}
+				capture.calls = nil
+				if tc.userID != 0 {
+					response := requestAs(tc.userID, http.MethodGet, "/api/groups/-100/permissions", "")
+					var permissions postgres.GroupPermissionsView
+					if response.Code != http.StatusOK {
+						t.Fatalf("permissions HTTP %d: %s", response.Code, response.Body.String())
+					}
+					if err := json.Unmarshal(response.Body.Bytes(), &permissions); err != nil {
+						t.Fatal(err)
+					}
+					if permissions.Permissions["billing_manage"] != (tc.wantStatus == http.StatusOK) {
+						t.Fatalf("wrong billing permission for %s: %#v", tc.name, permissions.Permissions)
+					}
+				}
+				response := requestAs(tc.userID, http.MethodPost, "/api/groups/-100/events/history/101/billing/publish", `{"userIDs":[101]}`)
+				if response.Code != tc.wantStatus {
+					t.Fatalf("publish HTTP %d, want %d: %s", response.Code, tc.wantStatus, response.Body.String())
+				}
+				if tc.wantStatus == http.StatusOK {
+					if len(capture.calls) != 1 {
+						t.Fatalf("expected one publication: %#v", capture.calls)
+					}
+				} else {
+					if len(capture.calls) != 0 {
+						t.Fatal("unauthorized user published debt")
+					}
+					for _, method := range []string{http.MethodPost, http.MethodPut} {
+						response := requestAs(tc.userID, method, "/api/groups/-100/events/history/101/billing", `{"statuses":[]}`)
+						if response.Code != tc.wantStatus {
+							t.Fatalf("%s billing HTTP %d, want %d", method, response.Code, tc.wantStatus)
+						}
+					}
+				}
+			})
+		}
 	})
 	t.Run("group debt mentions selected players and totals their trainings", func(t *testing.T) {
 		capture.calls = nil

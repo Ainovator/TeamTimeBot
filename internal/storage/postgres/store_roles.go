@@ -169,6 +169,7 @@ func (s *Store) GetGroupPermissionsForUser(ctx context.Context, chatID int64, us
 				"event_templates_manage": true,
 				"events_read":            true,
 				"events_manage":          true,
+				"billing_manage":         true,
 				"polls_read":             true,
 				"roles_manage":           true,
 				"profile_read":           true,
