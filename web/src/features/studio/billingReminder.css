@@ -1,0 +1,48 @@
+.studio-reminder-hero {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 230px;
+  grid-template-areas:"copy actions" "stats stats";
+  align-items:center;
+  justify-content:space-between;
+  gap:24px 40px;
+  min-width:0;
+  margin-bottom:22px;
+  padding:28px 32px;
+  border:1px solid #315779;
+  border-radius:16px;
+  background:linear-gradient(115deg,#173b60,#112b46);
+  color:#f4f8fc;
+}
+.studio-reminder-copy { grid-area:copy; min-width:0; max-width:680px; }
+.studio-reminder-eyebrow { display:flex; align-items:center; gap:8px; margin:0 0 13px; font-size:9px; font-weight:500; letter-spacing:1.5px; color:#a9c9e5; }
+.studio-reminder-hero h2 { margin:0; font-size:clamp(24px,2.4vw,32px); font-weight:550; line-height:1.2; letter-spacing:-.8px; color:inherit; }
+.studio-reminder-description { max-width:540px; margin:12px 0 0; color:#bed2e5; font-size:13px; line-height:1.65; }
+.studio-reminder-actions { grid-area:actions; display:flex; flex-direction:column; align-items:center; width:230px; }
+.studio-reminder-stats { grid-area:stats; display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,.85fr); align-items:center; gap:24px; margin:0; padding-top:22px; border-top:1px solid #ffffff24; }
+.studio-reminder-stats > div { display:flex; align-items:center; gap:14px; min-width:0; }
+.studio-reminder-stats > div + div { padding-left:24px; border-left:1px solid #ffffff24; }
+.studio-reminder-stats dt { order:1; max-width:170px; color:#bed2e5; font-size:12px; font-weight:400; line-height:1.6; }
+.studio-reminder-stats dd { margin:0; color:#f4f8fc; font-size:34px; font-weight:550; font-variant-numeric:tabular-nums; line-height:1.15; letter-spacing:-.7px; }
+.studio-reminder-stats > .studio-reminder-total { flex-direction:column; align-items:flex-start; gap:7px; }
+.studio-reminder-total dt { order:0; }
+.studio-reminder-total dd { color:#ffad70; font-size:clamp(32px,3.3vw,44px); white-space:nowrap; letter-spacing:-1.2px; }
+.studio-reminder-hero .studio-reminder-cta { display:flex; justify-content:space-between; width:100%; min-height:49px; padding:13px 18px; border:1px solid #d5eafa; border-radius:9px; background:#e7f3ff; color:#153c64; font-size:14px; font-weight:550; }
+.studio-reminder-hero .studio-reminder-cta:hover { background:#fff; border-color:#fff; }
+.studio-reminder-hero button:disabled { opacity:.45; cursor:not-allowed; }
+.studio-reminder-hero button:focus-visible { outline:2px solid #a9ddff; outline-offset:4px; }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-reminder-hero { background:linear-gradient(115deg,var(--dark-hero-from),var(--dark-hero-to)); border-color:var(--dark-hero-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.studio-reminder-eyebrow,.studio-reminder-description,.studio-reminder-stats dt) { color:var(--dark-hero-text); }
+:root[data-theme=cherry] .studio-reminder-hero .studio-reminder-cta { background:#f3dce4; color:#512a3a; border-color:#f3dce4; }
+:root[data-theme=cherry] .studio-reminder-hero .studio-reminder-cta:hover { background:#fff0f5; border-color:#fff0f5; }
+@media (max-width:700px) {
+  .studio-reminder-hero { grid-template-columns:minmax(0,1fr); grid-template-areas:"copy" "stats" "actions"; align-items:stretch; gap:23px; padding:24px 21px; margin-bottom:18px; }
+  .studio-reminder-hero h2 { font-size:26px; }
+  .studio-reminder-description { font-size:12px; }
+  .studio-reminder-actions { width:100%; }
+  .studio-reminder-stats { grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px 14px; padding-top:20px; }
+  .studio-reminder-stats > .studio-reminder-total { grid-column:1/-1; }
+  .studio-reminder-stats > div + div { border-left:0; padding-left:0; gap:10px; }
+  .studio-reminder-stats dt { font-size:11px; }
+  .studio-reminder-stats dd { font-size:28px; }
+  .studio-reminder-total dd { font-size:38px; }
+}

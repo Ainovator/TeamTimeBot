@@ -1,0 +1,34 @@
+.tt-select {
+  --tt-select-bg: var(--dl-panel, var(--bg-panel, #fff));
+  --tt-select-text: var(--dl-text, var(--text-main, #283631));
+  --tt-select-muted: var(--dl-muted, var(--text-muted, #738078));
+  --tt-select-border: var(--dl-border, var(--border-color, #e2e7e0));
+  --tt-select-accent: var(--dl-accent, var(--accent, #23634f));
+  --tt-select-soft: var(--dl-soft, var(--bg-panel-soft, #e8f0e9));
+  position: relative; display: inline-flex; flex-direction: column; min-width: 0; max-width: 100%; vertical-align: middle; font: inherit;
+}
+.tt-select select.tt-select-native { position: absolute !important; opacity: 0 !important; width: 1px !important; height: 1px !important; min-width: 0 !important; min-height: 0 !important; padding: 0 !important; border: 0 !important; pointer-events: none; }
+.tt-select button.tt-select-trigger { appearance: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 42px; width: 100%; border: 1px solid var(--tt-select-border); border-radius: 9px; padding: 10px 13px; background: var(--tt-select-bg); color: var(--tt-select-text); font: inherit; font-size: 13px; font-weight: 400; line-height: 1.5; text-align: left; box-shadow: none; cursor: pointer; }
+.tt-select-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-select-trigger > svg { color: var(--tt-select-muted); flex-shrink: 0; transition: transform .15s; }
+.tt-select[data-open] .tt-select-trigger > svg { transform: rotate(180deg); }
+.tt-select button.tt-select-trigger:hover { border-color: var(--tt-select-accent); background: var(--tt-select-bg); }
+.tt-select button.tt-select-trigger:focus-visible, .tt-select[data-open] button.tt-select-trigger { border-color: var(--tt-select-accent); outline: 2px solid color-mix(in srgb, var(--tt-select-accent) 16%, transparent); outline-offset: 2px; }
+.tt-select button.tt-select-trigger:disabled { opacity: .5; cursor: not-allowed; }
+.tt-select button.tt-select-trigger[aria-invalid=true] { border-color: #b54d41; }
+.tt-select-error { color: #b54d41; font-size: 12px; margin-top: 5px; }
+.tt-select-popup { box-sizing: border-box; z-index: 5000; padding: 6px; overflow-y: auto; overscroll-behavior: contain; background: var(--tt-select-bg, #fff); color: var(--tt-select-text, #283631); border: 1px solid var(--tt-select-border, #e2e7e0); border-radius: 12px; box-shadow: 0 12px 36px #1e302320, 0 2px 6px #1e302308; scrollbar-width: thin; scrollbar-color: var(--tt-select-border) transparent; }
+.tt-select-option { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 12px; border-radius: 7px; font-size: 14px; line-height: 1.45; font-weight: 400; cursor: pointer; }
+.tt-select-option > span { overflow-wrap: anywhere; }
+.tt-select-option > svg { flex-shrink: 0; }
+.tt-select-option.is-active { background: var(--tt-select-soft); color: var(--tt-select-accent); }
+.tt-select-option[aria-selected=true] { color: var(--tt-select-accent); font-weight: 550; }
+.tt-select-option[aria-disabled=true] { opacity: .4; cursor: not-allowed; }
+.tt-select-compact button.tt-select-trigger { gap:6px; padding-inline:10px; }
+.tt-select-popup-compact { padding:4px; border-radius:9px; }
+.tt-select-popup-compact .tt-select-option { justify-content:center; gap:0; padding:8px 4px; min-height:36px; font-size:13px; font-variant-numeric:tabular-nums; }
+.tt-select-group { font-size: 11px; font-weight: 500; color: var(--tt-select-muted); padding: 10px 12px 5px; }
+.field > .tt-select, .dl-form label > .tt-select { width: 100%; }
+.dl-ledger-toolbar > .tt-select { min-width: 185px; }
+.dl-roster-controls > .tt-select { min-width: 170px; }
+@container design (max-width: 640px) { .dl-ledger-toolbar > .tt-select { flex: 1; } }

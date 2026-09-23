@@ -1,0 +1,42 @@
+{
+  "file": "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\output\\imagegen\\teamtime-tt-final-1024.png",
+  "size": [
+    1024,
+    1024
+  ],
+  "mode": "RGBA",
+  "visible_rgb_colors": [
+    [
+      50,
+      103,
+      207
+    ]
+  ],
+  "transparent_pixels": 807064,
+  "opaque_pixels": 232563,
+  "visible_bounds_inclusive": [
+    122,
+    121,
+    901,
+    902
+  ],
+  "margins_px": [
+    122,
+    121,
+    122,
+    121
+  ],
+  "geometry": {
+    "identical_letters": true,
+    "stroke": 120.0,
+    "bar_width": 360.0,
+    "letter_height": 675.0,
+    "right_letter_offset": [
+      402.0,
+      90.0
+    ],
+    "rightward_lean_degrees": 6,
+    "corner_radius": 16.0
+  },
+  "method": "Built-in image_gen concept, followed by user-authorized geometric regularization and PNG export."
+}

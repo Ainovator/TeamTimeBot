@@ -40,6 +40,7 @@ func (s *Store) CreateEvent(
 	settlementPublishBefore bool,
 	settlementPublishAfter bool,
 	costAmount *float64,
+	mentions *EventMentionSettings,
 ) (*GroupEvent, error) {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
@@ -123,7 +124,15 @@ func (s *Store) CreateEvent(
 		pollTemplateID = &pollTemplate.ID
 	}
 
+	mentionSettings := EventMentionSettings{OnPoll: true, OnAnnouncement: true}
+	if mentions != nil {
+		mentionSettings = *mentions
+	}
+	if err := s.validateEventMentions(ctx, group.ID, &mentionSettings); err != nil {
+		return nil, err
+	}
 	event := GroupEvent{
+		Mentions:                mentionSettings,
 		GroupID:                 group.ID,
 		PollTemplateID:          pollTemplateID,
 		Name:                    strings.TrimSpace(name),
@@ -167,7 +176,7 @@ func (s *Store) ListEventsByChatID(ctx context.Context, chatID int64) ([]EventVi
 		Table("group_events ge").
 		// Be defensive: older rows (or partially-migrated DBs) may have NULLs in some columns.
 		// Scanning NULL into Go string/int fields will error and break the whole page.
-		Select("ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.max_places, 18) AS max_places, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.mention_user_ids, ge.mention_on_poll, ge.mention_on_announcement, ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.max_places, 18) AS max_places, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.group_id = ? AND ge.is_active = TRUE", group.ID).
 		Order("id DESC").
@@ -186,7 +195,7 @@ func (s *Store) ListArchivedEventsByChatID(ctx context.Context, chatID int64) ([
 	var rows []EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.max_places, 18) AS max_places, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.mention_user_ids, ge.mention_on_poll, ge.mention_on_announcement, ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.max_places, 18) AS max_places, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.group_id = ? AND ge.is_active = FALSE", group.ID).
 		Order("id DESC").
@@ -205,7 +214,7 @@ func (s *Store) GetEventByID(ctx context.Context, chatID int64, eventID uint64) 
 	var row EventView
 	if err := s.db.WithContext(ctx).
 		Table("group_events ge").
-		Select("ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.max_places, 18) AS max_places, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
+		Select("ge.mention_user_ids, ge.mention_on_poll, ge.mention_on_announcement, ge.id, ge.name, COALESCE(ge.event_type, 'training') AS event_type, ge.start_weekday, COALESCE(ge.poll_publish_weekday, ge.start_weekday) AS poll_publish_weekday, COALESCE(ge.poll_publish_time, ge.start_time) AS poll_publish_time, ge.start_time, ge.end_time, COALESCE(ge.announcement_text, '') AS announcement_text, COALESCE(ge.announcement_enabled, FALSE) AS announcement_enabled, COALESCE(ge.announcement_lead_minutes, 60) AS announcement_lead_minutes, COALESCE(ge.publish_enabled, TRUE) AS publish_enabled, COALESCE(ge.teams_auto_split, FALSE) AS teams_auto_split, COALESCE(ge.teams_publish_list, FALSE) AS teams_publish_list, COALESCE(ge.team_size, 6) AS team_size, COALESCE(ge.max_places, 18) AS max_places, COALESCE(ge.min_votes_to_hold, 0) AS min_votes_to_hold, COALESCE(ge.cancel_lead_minutes, 180) AS cancel_lead_minutes, COALESCE(ge.cancel_notify_enabled, FALSE) AS cancel_notify_enabled, COALESCE(ge.settlement_enabled, TRUE) AS settlement_enabled, COALESCE(ge.settlement_publish_before, FALSE) AS settlement_publish_before, COALESCE(ge.settlement_publish_after, TRUE) AS settlement_publish_after, ge.cost_amount, COALESCE(ge.is_active, TRUE) AS is_active, COALESCE(pt.name, '') AS poll_template").
 		Joins("LEFT JOIN poll_templates pt ON pt.id = ge.poll_template_id").
 		Where("ge.id = ? AND ge.group_id = ? AND ge.is_active = TRUE", eventID, group.ID).
 		First(&row).Error; err != nil {
@@ -290,6 +299,7 @@ func (s *Store) UpdateEventDetails(
 	settlementEnabled bool,
 	settlementPublishBefore bool,
 	settlementPublishAfter bool,
+	mentions *EventMentionSettings,
 ) error {
 	group, err := s.getGroupByChatID(ctx, chatID)
 	if err != nil {
@@ -355,32 +365,42 @@ func (s *Store) UpdateEventDetails(
 		return errors.New("choose at least one settlement publish mode: before or after")
 	}
 
+	updates := map[string]interface{}{
+		"name":                      name,
+		"event_type":                eventType,
+		"start_weekday":             startWeekday,
+		"poll_publish_weekday":      pollPublishWeekday,
+		"poll_publish_time":         pollPublishTime,
+		"start_time":                startTime,
+		"end_time":                  endTime,
+		"announcement_text":         announcementText,
+		"announcement_enabled":      announcementEnabled,
+		"announcement_lead_minutes": announcementLeadMinutes,
+		"teams_auto_split":          teamsAutoSplit,
+		"teams_publish_list":        teamsPublishList,
+		"team_size":                 teamSize,
+		"max_places":                maxPlaces,
+		"min_votes_to_hold":         minVotesToHold,
+		"cancel_lead_minutes":       cancelLeadMinutes,
+		"cancel_notify_enabled":     cancelNotifyEnabled,
+		"settlement_enabled":        settlementEnabled,
+		"settlement_publish_before": settlementPublishBefore,
+		"settlement_publish_after":  settlementPublishAfter,
+		"updated_at":                gorm.Expr("NOW()"),
+	}
+	if mentions != nil {
+		settings := *mentions
+		if err := s.validateEventMentions(ctx, group.ID, &settings); err != nil {
+			return err
+		}
+		updates["mention_user_ids"] = settings.UserIDs
+		updates["mention_on_poll"] = settings.OnPoll
+		updates["mention_on_announcement"] = settings.OnAnnouncement
+	}
 	result := s.db.WithContext(ctx).
 		Model(&GroupEvent{}).
 		Where("id = ? AND group_id = ? AND is_active = TRUE", eventID, group.ID).
-		Updates(map[string]interface{}{
-			"name":                      name,
-			"event_type":                eventType,
-			"start_weekday":             startWeekday,
-			"poll_publish_weekday":      pollPublishWeekday,
-			"poll_publish_time":         pollPublishTime,
-			"start_time":                startTime,
-			"end_time":                  endTime,
-			"announcement_text":         announcementText,
-			"announcement_enabled":      announcementEnabled,
-			"announcement_lead_minutes": announcementLeadMinutes,
-			"teams_auto_split":          teamsAutoSplit,
-			"teams_publish_list":        teamsPublishList,
-			"team_size":                 teamSize,
-			"max_places":                maxPlaces,
-			"min_votes_to_hold":         minVotesToHold,
-			"cancel_lead_minutes":       cancelLeadMinutes,
-			"cancel_notify_enabled":     cancelNotifyEnabled,
-			"settlement_enabled":        settlementEnabled,
-			"settlement_publish_before": settlementPublishBefore,
-			"settlement_publish_after":  settlementPublishAfter,
-			"updated_at":                gorm.Expr("NOW()"),
-		})
+		Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}

@@ -1,0 +1,53 @@
+Mode: built-in image_gen
+Asset 1: teamtime-tshirt-front-back.png
+Use case: product-mockup.
+Create a polished, photorealistic apparel product photograph for an original TeamTime founder/community merchandise T-shirt. Landscape 1536 x 1024 composition, professional premium sports-club art direction.
+
+INPUT IMAGE 1: approved TeamTime TT LOGO reference, not an image to edit. Transfer this exact connected two-T blue symbol onto the garment, preserving its distinctive geometric shape, tall equal stems, stepped right-hand T and slight forward lean. Do not replace it with generic typeset TT, Pi, H, or a sports brand logo.
+
+BRAND RESEARCH / INTENT: TeamTime helps amateur teammates meet regularly for real sports: schedule a game, sign up, arrange balanced teams, play, and share costs. The existing product motto is "Время быть командой". Express belonging, collective energy, calm competence and an invitation to play. This is a credible premium shirt the founder can wear on the court sidelines, at community events and in everyday life.
+
+COMPOSITION: show exactly TWO views of the SAME shirt, left = FRONT view, right = BACK view, side by side at identical scale. Entire silhouettes visible, no cropping. Realistic invisible-body / ghost-mannequin product photography with natural shape through shoulders and sleeves; no visible mannequins, humans or hangers. Broad clean warm-light-gray seamless studio background with generous whitespace. Soft directional studio lighting, subtle contact shadows, exceptionally clear fabric and ink details. Minimal editorial quality, no presentation borders or callout labels.
+
+GARMENT: deep graphite #171D26 premium matte dense cotton jersey, relaxed athletic unisex cut, clean structured shoulders, crew neck with substantial ribbing, neat short sleeves ending around mid-bicep, realistic carefully constructed seams, restrained natural drape. Contemporary clean silhouette, not excessively baggy, not a football jersey. Same solid graphite fabric on front and back, no patterns, contrasting panels or racing stripes.
+
+FRONT PRINT: a small sophisticated horizontal lockup on the wearer's LEFT chest (viewer right): exact supplied TT symbol in cobalt blue #3267CF, about 30 mm tall, followed by the exact word "teamtime." in warm-white bold lowercase contemporary sans-serif. Whole lockup approximately 115 mm wide. The rest of the front is blank. No large centered chest graphics.
+
+BACK PRINT: well-spaced centered upper-back composition, with comfortable margins inside shoulder seams. From top to bottom:
+- the EXACT supplied blue TT symbol, approximately 55 mm tall, centered below back collar;
+- generous vertical breathing room;
+- a strong, beautifully typeset two-line Russian headline in a bold contemporary geometric sans-serif, width about 280 mm:
+line 1 exact text: "ВРЕМЯ БЫТЬ"
+line 2 exact text: "КОМАНДОЙ."
+First line warm white, second line cobalt #3267CF. Equal visual width and excellent optical spacing. These are real Cyrillic letters, accurately spelled.
+- beneath, a smaller clean warm-white lowercase wordmark: "teamtime."
+Keep the graphic within the upper and middle back; lower third stays blank. The logo is distinct from text, all prints flat matte with realistic slight interaction with fabric.
+
+COLOR / TYPOGRAPHY: restrained three-color identity: graphite cloth, exact cobalt #3267CF logo/accents, warm-white type. Typography should feel custom-set, confident, readable and carefully spaced. No gradients in the ink.
+
+Avoid extra text anywhere in the image, mock QR codes, made-up URLs, contact details, sponsor logos, athletic company trademarks, medals, player numbers, flags, clipart balls, giant chest logos, watermarks, infographic callouts, badges or decorative noise. The result should look like an actual premium production sample shot for a clothing brand.
+
+Asset 2: teamtime-tshirt-campaign.png
+Use case: ads-marketing.
+Create ONE finished premium lifestyle advertising image for TeamTime and its founder/community T-shirt. Portrait 4:5 format, approximately 1536 x 1920. A cohesive professional campaign photograph with editorial typography, ready as a social-media creative.
+
+INPUT IMAGE 1: approved apparel design reference. Match this EXACT graphite T-shirt, its cut, color, chest logo lockup and back print.
+INPUT IMAGE 2: exact approved TeamTime blue TT logo reference for shape fidelity. Do not replace it with generic TT typography.
+
+BRAND: TeamTime helps amateur sports communities regularly meet and play: scheduling, signups, team formation and shared expenses. The emotional idea is that a real game begins with people showing up together. Warm camaraderie, grounded athletic energy, credible everyday community, premium contemporary design.
+
+PHOTOGRAPHIC SCENE: an airy contemporary indoor volleyball gym with real lightly worn oak parquet, a few cobalt-blue court lines, distant net, warm afternoon daylight through tall windows, authentic space, no visible third-party branding. Two fictional adult recreational athletes, around 28–35, male and female, naturally walking together from the sideline toward the court before practice. They are ordinary fit adults, not celebrity lookalikes. Frame from heads to around upper calves. One person left is turned three-quarter toward camera so the small left-chest print is clearly visible; the person right faces mostly away so the EXACT back print is fully readable. They are close enough to communicate a team, separated enough that both shirts are clearly seen. Relaxed natural body language, subtle friendly expressions, credible anatomy. Premium graphite T-shirts identical to reference, plain dark shorts, no accessories obscuring prints. Candid editorial sports photography, 50mm feel, eye-level, believable cloth folds, high-end natural skin detail, gently defocused court in background. Shirt graphics stay crisp and legible, not stretched or invented.
+
+T-SHIRT INVARIANTS: graphite matte cotton; front: small blue exact TT plus white lowercase "teamtime." on wearer's left chest. Back: blue exact TT centered below collar, then exact two-line Cyrillic slogan "ВРЕМЯ БЫТЬ" in warm white and "КОМАНДОЙ." in cobalt blue; white lowercase "teamtime." below. Preserve the exact hierarchy and proportions of reference photo.
+
+ART DIRECTION / LAYOUT: sophisticated advertising poster, generous upper negative space occupying about the top quarter, athletes as the central/lower hero. Soft off-white architectural wall in the upper background provides a calm field for DARK GRAPHITE headline. Use cobalt #3267CF as the only accent color. No gradient overlays, no fake interface.
+At top left, tasteful small horizontal lockup: exact blue TT symbol and dark wordmark "teamtime."
+Below it, large beautifully set bold contemporary sans-serif Russian headline, exactly TWO lines:
+"ИГРА НАЧИНАЕТСЯ"
+"С ЛЮДЕЙ."
+Second line may be cobalt. Keep the whole headline clearly separate from people and garments, perfectly spelled real Cyrillic letters.
+At bottom in a clean quiet margin, one concise Russian line, exact:
+"Собирай команду. Выходи играть."
+No other editorial copy.
+
+Avoid fake URLs, QR codes, endorsements, sponsor logos, invented product screenshots, phone mockups, watermarks, badges, clipart, excessive decoration, aggressive professional-champion tropes, stadium spectacle, flames, neon, overly glossy CGI. Deliver a photographic, emotionally convincing campaign for an approachable premium team-sports brand.

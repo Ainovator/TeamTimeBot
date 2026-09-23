@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"math"
 	"math/rand/v2"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	tele "gopkg.in/telebot.v4"
+	"gopkg.in/telebot.v4/internal/notifications"
 	"gopkg.in/telebot.v4/internal/polls"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
 )
@@ -305,6 +307,10 @@ func (s *Server) handleGroupRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch parts[1] {
+	case "passes":
+		s.handleTrainingPassRoutes(w, r, chatID, parts[2:])
+	case "attendance":
+		s.handleTrainingAttendanceRoutes(w, r, chatID, parts[2:])
 	case "me":
 		s.handleMeRoutes(w, r, chatID, parts[2:])
 	case "permissions":
@@ -1076,6 +1082,9 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		needed := "events_read"
 		if r.Method != http.MethodGet {
 			needed = "events_manage"
+			if len(parts) >= 3 && parts[2] == "billing" {
+				needed = "billing_manage"
+			}
 		}
 		if _, _, ok := s.requireGroupPermission(w, r, chatID, needed); !ok {
 			return
@@ -1086,6 +1095,18 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		}
 	}
 
+	if len(parts) == 1 && parts[0] == "mention-recipients" && r.Method == http.MethodGet {
+		members, err := s.store.ListGroupMembersByChatID(r.Context(), chatID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if members == nil {
+			members = make([]postgres.GroupMemberView, 0)
+		}
+		writeJSON(w, http.StatusOK, members)
+		return
+	}
 	if len(parts) == 0 {
 		if r.Method == http.MethodGet {
 			events, err := s.store.ListEventsByChatID(r.Context(), chatID)
@@ -1104,28 +1125,29 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			return
 		}
 		var req struct {
-			Name                    string   `json:"name"`
-			EventType               string   `json:"eventType"`
-			TemplateName            string   `json:"templateName"`
-			Weekday                 int      `json:"weekday"`
-			PublishWeekday          int      `json:"publishWeekday"`
-			PublishAt               string   `json:"publishAt"`
-			StartAt                 string   `json:"startAt"`
-			EndAt                   string   `json:"endAt"`
-			AnnouncementText        string   `json:"announcementText"`
-			AnnouncementEnabled     *bool    `json:"announcementEnabled"`
-			AnnouncementLeadMinutes int      `json:"announcementLeadMinutes"`
-			TeamsAutoSplit          *bool    `json:"teamsAutoSplit"`
-			TeamsPublishList        *bool    `json:"teamsPublishList"`
-			TeamSize                int      `json:"teamSize"`
-			MaxPlaces               int      `json:"maxPlaces"`
-			MinVotesToHold          int      `json:"minVotesToHold"`
-			CancelLeadMinutes       int      `json:"cancelLeadMinutes"`
-			CancelNotifyEnabled     *bool    `json:"cancelNotifyEnabled"`
-			SettlementEnabled       *bool    `json:"settlementEnabled"`
-			SettlementPublishBefore *bool    `json:"settlementPublishBefore"`
-			SettlementPublishAfter  *bool    `json:"settlementPublishAfter"`
-			CostAmount              *float64 `json:"costAmount"`
+			Name                    string                         `json:"name"`
+			EventType               string                         `json:"eventType"`
+			Mentions                *postgres.EventMentionSettings `json:"mentions"`
+			TemplateName            string                         `json:"templateName"`
+			Weekday                 int                            `json:"weekday"`
+			PublishWeekday          int                            `json:"publishWeekday"`
+			PublishAt               string                         `json:"publishAt"`
+			StartAt                 string                         `json:"startAt"`
+			EndAt                   string                         `json:"endAt"`
+			AnnouncementText        string                         `json:"announcementText"`
+			AnnouncementEnabled     *bool                          `json:"announcementEnabled"`
+			AnnouncementLeadMinutes int                            `json:"announcementLeadMinutes"`
+			TeamsAutoSplit          *bool                          `json:"teamsAutoSplit"`
+			TeamsPublishList        *bool                          `json:"teamsPublishList"`
+			TeamSize                int                            `json:"teamSize"`
+			MaxPlaces               int                            `json:"maxPlaces"`
+			MinVotesToHold          int                            `json:"minVotesToHold"`
+			CancelLeadMinutes       int                            `json:"cancelLeadMinutes"`
+			CancelNotifyEnabled     *bool                          `json:"cancelNotifyEnabled"`
+			SettlementEnabled       *bool                          `json:"settlementEnabled"`
+			SettlementPublishBefore *bool                          `json:"settlementPublishBefore"`
+			SettlementPublishAfter  *bool                          `json:"settlementPublishAfter"`
+			CostAmount              *float64                       `json:"costAmount"`
 		}
 		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -1192,6 +1214,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			settlementPublishBefore,
 			settlementPublishAfter,
 			req.CostAmount,
+			req.Mentions,
 		)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -1438,26 +1461,27 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 		}
 
 		var req struct {
-			Name                    string `json:"name"`
-			EventType               string `json:"eventType"`
-			Weekday                 int    `json:"weekday"`
-			PublishWeekday          int    `json:"publishWeekday"`
-			PublishAt               string `json:"publishAt"`
-			StartAt                 string `json:"startAt"`
-			EndAt                   string `json:"endAt"`
-			AnnouncementText        string `json:"announcementText"`
-			AnnouncementEnabled     *bool  `json:"announcementEnabled"`
-			AnnouncementLeadMinutes int    `json:"announcementLeadMinutes"`
-			TeamsAutoSplit          *bool  `json:"teamsAutoSplit"`
-			TeamsPublishList        *bool  `json:"teamsPublishList"`
-			TeamSize                int    `json:"teamSize"`
-			MaxPlaces               int    `json:"maxPlaces"`
-			MinVotesToHold          int    `json:"minVotesToHold"`
-			CancelLeadMinutes       int    `json:"cancelLeadMinutes"`
-			CancelNotifyEnabled     *bool  `json:"cancelNotifyEnabled"`
-			SettlementEnabled       *bool  `json:"settlementEnabled"`
-			SettlementPublishBefore *bool  `json:"settlementPublishBefore"`
-			SettlementPublishAfter  *bool  `json:"settlementPublishAfter"`
+			Name                    string                         `json:"name"`
+			EventType               string                         `json:"eventType"`
+			Mentions                *postgres.EventMentionSettings `json:"mentions"`
+			Weekday                 int                            `json:"weekday"`
+			PublishWeekday          int                            `json:"publishWeekday"`
+			PublishAt               string                         `json:"publishAt"`
+			StartAt                 string                         `json:"startAt"`
+			EndAt                   string                         `json:"endAt"`
+			AnnouncementText        string                         `json:"announcementText"`
+			AnnouncementEnabled     *bool                          `json:"announcementEnabled"`
+			AnnouncementLeadMinutes int                            `json:"announcementLeadMinutes"`
+			TeamsAutoSplit          *bool                          `json:"teamsAutoSplit"`
+			TeamsPublishList        *bool                          `json:"teamsPublishList"`
+			TeamSize                int                            `json:"teamSize"`
+			MaxPlaces               int                            `json:"maxPlaces"`
+			MinVotesToHold          int                            `json:"minVotesToHold"`
+			CancelLeadMinutes       int                            `json:"cancelLeadMinutes"`
+			CancelNotifyEnabled     *bool                          `json:"cancelNotifyEnabled"`
+			SettlementEnabled       *bool                          `json:"settlementEnabled"`
+			SettlementPublishBefore *bool                          `json:"settlementPublishBefore"`
+			SettlementPublishAfter  *bool                          `json:"settlementPublishAfter"`
 		}
 		if err := decodeJSON(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
@@ -1524,6 +1548,7 @@ func (s *Server) handleEventRoutes(w http.ResponseWriter, r *http.Request, chatI
 			settlementEnabled,
 			settlementPublishBefore,
 			settlementPublishAfter,
+			req.Mentions,
 		); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -1905,8 +1930,12 @@ func (s *Server) publishAnnouncementNow(ctx context.Context, chatID int64, event
 		nextStart.Format("02.01.2006 15:04"),
 		group.Timezone,
 	)
+	recipients, err := s.store.GetEventMentionRecipients(ctx, chatID, eventID, "announcement")
+	if err != nil {
+		return err
+	}
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
-	if err := s.bot.SendMessage(chat, message, nil); err != nil {
+	if err := notifications.SendHTML(s.bot, chat, notifications.Announcement(message, recipients), 0); err != nil {
 		return err
 	}
 	return nil
@@ -1947,6 +1976,10 @@ func (s *Server) publishEventPollNow(ctx context.Context, chatID int64, eventID 
 	}
 	nextStart := nextEventStartLocal(nowLocal, event.StartWeekday, startHour, startMin)
 	pollQuestion := polls.WithEventDate(template.TemplateQuestion, nextStart)
+	recipients, err := s.store.GetEventMentionRecipients(ctx, chatID, eventID, "poll")
+	if err != nil {
+		return err
+	}
 
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
 	sent, err := s.bot.SendPollWithMeta(chat, pollQuestion, template.TemplateOptions, nil)
@@ -1957,6 +1990,9 @@ func (s *Server) publishEventPollNow(ctx context.Context, chatID int64, eventID 
 		eid := eventID
 		if _, err := s.store.CreateEventPollPost(ctx, chatID, &eid, template.TemplateName, sent.MessageID, sent.PollID); err != nil {
 			return err
+		}
+		if err := notifications.SendHTML(s.bot, chat, notifications.PollInvitation(pollQuestion, recipients), sent.MessageID); err != nil {
+			return fmt.Errorf("Опрос опубликован, но не удалось отправить упоминания: %w", err)
 		}
 	}
 	return nil
@@ -1975,6 +2011,10 @@ func (s *Server) publishEventPollForInstanceNow(ctx context.Context, chatID int6
 		return err
 	}
 	pollQuestion := polls.WithEventDate(template.TemplateQuestion, localDate)
+	recipients, err := s.store.GetEventMentionRecipients(ctx, chatID, eventID, "poll")
+	if err != nil {
+		return err
+	}
 
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
 	sent, err := s.bot.SendPollWithMeta(chat, pollQuestion, template.TemplateOptions, nil)
@@ -1986,6 +2026,9 @@ func (s *Server) publishEventPollForInstanceNow(ctx context.Context, chatID int6
 	}
 	if _, err := s.store.CreateEventPollPostForInstance(ctx, chatID, eventID, instanceID, template.TemplateName, sent.MessageID, sent.PollID); err != nil {
 		return err
+	}
+	if err := notifications.SendHTML(s.bot, chat, notifications.PollInvitation(pollQuestion, recipients), sent.MessageID); err != nil {
+		return fmt.Errorf("Опрос опубликован, но не удалось отправить упоминания: %w", err)
 	}
 	return nil
 }
@@ -2284,6 +2327,9 @@ func billingPlayerDisplayName(p postgres.EventBillingParticipant) string {
 }
 
 func (s *Server) publishEventBillingDebtorsNow(ctx context.Context, chatID int64, instanceID uint64, includeUserIDs []int64) error {
+	if s.bot == nil {
+		return errors.New("bot is not configured")
+	}
 	name, localDate, err := s.store.GetEventInstanceHeader(ctx, chatID, instanceID)
 	if err != nil {
 		return err
@@ -2307,6 +2353,7 @@ func (s *Server) publishEventBillingDebtorsNow(ctx context.Context, chatID int64
 	}
 
 	type item struct {
+		UserID int64
 		Name   string
 		Amount float64
 	}
@@ -2320,7 +2367,7 @@ func (s *Server) publishEventBillingDebtorsNow(ctx context.Context, chatID int64
 			continue
 		}
 		name := billingPlayerDisplayName(p)
-		list = append(list, item{Name: name, Amount: p.AmountDue})
+		list = append(list, item{UserID: p.UserID, Name: name, Amount: p.AmountDue})
 		total += p.AmountDue
 	}
 	if len(list) == 0 {
@@ -2339,19 +2386,19 @@ func (s *Server) publishEventBillingDebtorsNow(ctx context.Context, chatID int64
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Задолженности за %q\n", name)
+	fmt.Fprintf(&b, "Задолженности за %s\n", html.EscapeString(fmt.Sprintf("%q", name)))
 	if !localDate.IsZero() {
 		fmt.Fprintf(&b, "Дата: %s\n", localDate.Format("2006-01-02"))
 	}
 	b.WriteString("\n")
 	for _, it := range list {
-		fmt.Fprintf(&b, "%s — %.0f ₽\n", it.Name, it.Amount)
+		fmt.Fprintf(&b, "%s — %.0f ₽\n", notifications.Mention(it.UserID, it.Name), it.Amount)
 	}
 	fmt.Fprintf(&b, "\nИтого: %.0f ₽", total)
 
 	message := strings.TrimSpace(b.String())
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
-	return s.bot.SendMessage(chat, message, nil)
+	return notifications.SendHTML(s.bot, chat, message, 0)
 }
 
 func groupDebtorDisplayName(d postgres.GroupDebtor) string {
@@ -2366,6 +2413,9 @@ func groupDebtorDisplayName(d postgres.GroupDebtor) string {
 }
 
 func (s *Server) publishGroupDebtorsNow(ctx context.Context, chatID int64, includeUserIDs []int64) error {
+	if s.bot == nil {
+		return errors.New("bot is not configured")
+	}
 	group, err := s.store.GetGroupByChatID(ctx, chatID)
 	if err != nil {
 		return err
@@ -2386,6 +2436,7 @@ func (s *Server) publishGroupDebtorsNow(ctx context.Context, chatID int64, inclu
 	}
 
 	type item struct {
+		UserID int64
 		Name   string
 		Amount float64
 	}
@@ -2402,7 +2453,7 @@ func (s *Server) publishGroupDebtorsNow(ctx context.Context, chatID int64, inclu
 		if rn := strings.TrimSpace(d.RealName); rn != "" && rn != name {
 			name = fmt.Sprintf("%s (%s)", name, rn)
 		}
-		list = append(list, item{Name: name, Amount: d.TotalDebt})
+		list = append(list, item{UserID: d.UserID, Name: name, Amount: d.TotalDebt})
 		total += d.TotalDebt
 	}
 	if len(list) == 0 {
@@ -2421,15 +2472,15 @@ func (s *Server) publishGroupDebtorsNow(ctx context.Context, chatID int64, inclu
 	if title == "" {
 		title = strconv.FormatInt(chatID, 10)
 	}
-	fmt.Fprintf(&b, "Задолженности · %s\n\n", title)
+	fmt.Fprintf(&b, "Задолженности · %s\n\n", html.EscapeString(title))
 	for _, it := range list {
-		fmt.Fprintf(&b, "%s — %.0f ₽\n", it.Name, it.Amount)
+		fmt.Fprintf(&b, "%s — %.0f ₽\n", notifications.Mention(it.UserID, it.Name), it.Amount)
 	}
 	fmt.Fprintf(&b, "\nИтого: %.0f ₽", total)
 
 	message := strings.TrimSpace(b.String())
 	chat := tele.Chat{ID: chatID, Type: tele.ChatGroup}
-	return s.bot.SendMessage(chat, message, nil)
+	return notifications.SendHTML(s.bot, chat, message, 0)
 }
 
 func teamPlayerDisplayName(p postgres.TeamSplitPlayer) string {

@@ -1,3 +1,4 @@
+import { readableError } from './app/errors'
 import type {
   ApiError,
   EventHistoryItem,
@@ -8,6 +9,7 @@ import type {
   EventTeamSplitState,
   EventActivitySummary,
   EventView,
+  EventMentionSettings,
   EventBilling,
   EventSetRow,
   GroupGameRow,
@@ -28,6 +30,11 @@ import type {
   GroupRoleView,
 } from './types'
 
+async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try { return await fetch(input, init) }
+  catch (error) { throw new Error(readableError(error)) }
+}
+
 async function parseResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message = `HTTP ${res.status}`
@@ -39,33 +46,33 @@ async function parseResponse<T>(res: Response): Promise<T> {
     } catch {
       // keep default message
     }
-    throw new Error(message)
+    throw new Error(readableError(message, res.status))
   }
   return (await res.json()) as T
 }
 
 export async function fetchGroups(): Promise<Group[]> {
-  const res = await fetch('/api/groups')
-  return parseResponse<Group[]>(res)
+  const res = await apiFetch('/api/groups')
+  return (await parseResponse<Group[] | null>(res)) ?? []
 }
 
 export async function fetchMyGroupProfile(chatID: number): Promise<UserGroupProfile> {
-  const res = await fetch(`/api/groups/${chatID}/me`)
+  const res = await apiFetch(`/api/groups/${chatID}/me`)
   return parseResponse<UserGroupProfile>(res)
 }
 
 export async function fetchGroupPermissions(chatID: number): Promise<GroupPermissionsView> {
-  const res = await fetch(`/api/groups/${chatID}/permissions`)
+  const res = await apiFetch(`/api/groups/${chatID}/permissions`)
   return parseResponse<GroupPermissionsView>(res)
 }
 
 export async function fetchGroupRoles(chatID: number): Promise<GroupRoleView[]> {
-  const res = await fetch(`/api/groups/${chatID}/roles`)
+  const res = await apiFetch(`/api/groups/${chatID}/roles`)
   return parseResponse<GroupRoleView[]>(res)
 }
 
 export async function assignGroupRole(chatID: number, payload: { userTelegramID: number; roleCode: string }) {
-  const res = await fetch(`/api/groups/${chatID}/roles/assign`, {
+  const res = await apiFetch(`/api/groups/${chatID}/roles/assign`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -74,12 +81,12 @@ export async function assignGroupRole(chatID: number, payload: { userTelegramID:
 }
 
 export async function fetchAuthConfig(): Promise<AuthConfig> {
-  const res = await fetch('/api/auth/config')
+  const res = await apiFetch('/api/auth/config')
   return parseResponse<AuthConfig>(res)
 }
 
 export async function fetchAuthMe(): Promise<{ enabled: boolean; user: AuthUser | null }> {
-  const res = await fetch('/api/auth/me')
+  const res = await apiFetch('/api/auth/me')
   return parseResponse<{ enabled: boolean; user: AuthUser | null }>(res)
 }
 
@@ -92,7 +99,7 @@ export async function telegramAuthLogin(payload: {
   auth_date: number
   hash: string
 }): Promise<{ status: string; user: AuthUser }> {
-  const res = await fetch('/api/auth/telegram', {
+  const res = await apiFetch('/api/auth/telegram', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -101,32 +108,32 @@ export async function telegramAuthLogin(payload: {
 }
 
 export async function logoutAuth(): Promise<void> {
-  const res = await fetch('/api/auth/logout', { method: 'POST' })
+  const res = await apiFetch('/api/auth/logout', { method: 'POST' })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchGroupDetails(chatID: number): Promise<GroupDetails> {
-  const res = await fetch(`/api/groups/${chatID}`)
+  const res = await apiFetch(`/api/groups/${chatID}`)
   return parseResponse<GroupDetails>(res)
 }
 
 export async function fetchGroupMembers(chatID: number): Promise<GroupMember[]> {
-  const res = await fetch(`/api/groups/${chatID}/members`)
+  const res = await apiFetch(`/api/groups/${chatID}/members`)
   return parseResponse<GroupMember[]>(res)
 }
 
 export async function fetchSkillsCatalog(chatID: number): Promise<SkillCatalogItem[]> {
-  const res = await fetch(`/api/groups/${chatID}/members/skills`)
+  const res = await apiFetch(`/api/groups/${chatID}/members/skills`)
   return parseResponse<SkillCatalogItem[]>(res)
 }
 
 export async function fetchMemberSkills(chatID: number, userTelegramID: number): Promise<MemberSkillProfile> {
-  const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/skills`)
+  const res = await apiFetch(`/api/groups/${chatID}/members/${userTelegramID}/skills`)
   return parseResponse<MemberSkillProfile>(res)
 }
 
 export async function updateMemberSkills(chatID: number, userTelegramID: number, scores: Record<string, number>) {
-  const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/skills`, {
+  const res = await apiFetch(`/api/groups/${chatID}/members/${userTelegramID}/skills`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scores }),
@@ -139,7 +146,7 @@ export async function updateMemberProfile(
   userTelegramID: number,
   payload: { playerType: '' | 'attacker' | 'setter' | 'libero' | 'central'; realName?: string },
 ) {
-  const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/profile`, {
+  const res = await apiFetch(`/api/groups/${chatID}/members/${userTelegramID}/profile`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -148,7 +155,7 @@ export async function updateMemberProfile(
 }
 
 export async function fetchMemberRelations(chatID: number, userTelegramID: number): Promise<PlayerRelation[]> {
-  const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/relations`)
+  const res = await apiFetch(`/api/groups/${chatID}/members/${userTelegramID}/relations`)
   return parseResponse<PlayerRelation[]>(res)
 }
 
@@ -157,7 +164,7 @@ export async function upsertMemberRelation(
   userTelegramID: number,
   payload: { otherUserID: number; relationType: 'prefer_together' | 'avoid_together'; weight: number },
 ) {
-  const res = await fetch(`/api/groups/${chatID}/members/${userTelegramID}/relations`, {
+  const res = await apiFetch(`/api/groups/${chatID}/members/${userTelegramID}/relations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -171,7 +178,7 @@ export async function deleteMemberRelation(
   otherUserID: number,
   relationType: 'prefer_together' | 'avoid_together',
 ) {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/groups/${chatID}/members/${userTelegramID}/relations/${otherUserID}/${encodeURIComponent(relationType)}`,
     { method: 'DELETE' },
   )
@@ -182,7 +189,7 @@ export async function createTemplate(
   chatID: number,
   payload: { name: string; question: string; options: string[]; countedOptions: number[]; optionWeights: number[] },
 ) {
-  const res = await fetch(`/api/groups/${chatID}/templates`, {
+  const res = await apiFetch(`/api/groups/${chatID}/templates`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -191,14 +198,14 @@ export async function createTemplate(
 }
 
 export async function deleteTemplate(chatID: number, templateName: string) {
-  const res = await fetch(`/api/groups/${chatID}/templates/${encodeURIComponent(templateName)}`, {
+  const res = await apiFetch(`/api/groups/${chatID}/templates/${encodeURIComponent(templateName)}`, {
     method: 'DELETE',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchTemplate(chatID: number, templateName: string): Promise<TemplateDetails> {
-  const res = await fetch(`/api/groups/${chatID}/templates/${encodeURIComponent(templateName)}`)
+  const res = await apiFetch(`/api/groups/${chatID}/templates/${encodeURIComponent(templateName)}`)
   return parseResponse<TemplateDetails>(res)
 }
 
@@ -207,7 +214,7 @@ export async function updateTemplate(
   templateName: string,
   payload: { name: string; question: string; options: string[]; countedOptions: number[]; optionWeights: number[] },
 ) {
-  const res = await fetch(`/api/groups/${chatID}/templates/${encodeURIComponent(templateName)}`, {
+  const res = await apiFetch(`/api/groups/${chatID}/templates/${encodeURIComponent(templateName)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -227,6 +234,7 @@ export async function createEvent(
     startAt: string
     endAt: string
     announcementText: string
+    mentions?: EventMentionSettings
     announcementEnabled: boolean
     announcementLeadMinutes: number
     teamsAutoSplit: boolean
@@ -242,7 +250,7 @@ export async function createEvent(
     costAmount?: number
   },
 ) {
-  const res = await fetch(`/api/groups/${chatID}/events`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -251,7 +259,7 @@ export async function createEvent(
 }
 
 export async function createEventInstance(chatID: number, eventID: number, payload?: { localDate?: string }) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/instances`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/instances`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload ?? {}),
@@ -260,7 +268,7 @@ export async function createEventInstance(chatID: number, eventID: number, paylo
 }
 
 export async function deleteEventInstance(chatID: number, instanceID: number): Promise<void> {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}`, {
     method: 'DELETE',
   })
   await parseResponse<{ status: string }>(res)
@@ -278,6 +286,7 @@ export async function updateEventDetails(
     startAt: string
     endAt: string
     announcementText: string
+    mentions?: EventMentionSettings
     announcementEnabled: boolean
     announcementLeadMinutes: number
     teamsAutoSplit: boolean
@@ -292,7 +301,7 @@ export async function updateEventDetails(
     settlementPublishAfter: boolean
   },
 ) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/details`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/details`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -301,7 +310,7 @@ export async function updateEventDetails(
 }
 
 export async function bindEvent(chatID: number, eventID: number, templateName: string) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/bind`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/bind`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ templateName }),
@@ -311,7 +320,7 @@ export async function bindEvent(chatID: number, eventID: number, templateName: s
 
 export async function updateEventCost(chatID: number, eventID: number, costAmount?: number) {
   const payload = costAmount === undefined ? { costAmount: null } : { costAmount }
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/cost`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/cost`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -320,96 +329,96 @@ export async function updateEventCost(chatID: number, eventID: number, costAmoun
 }
 
 export async function fetchEvents(chatID: number): Promise<EventView[]> {
-  const res = await fetch(`/api/groups/${chatID}/events`)
+  const res = await apiFetch(`/api/groups/${chatID}/events`)
   return parseResponse<EventView[]>(res)
 }
 
 export async function fetchArchivedEvents(chatID: number): Promise<EventView[]> {
-  const res = await fetch(`/api/groups/${chatID}/events/archived`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/archived`)
   return parseResponse<EventView[]>(res)
 }
 
 export async function archiveEvent(chatID: number, eventID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/archive`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/archive`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function unarchiveEvent(chatID: number, eventID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/unarchive`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/unarchive`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchEventActivity(chatID: number, eventID: number): Promise<EventActivitySummary> {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/activity`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/activity`)
   return parseResponse<EventActivitySummary>(res)
 }
 
 export async function activateEventPublications(chatID: number, eventID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/activate`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/activate`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function deactivateEventPublications(chatID: number, eventID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/deactivate`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/deactivate`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function publishEventAnnouncement(chatID: number, eventID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/manual/announcement`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/manual/announcement`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function publishEventPoll(chatID: number, eventID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/manual/poll`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/manual/poll`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function publishEventSettlement(chatID: number, eventID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/manual/settlement`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/manual/settlement`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchEventPollHistory(chatID: number, eventID: number): Promise<EventPollHistoryItem[]> {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/polls`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/polls`)
   return parseResponse<EventPollHistoryItem[]>(res)
 }
 
 export async function fetchEventPollHistoryForInstance(chatID: number, instanceID: number): Promise<EventPollHistoryItem[]> {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/polls`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}/polls`)
   return parseResponse<EventPollHistoryItem[]>(res)
 }
 
 export async function fetchGroupPolls(chatID: number): Promise<GroupPollItem[]> {
-  const res = await fetch(`/api/groups/${chatID}/polls`)
+  const res = await apiFetch(`/api/groups/${chatID}/polls`)
   return parseResponse<GroupPollItem[]>(res)
 }
 
 export async function fetchGroupPollVotes(chatID: number, postID: number): Promise<GroupPollVoteItem[]> {
-  const res = await fetch(`/api/groups/${chatID}/polls/${postID}/votes`)
+  const res = await apiFetch(`/api/groups/${chatID}/polls/${postID}/votes`)
   return parseResponse<GroupPollVoteItem[]>(res)
 }
 
 export async function fetchGroupPollOptions(chatID: number, postID: number): Promise<GroupPollOptionItem[]> {
-  const res = await fetch(`/api/groups/${chatID}/polls/${postID}/options`)
+  const res = await apiFetch(`/api/groups/${chatID}/polls/${postID}/options`)
   return parseResponse<GroupPollOptionItem[]>(res)
 }
 
 export async function addGroupPollVoteForUser(chatID: number, postID: number, payload: { userID: number; choice: string }) {
-  const res = await fetch(`/api/groups/${chatID}/polls/${postID}/votes`, {
+  const res = await apiFetch(`/api/groups/${chatID}/polls/${postID}/votes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -419,32 +428,41 @@ export async function addGroupPollVoteForUser(chatID: number, postID: number, pa
 
 export async function deleteGroupPollVotesForUser(chatID: number, postID: number, userID: number, choice?: string) {
   const qs = choice ? `?choice=${encodeURIComponent(choice)}` : ''
-  const res = await fetch(`/api/groups/${chatID}/polls/${postID}/votes/${userID}${qs}`, { method: 'DELETE' })
+  const res = await apiFetch(`/api/groups/${chatID}/polls/${postID}/votes/${userID}${qs}`, { method: 'DELETE' })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function publishRegistration(chatID: number) {
-  const res = await fetch(`/api/groups/${chatID}/registration/publish`, { method: 'POST' })
+  const res = await apiFetch(`/api/groups/${chatID}/registration/publish`, { method: 'POST' })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchEventHistory(chatID: number): Promise<EventHistoryItem[]> {
-  const res = await fetch(`/api/groups/${chatID}/events/history`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/history`)
   return parseResponse<EventHistoryItem[]>(res)
 }
 
 export async function fetchGroupDebtSummary(chatID: number): Promise<GroupDebtSummary> {
-  const res = await fetch(`/api/groups/${chatID}/billing/summary`)
+  const res = await apiFetch(`/api/groups/${chatID}/billing/summary`)
   return parseResponse<GroupDebtSummary>(res)
 }
 
 export async function fetchGroupDebtors(chatID: number): Promise<GroupDebtor[]> {
-  const res = await fetch(`/api/groups/${chatID}/billing/debtors`)
+  const res = await apiFetch(`/api/groups/${chatID}/billing/debtors`)
   return parseResponse<GroupDebtor[]>(res)
 }
 
+export async function apiRequest<T = {status:string}>(url:string, method='GET', payload?:unknown):Promise<T> {
+  return parseResponse<T>(await apiFetch(url, {method, ...(payload === undefined ? {} : {headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})}))
+}
+
+export async function fetchEventMentionMembers(chatID: number): Promise<GroupMember[]> {
+  const res = await apiFetch(`/api/groups/${chatID}/events/mention-recipients`)
+  return parseResponse<GroupMember[]>(res)
+}
+
 export async function publishGroupDebtors(chatID: number, userIDs: number[]) {
-  const res = await fetch(`/api/groups/${chatID}/billing/publish`, {
+  const res = await apiFetch(`/api/groups/${chatID}/billing/publish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userIDs }),
@@ -453,22 +471,22 @@ export async function publishGroupDebtors(chatID: number, userIDs: number[]) {
 }
 
 export async function fetchEventBilling(chatID: number, eventID: number): Promise<EventBilling | null> {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/billing`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/billing`)
   return parseResponse<EventBilling | null>(res)
 }
 
 export async function fetchEventBillingForInstance(chatID: number, instanceID: number): Promise<EventBilling | null> {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`)
   return parseResponse<EventBilling | null>(res)
 }
 
 export async function fetchEventSetRowsForInstance(chatID: number, instanceID: number): Promise<EventSetRow[]> {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/sets`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}/sets`)
   return parseResponse<EventSetRow[]>(res)
 }
 
 export async function saveEventSetRowsForInstance(chatID: number, instanceID: number, rows: EventSetRow[]) {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/sets`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}/sets`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rows }),
@@ -477,14 +495,14 @@ export async function saveEventSetRowsForInstance(chatID: number, instanceID: nu
 }
 
 export async function publishEventSetRowsForInstance(chatID: number, instanceID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/sets/publish`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}/sets/publish`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function fetchGroupGames(chatID: number): Promise<GroupGameRow[]> {
-  const res = await fetch(`/api/groups/${chatID}/games`)
+  const res = await apiFetch(`/api/groups/${chatID}/games`)
   return parseResponse<GroupGameRow[]>(res)
 }
 
@@ -495,12 +513,12 @@ export async function fetchGameRoster(
   team2: 'A' | 'B' | 'C',
 ): Promise<GameRosterResponse> {
   const qs = new URLSearchParams({ team1, team2 })
-  const res = await fetch(`/api/groups/${chatID}/games/${instanceID}/roster?${qs.toString()}`)
+  const res = await apiFetch(`/api/groups/${chatID}/games/${instanceID}/roster?${qs.toString()}`)
   return parseResponse<GameRosterResponse>(res)
 }
 
 export async function publishEventBillingDebtorsForInstance(chatID: number, instanceID: number, userIDs: number[]) {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing/publish`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}/billing/publish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userIDs }),
@@ -509,7 +527,7 @@ export async function publishEventBillingDebtorsForInstance(chatID: number, inst
 }
 
 export async function generateEventBillingForInstance(chatID: number, instanceID: number): Promise<EventBilling | null> {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`, {
     method: 'POST',
   })
   return parseResponse<EventBilling | null>(res)
@@ -520,7 +538,7 @@ export async function saveEventBilling(
   eventID: number,
   statuses: Array<{ userID: number; paid: boolean }>,
 ) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/billing`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/billing`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ statuses }),
@@ -533,7 +551,7 @@ export async function saveEventBillingForInstance(
   instanceID: number,
   statuses: Array<{ userID: number; paid: boolean }>,
 ) {
-  const res = await fetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/history/${instanceID}/billing`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ statuses }),
@@ -542,7 +560,7 @@ export async function saveEventBillingForInstance(
 }
 
 export async function fetchEventTeamSplit(chatID: number, eventID: number, postID: number): Promise<EventTeamSplitState> {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams`)
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams`)
   return parseResponse<EventTeamSplitState>(res)
 }
 
@@ -552,7 +570,7 @@ export async function saveEventTeamSplit(
   postID: number,
   assignments: Array<{ userID: number; team: 'unassigned' | 'A' | 'B' | 'C'; position: number }>,
 ): Promise<EventTeamSplitState> {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ assignments }),
@@ -561,14 +579,14 @@ export async function saveEventTeamSplit(
 }
 
 export async function publishEventTeamSplit(chatID: number, eventID: number, postID: number) {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams/publish`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams/publish`, {
     method: 'POST',
   })
   await parseResponse<{ status: string }>(res)
 }
 
 export async function autoSplitEventTeams(chatID: number, eventID: number, postID: number): Promise<EventTeamSplitState> {
-  const res = await fetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams/autosplit`, {
+  const res = await apiFetch(`/api/groups/${chatID}/events/${eventID}/polls/${postID}/teams/autosplit`, {
     method: 'POST',
   })
   return parseResponse<EventTeamSplitState>(res)

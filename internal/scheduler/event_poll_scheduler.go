@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tele "gopkg.in/telebot.v4"
+	"gopkg.in/telebot.v4/internal/notifications"
 
 	"gopkg.in/telebot.v4/internal/polls"
 	"gopkg.in/telebot.v4/internal/storage/postgres"
@@ -152,6 +153,11 @@ func (s *EventPollScheduler) tick(ctx context.Context) {
 			continue
 		}
 
+		recipients, err := s.store.GetEventMentionRecipients(ctx, event.ChatID, event.EventID, "poll")
+		if err != nil {
+			log.Printf("event_poll: load mention recipients for event %d: %v", event.EventID, err)
+			continue
+		}
 		chat := tele.Chat{ID: event.ChatID, Type: tele.ChatGroup}
 		pollQuestion := polls.WithEventDate(template.TemplateQuestion, targetEventDate)
 		if debug {
@@ -168,6 +174,9 @@ func (s *EventPollScheduler) tick(ctx context.Context) {
 				log.Printf("event_poll: save post failed for event %d: %v", event.EventID, err)
 			} else if debug {
 				log.Printf("event_poll: saved post for event %d chat %d telegram_message_id=%d poll_id=%s", event.EventID, event.ChatID, sent.MessageID, sent.PollID)
+			}
+			if err := notifications.SendHTML(s.bot, chat, notifications.PollInvitation(pollQuestion, recipients), sent.MessageID); err != nil {
+				log.Printf("event_poll: poll published but mentions failed for event %d: %v", event.EventID, err)
 			}
 		}
 	}

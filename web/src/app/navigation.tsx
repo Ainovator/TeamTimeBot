@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Icon as StudioIcon } from '../components/Icon'
 import type { Section } from './router'
 
 export type SectionItem = {
@@ -17,6 +18,12 @@ function Icon({ children }: { children: ReactNode }) {
 }
 
 export const sections: SectionItem[] = [
+  {
+    id: 'settings',
+    title: 'Организация',
+    subtitle: 'Данные организации и регистрация',
+    icon: <StudioIcon name="organization" size={18}/>,
+  },
   {
     id: 'profile',
     title: 'Мой профиль',
@@ -76,7 +83,7 @@ export const sections: SectionItem[] = [
   {
     id: 'events',
     title: 'События',
-    subtitle: 'Конкретные занятия',
+    subtitle: 'Встречи, голосования и шаблоны',
     icon: (
       <Icon>
         <path d="M6 2v2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H8V2H6Zm14 8H4v10h16V10Z" fill="currentColor" />
@@ -108,8 +115,8 @@ export const sections: SectionItem[] = [
   },
   {
     id: 'billing',
-    title: 'Задолженности',
-    subtitle: 'Кто должен деньги',
+    title: 'Взносы',
+    subtitle: 'Оплата встреч команды',
     icon: (
       <Icon>
         <path

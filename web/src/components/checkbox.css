@@ -1,0 +1,63 @@
+/* Keep visual states here; screens only position the control and its label. */
+:root input.tt-checkbox[type=checkbox] {
+  --tt-checkbox-bg:var(--dl-panel,var(--bg-input,#fff));
+  --tt-checkbox-soft:var(--dl-soft,var(--bg-panel-soft,#e5edf9));
+  --tt-checkbox-muted:var(--dl-muted,var(--text-muted,#5f728b));
+  --tt-checkbox-accent:var(--dl-accent,var(--accent,#3267cf));
+  --tt-checkbox-fill:var(--dl-accent,var(--theme-action,var(--accent,#3267cf)));
+  appearance:none;
+  -webkit-appearance:none;
+  box-sizing:border-box;
+  display:inline-grid;
+  place-content:center;
+  flex:0 0 20px;
+  width:20px;
+  height:20px;
+  min-width:20px;
+  min-height:20px;
+  margin:0;
+  padding:0;
+  vertical-align:middle;
+  border:1.5px solid color-mix(in srgb,var(--tt-checkbox-muted) 78%,var(--tt-checkbox-bg));
+  border-radius:6px;
+  background:var(--tt-checkbox-bg);
+  box-shadow:0 1px 2px #142b4908;
+  cursor:pointer;
+  transition:background-color .15s,border-color .15s,box-shadow .15s;
+}
+:root input.tt-checkbox[type=checkbox]::after {
+  content:'';
+  width:12px;
+  height:12px;
+  background:#fff;
+  clip-path:polygon(9% 44%,0 55%,37% 90%,100% 23%,89% 12%,36% 68%);
+  opacity:0;
+  transform:scale(.7);
+  transition:opacity .12s,transform .12s;
+}
+:root input.tt-checkbox[type=checkbox]:hover:not(:disabled) {
+  border-color:var(--tt-checkbox-accent);
+  background:color-mix(in srgb,var(--tt-checkbox-soft) 55%,var(--tt-checkbox-bg));
+}
+:root input.tt-checkbox[type=checkbox]:is(:checked,:indeterminate) {
+  border-color:var(--tt-checkbox-fill);
+  background:var(--tt-checkbox-fill);
+  box-shadow:inset 0 1px 0 #ffffff20,0 1px 2px #142b4912;
+}
+:root input.tt-checkbox[type=checkbox]:is(:checked,:indeterminate)::after { opacity:1; transform:scale(1); }
+:root input.tt-checkbox[type=checkbox]:indeterminate::after { height:2px; width:10px; clip-path:none; border-radius:1px; }
+:root input.tt-checkbox[type=checkbox]:is(:checked,:indeterminate):hover:not(:disabled) {
+  border-color:var(--tt-checkbox-accent);
+  background:color-mix(in srgb,var(--tt-checkbox-fill) 88%,#fff);
+}
+:root input.tt-checkbox[type=checkbox]:focus { box-shadow:none; }
+:root input.tt-checkbox[type=checkbox]:focus-visible { outline:2px solid var(--tt-checkbox-accent); outline-offset:3px; }
+:root input.tt-checkbox[type=checkbox][aria-invalid=true] { border-color:var(--danger,#aa4e43); }
+:root input.tt-checkbox[type=checkbox]:disabled { opacity:.45; cursor:not-allowed; box-shadow:none; }
+@media (prefers-reduced-motion:reduce) {
+  :root input.tt-checkbox[type=checkbox],:root input.tt-checkbox[type=checkbox]::after { transition:none; }
+}
+@media (forced-colors:active) {
+  :root input.tt-checkbox[type=checkbox] { appearance:auto; -webkit-appearance:checkbox; }
+  :root input.tt-checkbox[type=checkbox]::after { display:none; }
+}

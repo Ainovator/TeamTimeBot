@@ -1,6 +1,6 @@
 import type { GroupMember, MemberSkillProfile, SkillCatalogItem } from '../../types'
 
-export function fullName(member: GroupMember): string {
+export function fullName(member: Pick<GroupMember, 'firstName' | 'lastName' | 'username' | 'userTelegramID'>): string {
   const value = `${member.firstName ?? ''} ${member.lastName ?? ''}`.trim()
   if (value.length > 0) {
     return value
@@ -60,13 +60,24 @@ export function averageScore(profile: MemberSkillProfile | null, catalog: SkillC
   return values.reduce((acc, item) => acc + item, 0) / values.length
 }
 
+export function memberRating(profile: MemberSkillProfile | null, catalog: SkillCatalogItem[]): number | null {
+  const rated = profileSkills(profile, catalog).filter(skill => typeof skill.score === 'number' && Number.isFinite(skill.score))
+  return rated.length ? rated.reduce((sum, skill) => sum + normalizedSkillScore(skill.score), 0) / rated.length : null
+}
+
+export function formatMemberRating(rating: number | null): string {
+  if (rating === null) return '—'
+  // Keep a sub-9 rating visibly below the elite threshold after rounding.
+  return rating < 9 && rating >= 8.95 ? (Math.floor(rating * 100) / 100).toFixed(2) : rating.toFixed(1)
+}
+
 export function scoreColor(score: number | null): string {
   if (score === null) {
     return '#7c8fb1'
   }
   const bounded = Math.max(1, Math.min(10, score))
   const hue = ((bounded - 1) / 9) * 120
-  return `hsl(${hue} 70% 52%)`
+  return `hsl(${hue} 48% var(--rating-lightness, 32%))`
 }
 
 export function playerTypeLabel(value: '' | 'attacker' | 'setter' | 'libero' | 'central'): string {

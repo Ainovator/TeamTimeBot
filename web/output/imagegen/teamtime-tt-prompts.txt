@@ -1,0 +1,28 @@
+Mode: built-in image_gen
+Original generation (selected source):
+Use case: logo-brand.
+Create one finished standalone logo symbol for TeamTime, an app for organizing team sports meetups.
+
+OUTPUT: one PNG image, exactly 1024 × 1024 pixels, with a genuinely transparent background and an alpha channel. All empty canvas, including spaces inside the mark, must be transparent. Do not simulate transparency with a checkerboard, white fill, gray fill, or any pattern.
+
+SUBJECT: a compact connected monogram of two clearly readable Latin capital letters T T. Both Ts have exactly the same size and stroke thickness, broad horizontal top crossbars, and thick vertical stems centered under each crossbar. Place the right T slightly lower than the left T. Join the letters with a short precise geometric bridge near their top crossbars, forming a single unified symbol. Preserve the identity of two distinct Ts with generous negative space; neither a Cyrillic П nor an H. The silhouette subtly suggests two teammates standing beside each other, but only through the abstract typography; absolutely no heads, faces, circles, limbs, or anatomical details.
+
+STYLE: minimal contemporary sports identity, precise clean geometry, slightly rounded corners, consistent thick strokes, large solid shapes. Apply a small consistent overall rightward lean to convey movement. Flat crisp vector-like edges with clean antialiasing. Maintain simple distinctive legible forms at 24 × 24 pixels.
+
+COLOR: one solid saturated blue, exact sRGB hex #3267CF (RGB 50, 103, 207). No other visible colors. Uniform solid fill; no gradients, shadows, glows, 3D, outlines, highlights, textures, or lighting effects.
+
+COMPOSITION: one symbol only, centered optically and geometrically on a square transparent canvas, with approximately 12% clear margins on all four sides. Occupy the central approximately 76% of the canvas. Balance the compact monogram's width and height to leave similar margins, while keeping both Ts identical in size and right T slightly lower.
+
+No TeamTime wordmark, captions, labels, extra text, frames, background tile, icon container, mockup, surface, presentation sheet, watermark, or checkerboard. Deliver just the isolated blue TT logo with real transparency, ready to place over any website background.
+
+Attempted correction (discarded: background checkerboard artifacts remained):
+Use case: logo-brand.
+Edit the provided TeamTime TT monogram into the final production logo. The input is the edit target. Preserve its two connected capital Ts, slight right lean, right T set a little lower, broad crossbars, bold stems, clean mildly rounded geometry, and readability of both Ts. No other objects or text.
+
+Critical corrections:
+1. Output an exactly 1024 x 1024 pixel PNG with a real alpha channel and truly transparent empty canvas. Do not produce a 1254 x 1254 image.
+2. Make every interior pixel of the mark fully opaque and exactly one uniform solid color #3267CF, sRGB RGB(50,103,207). Absolutely no color variation, shading, texture or gradients. Only the silhouette edge may have antialiasing. No blue or colored specks outside the logo. Avoid translucent interiors and gray or colored edge halos.
+3. Rebalance the silhouette to be more compact and roughly square: lengthen both stems equally while keeping both Ts exactly the same size. Keep the right T slightly lower. Center the visible silhouette on the canvas. Use approximately 123 pixels of empty transparent margin on all four sides, with the logo bounding box roughly x=123..901 and y=123..901.
+4. Use consistent stroke thickness for top bars and vertical stems, generous clean negative space, and just a short geometric bridge at the upper bars. Both Latin Ts should be distinct and easy to recognize at 24 x 24 px.
+
+Do not add any background fill, checkerboard pattern, shadow, glow, dimension, texture, frame, container, extra glyph, caption, watermark or mockup. The deliverable is ONLY the single isolated solid blue TT symbol on genuine transparent pixels.

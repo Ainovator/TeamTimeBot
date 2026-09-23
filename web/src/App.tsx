@@ -1,3 +1,29 @@
+import { BillingWorkspace, TrainingPasses } from './features/studio/TrainingPasses'
+import { TrainingAttendance } from './features/studio/TrainingAttendance'
+import { Checkbox } from './components/Checkbox'
+import './features/studio/playerProfile.css'
+import { Documentation } from './features/docs/Documentation'
+import { ErrorNotifications, notifyError, useErrorState } from './components/ErrorNotifications'
+import { OrganizationTemplates, OrganizationTemplateNavigation, isTemplateSection } from './features/studio/OrganizationTemplates'
+import { StudioEvents, StudioPolls, StudioEventTemplates } from './features/studio/StudioLists'
+import { Icon } from './components/Icon'
+import { HeaderProgress } from './components/HeaderProgress'
+import { OrganizationSettings } from './features/studio/OrganizationSettings'
+import { Pagination } from './components/Pagination'
+import { HelpTip } from './components/HelpTip'
+import { PlayerPicker } from './components/PlayerPicker'
+import { StudioOverview } from './features/studio/StudioOverview'
+import { StudioMembers, memberInitials } from './features/studio/StudioMembers'
+import { MemberTable, MEMBERS_SORT_AVERAGE_CODE, type MembersSortCriterion } from './features/studio/MemberTable'
+import { StudioBilling } from './features/studio/StudioBilling'
+import { TeamForecast, playerCountLabel } from './features/studio/TeamForecast'
+import { EventDetailHeader, EventPollContext } from './features/studio/EventDetailHeader'
+import { EventMentionsEditor, emptyEventMentions, equalEventMentions } from './features/studio/EventMentionsEditor'
+import { EventDebtReminder } from './features/studio/EventDebtReminder'
+import { EventSetsEditor, type SetRowDraft } from './features/studio/EventSetsEditor'
+import { LineupAnalysis } from './features/studio/LineupAnalysis'
+import { ThemeSwitcher, useProductTheme } from './features/studio/ThemeSwitcher'
+import { Select } from './components/Select'
 import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   addGroupPollVoteForUser,
@@ -43,9 +69,7 @@ import {
   generateEventBillingForInstance,
   logoutAuth,
   publishEventSetRowsForInstance,
-  publishEventSettlement,
   publishEventTeamSplit,
-  publishGroupDebtors,
   publishRegistration,
   saveEventBillingForInstance,
   saveEventSetRowsForInstance,
@@ -68,19 +92,17 @@ import {
   historyStatusLabel,
   playerDisplayName,
   teamColor,
-  teamPairProbabilities,
   type ActiveTeamCode,
 } from './features/history/historyUtils'
 import {
   averageScore,
   fullName,
-  fullNamePartsFromProfile,
   initialsFromProfile,
+  memberRating,
   normalizedSkillScore,
   playerTypeCards,
   playerTypeLabel,
   profileSkills,
-  scoreColor,
 } from './features/members/memberUtils'
 import { buildTemplatePayload, ensureAtLeastTwoOptions, ensureAtLeastTwoTemplateState, type TemplateFormState } from './features/templates/templateUtils'
 import type {
@@ -112,22 +134,6 @@ import type {
 
 const initialRoute = parseRoute(window.location.pathname)
 
-const docsNavItems: Array<{ id: string; title: string }> = [
-  { id: 'docs-quickstart', title: 'Быстрый старт' },
-  { id: 'docs-templates-polls', title: 'Шаблоны голосований' },
-  { id: 'docs-templates-events', title: 'Шаблоны событий' },
-  { id: 'docs-workflow', title: 'Жизненный цикл тренировки' },
-  { id: 'docs-votes', title: 'Голоса и учёт' },
-  { id: 'docs-teams', title: 'Команды и распределение' },
-  { id: 'docs-sets', title: 'Партии (сеты)' },
-  { id: 'docs-billing', title: 'Оплата и перерасчёт' },
-  { id: 'docs-debts', title: 'Задолженности' },
-  { id: 'docs-roles', title: 'Роли и доступы' },
-]
-
-const MEMBERS_SORT_AVERAGE_CODE = '__avg__'
-type MembersSortCriterion = { code: string; direction: 'asc' | 'desc' }
-
 declare global {
   interface Window {
     onTelegramAuth?: (payload: {
@@ -142,13 +148,6 @@ declare global {
   }
 }
 
-type SetRowDraft = {
-  left: ActiveTeamCode
-  right: ActiveTeamCode
-  leftScore: number
-  rightScore: number
-}
-
 function clampInt(value: unknown, min: number, max: number): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return min
@@ -156,10 +155,12 @@ function clampInt(value: unknown, min: number, max: number): number {
 }
 
 export default function App() {
+  const [productTheme, chooseProductTheme] = useProductTheme()
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null)
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [groups, setGroups] = useState<Group[]>([])
+  const [groupsLoaded, setGroupsLoaded] = useState(false)
   const [activeChatID, setActiveChatID] = useState<number | null>(initialRoute.chatID)
   const [activeOrgKey, setActiveOrgKey] = useState<string | null>(initialRoute.orgKey ?? null)
   const [activeSection, setActiveSection] = useState<Section>(initialRoute.section)
@@ -171,10 +172,13 @@ export default function App() {
   const [activeEventView, setActiveEventView] = useState<'list' | 'create' | 'edit'>(initialRoute.eventView)
   const [activeEventID, setActiveEventID] = useState<number | null>(initialRoute.eventID)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('teamtime-sidebar-collapsed') === 'true' } catch { return false }
+  })
 
   const [details, setDetails] = useState<GroupDetails | null>(null)
   const [members, setMembers] = useState<GroupMember[]>([])
-  const [membersError, setMembersError] = useState('')
+  const [membersError, setMembersError] = useErrorState()
   const [skillsCatalog, setSkillsCatalog] = useState<SkillCatalogItem[]>([])
   const [memberSkillProfiles, setMemberSkillProfiles] = useState<Record<number, MemberSkillProfile>>({})
   const [selectedMemberSkills, setSelectedMemberSkills] = useState<MemberSkillProfile | null>(null)
@@ -187,15 +191,27 @@ export default function App() {
     relationType: 'prefer_together' as 'prefer_together' | 'avoid_together',
     weight: '5',
   })
-  const [memberRelationPickerQuery, setMemberRelationPickerQuery] = useState('')
-  const [memberRelationPickerOpen, setMemberRelationPickerOpen] = useState(false)
   const [membersSearch, setMembersSearch] = useState('')
+  const [membersView, setMembersView] = useState<'cards' | 'list'>('cards')
+  const [membersPage, setMembersPage] = useState(1)
+  const [membersPageSize, setMembersPageSize] = useState(12)
+  const membersHeadingRef = useRef<HTMLDivElement>(null)
+  const [eventsView, setEventsView] = useState<'cards' | 'list'>(() => {
+    try { return localStorage.getItem('teamtime-events-view') === 'list' ? 'list' : 'cards' }
+    catch { return 'cards' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('teamtime-events-view', eventsView) } catch { /* View switching also works without storage. */ }
+  }, [eventsView])
   const [membersTypeFilter, setMembersTypeFilter] = useState<'' | 'attacker' | 'setter' | 'libero' | 'central'>('')
+  const [membersRatingMin, setMembersRatingMin] = useState('')
+  const [membersRatingMax, setMembersRatingMax] = useState('')
   const [membersSortCriteria, setMembersSortCriteria] = useState<MembersSortCriterion[]>([])
   const [memberSkillLoading, setMemberSkillLoading] = useState(false)
-  const [memberSkillError, setMemberSkillError] = useState('')
+  const [memberSkillError, setMemberSkillError] = useErrorState()
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useErrorState()
   const [success, setSuccess] = useState('')
   const [successVisible, setSuccessVisible] = useState(false)
 
@@ -216,6 +232,7 @@ export default function App() {
     startAt: '19:00',
     endAt: '21:00',
     announcementText: '',
+    mentions: emptyEventMentions(),
     announcementEnabled: false,
     announcementLeadMinutes: '60',
     teamsAutoSplit: false,
@@ -239,7 +256,7 @@ export default function App() {
     weights: [1, 1],
   })
   const [templateEditorLoading, setTemplateEditorLoading] = useState(false)
-  const [templateEditorError, setTemplateEditorError] = useState('')
+  const [templateEditorError, setTemplateEditorError] = useErrorState()
   const [eventEditor, setEventEditor] = useState({
     name: '',
     eventType: 'training' as 'training' | 'activity',
@@ -249,6 +266,7 @@ export default function App() {
     startAt: '19:00',
     endAt: '21:00',
     announcementText: '',
+    mentions: emptyEventMentions(),
     announcementEnabled: false,
     announcementLeadMinutes: '60',
     teamsAutoSplit: false,
@@ -269,60 +287,62 @@ export default function App() {
   const [archivedEvents, setArchivedEvents] = useState<EventView[]>([])
   const [eventActivity, setEventActivity] = useState<EventActivitySummary | null>(null)
   const [eventActivityLoading, setEventActivityLoading] = useState(false)
-  const [eventActivityError, setEventActivityError] = useState('')
+  const [eventActivityError, setEventActivityError] = useErrorState()
   const [showEventActivity, setShowEventActivity] = useState(false)
   const [eventHistory, setEventHistory] = useState<EventHistoryItem[]>([])
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyPageSize, setHistoryPageSize] = useState(12)
+  const historyHeadingRef = useRef<HTMLDivElement>(null)
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'' | 'in_voting' | 'on_distribution' | 'on_review' | 'completed' | 'not_held'>('')
-  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing' | 'sets'>('distribution')
+  const [attendanceRevision, setAttendanceRevision] = useState(0)
+  const [historyDetailTab, setHistoryDetailTab] = useState<'distribution' | 'votes' | 'billing' | 'sets' | 'attendance'>('distribution')
   const [eventHistoryLoading, setEventHistoryLoading] = useState(false)
-  const [eventHistoryError, setEventHistoryError] = useState('')
+  const [eventHistoryError, setEventHistoryError] = useErrorState()
   const [eventPollHistory, setEventPollHistory] = useState<EventPollHistoryItem[]>([])
   const [groupPolls, setGroupPolls] = useState<GroupPollItem[]>([])
   const [groupPollsLoading, setGroupPollsLoading] = useState(false)
-  const [groupPollsError, setGroupPollsError] = useState('')
+  const [groupPollsError, setGroupPollsError] = useErrorState()
   const [groupPollVotes, setGroupPollVotes] = useState<GroupPollVoteItem[]>([])
   const [groupPollVotesLoading, setGroupPollVotesLoading] = useState(false)
-  const [groupPollVotesError, setGroupPollVotesError] = useState('')
+  const [groupPollVotesError, setGroupPollVotesError] = useErrorState()
   const [pollOptions, setPollOptions] = useState<GroupPollOptionItem[]>([])
   const [pollOptionsLoading, setPollOptionsLoading] = useState(false)
-  const [pollOptionsError, setPollOptionsError] = useState('')
+  const [pollOptionsError, setPollOptionsError] = useErrorState()
   const [manualVoteDraft, setManualVoteDraft] = useState({
     userID: '',
     choice: '',
   })
   const [eventPollHistoryLoading, setEventPollHistoryLoading] = useState(false)
-  const [eventPollHistoryError, setEventPollHistoryError] = useState('')
+  const [eventPollHistoryError, setEventPollHistoryError] = useErrorState()
   const [selectedHistoryPostID, setSelectedHistoryPostID] = useState<number | null>(null)
   const [historyPollVotes, setHistoryPollVotes] = useState<GroupPollVoteItem[]>([])
   const [historyPollVotesLoading, setHistoryPollVotesLoading] = useState(false)
-  const [historyPollVotesError, setHistoryPollVotesError] = useState('')
+  const [historyPollVotesError, setHistoryPollVotesError] = useErrorState()
   const [teamSplit, setTeamSplit] = useState<EventTeamSplitState | null>(null)
   const [teamSplitLoading, setTeamSplitLoading] = useState(false)
-  const [teamSplitError, setTeamSplitError] = useState('')
+  const [, setTeamSplitError] = useErrorState()
   const [draggedPlayerID, setDraggedPlayerID] = useState<number | null>(null)
   const [touchDragMode, setTouchDragMode] = useState(false)
   const [teamCEnabled, setTeamCEnabled] = useState(false)
   const [eventBilling, setEventBilling] = useState<EventBilling | null>(null)
   const [eventBillingLoading, setEventBillingLoading] = useState(false)
-  const [eventBillingError, setEventBillingError] = useState('')
+  const [eventBillingError, setEventBillingError] = useErrorState()
   const [eventBillingDraft, setEventBillingDraft] = useState<Record<number, boolean>>({})
   const [eventSetRowsDraft, setEventSetRowsDraft] = useState<SetRowDraft[]>([])
   const [eventSetsLoading, setEventSetsLoading] = useState(false)
-  const [eventSetsError, setEventSetsError] = useState('')
+  const [, setEventSetsError] = useErrorState()
   const [groupDebtSummary, setGroupDebtSummary] = useState<GroupDebtSummary | null>(null)
   const [billingDebtors, setBillingDebtors] = useState<GroupDebtor[]>([])
   const [billingLoading, setBillingLoading] = useState(false)
-  const [billingError, setBillingError] = useState('')
-  const [billingExpanded, setBillingExpanded] = useState<Record<number, boolean>>({})
-  const [billingPublishDraft, setBillingPublishDraft] = useState<Record<number, boolean>>({})
+  const [billingError, setBillingError] = useErrorState()
   const [groupGames, setGroupGames] = useState<GroupGameRow[]>([])
   const [groupGamesLoading, setGroupGamesLoading] = useState(false)
-  const [groupGamesError, setGroupGamesError] = useState('')
+  const [groupGamesError, setGroupGamesError] = useErrorState()
   const [gamesExpandedRows, setGamesExpandedRows] = useState<Record<string, boolean>>({})
   const [gamesRosterCache, setGamesRosterCache] = useState<Record<string, GameRosterResponse>>({})
   const [myProfile, setMyProfile] = useState<UserGroupProfile | null>(null)
   const [myProfileLoading, setMyProfileLoading] = useState(false)
-  const [myProfileError, setMyProfileError] = useState('')
+  const [myProfileError, setMyProfileError] = useErrorState()
   const [confirmModal, setConfirmModal] = useState<{
     open: boolean
     title: string
@@ -340,12 +360,11 @@ export default function App() {
     danger: false,
     onConfirm: null,
   })
-  const memberRelationPickerRef = useRef<HTMLDivElement | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
   const [activePerms, setActivePerms] = useState<GroupPermissionsView | null>(null)
   const [groupRoles, setGroupRoles] = useState<GroupRoleView[]>([])
   const [groupRolesLoading, setGroupRolesLoading] = useState(false)
-  const [groupRolesError, setGroupRolesError] = useState('')
+  const [, setGroupRolesError] = useErrorState()
   const [roleAssignUserID, setRoleAssignUserID] = useState('')
   const [roleAssignCode, setRoleAssignCode] = useState('member')
 
@@ -389,18 +408,28 @@ export default function App() {
   const visibleSections = useMemo(() => {
     return sections.filter((s) => {
       if (s.id === 'overview') return isAdmin
+      if (s.id === 'settings') return isAdmin || can('templates_manage') || can('event_templates_manage')
       if (s.id === 'billing') return isAdmin
       if (s.id === 'docs') return true
       if (s.id === 'events') return can('events_read')
       if (s.id === 'games') return can('events_read')
       if (s.id === 'polls') return can('polls_read')
-      if (s.id === 'profile') return can('profile_read')
+      if (s.id === 'profile') return true
       if (s.id === 'members') return can('members_read')
       if (s.id === 'templates') return can('templates_manage')
       if (s.id === 'event_templates') return can('event_templates_manage')
       return false
-    })
+    }).sort((a, b) => ['overview','events','members','games','polls','billing','templates','event_templates','profile','settings','docs'].indexOf(a.id) - ['overview','events','members','games','polls','billing','templates','event_templates','profile','settings','docs'].indexOf(b.id))
   }, [authConfig?.enabled, activePerms, isAdmin])
+  const availableTemplateSections = visibleSections.filter(section => isTemplateSection(section.id)).map(section => section.id)
+  const headerSectionIDs: Section[] = ['settings', 'profile']
+  const headerSections = visibleSections.filter(section => headerSectionIDs.includes(section.id))
+    .sort((a, b) => headerSectionIDs.indexOf(a.id) - headerSectionIDs.indexOf(b.id))
+  const sidebarSections = sections.filter(section => section.id !== 'polls' && !isTemplateSection(section.id) && !headerSectionIDs.includes(section.id) && visibleSections.some(visible => visible.id === section.id))
+    .sort((a, b) => ['overview', 'events', 'members', 'games', 'billing', 'docs'].indexOf(a.id)
+      - ['overview', 'events', 'members', 'games', 'billing', 'docs'].indexOf(b.id))
+  const activeSidebarSection = activeSection === 'polls' ? 'events' : activeSection
+  const activeHeaderSection = isTemplateSection(activeSection) ? 'settings' : activeSection
   const templateCountedMap = useMemo(() => {
     const map = new Map<string, number>()
     for (const template of templates) {
@@ -409,15 +438,6 @@ export default function App() {
     return map
   }, [templates])
 
-  const [docsSideNavVisible, setDocsSideNavVisible] = useState(false)
-  const [docsActiveAnchor, setDocsActiveAnchor] = useState<string>(docsNavItems[0]?.id ?? 'docs-quickstart')
-  const [docsSideNavCollapsed, setDocsSideNavCollapsed] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem('docsSideNavCollapsed') === '1'
-    } catch {
-      return false
-    }
-  })
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === activeEventID) ?? null,
     [events, activeEventID],
@@ -448,6 +468,15 @@ export default function App() {
     }
     return eventHistory.filter((item) => item.status === historyStatusFilter)
   }, [eventHistory, historyStatusFilter])
+  const historyPageCount = Math.max(1, Math.ceil(filteredEventHistory.length / historyPageSize))
+  const currentHistoryPage = Math.min(historyPage, historyPageCount)
+  const paginatedEventHistory = filteredEventHistory.slice((currentHistoryPage - 1) * historyPageSize, currentHistoryPage * historyPageSize)
+  useEffect(() => { setHistoryPage(1) }, [activeChatID, historyStatusFilter, historyPageSize])
+  useEffect(() => { setHistoryPage(page => Math.min(page, historyPageCount)) }, [historyPageCount])
+  const membersRatingError = [membersRatingMin, membersRatingMax].some(value => value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 1 || Number(value) > 10))
+    ? 'Укажите рейтинг от 1 до 10.'
+    : membersRatingMin !== '' && membersRatingMax !== '' && Number(membersRatingMin) > Number(membersRatingMax)
+      ? 'Рейтинг «от» должен быть не больше рейтинга «до».' : ''
   const filteredMembers = useMemo(() => {
     const query = membersSearch.trim().toLowerCase()
     const list = members.filter((member) => {
@@ -455,6 +484,11 @@ export default function App() {
       const playerType = (profile?.playerType || member.playerType || '') as '' | 'attacker' | 'setter' | 'libero' | 'central'
       if (membersTypeFilter !== '' && playerType !== membersTypeFilter) {
         return false
+      }
+      if (membersRatingError) return false
+      if (membersRatingMin !== '' || membersRatingMax !== '') {
+        const rating = memberRating(profile ?? null, skillsCatalog)
+        if (rating === null || (membersRatingMin !== '' && rating < Number(membersRatingMin)) || (membersRatingMax !== '' && rating > Number(membersRatingMax))) return false
       }
       if (query === '') {
         return true
@@ -487,11 +521,11 @@ export default function App() {
       const profile = memberSkillProfiles[member.userTelegramID] ?? null
       let value: number
       if (code === MEMBERS_SORT_AVERAGE_CODE) {
-        const avg = averageScore(profile, skillsCatalog)
+        const avg = memberRating(profile, skillsCatalog)
         value = avg === null ? -1 : avg
       } else if (knownSkillCodes.has(code)) {
         const skill = profileSkills(profile, skillsCatalog).find((item) => item.skillCode === code)
-        value = normalizedSkillScore(skill?.score)
+        value = typeof skill?.score === 'number' && Number.isFinite(skill.score) ? normalizedSkillScore(skill.score) : -1
       } else {
         value = -1
       }
@@ -504,6 +538,8 @@ export default function App() {
         const leftValue = getSortValue(left, criterion.code)
         const rightValue = getSortValue(right, criterion.code)
         if (leftValue !== rightValue) {
+          if (leftValue < 0) return 1
+          if (rightValue < 0) return -1
           return criterion.direction === 'asc' ? leftValue - rightValue : rightValue - leftValue
         }
       }
@@ -519,8 +555,16 @@ export default function App() {
     membersSearch,
     membersSortCriteria,
     membersTypeFilter,
+    membersRatingMin,
+    membersRatingMax,
+    membersRatingError,
     skillsCatalog,
   ])
+  const membersPageCount = Math.max(1, Math.ceil(filteredMembers.length / membersPageSize))
+  const currentMembersPage = Math.min(membersPage, membersPageCount)
+  const paginatedMembers = filteredMembers.slice((currentMembersPage - 1) * membersPageSize, currentMembersPage * membersPageSize)
+  useEffect(() => { setMembersPage(1) }, [activeChatID, membersSearch, membersTypeFilter, membersRatingMin, membersRatingMax, membersPageSize])
+  useEffect(() => { setMembersPage(page => Math.min(page, membersPageCount)) }, [membersPageCount])
   const selectedHistoryEvent = useMemo(
     () => eventHistory.find((event) => event.instanceID === activeHistoryEventID) ?? null,
     [eventHistory, activeHistoryEventID],
@@ -535,6 +579,7 @@ export default function App() {
   }, [skillsCatalog])
 
   function onMembersSort(code: string, direction: 'asc' | 'desc') {
+    setMembersPage(1)
     setMembersSortCriteria((prev) => {
       const idx = prev.findIndex((item) => item.code === code)
       if (idx === -1) {
@@ -548,12 +593,6 @@ export default function App() {
       return next
     })
   }
-
-  const membersSortOrderByCode = useMemo(() => {
-    const map = new Map<string, number>()
-    membersSortCriteria.forEach((item, idx) => map.set(item.code, idx + 1))
-    return map
-  }, [membersSortCriteria])
 
   useEffect(() => {
     if (activeChatID === null) {
@@ -636,40 +675,12 @@ export default function App() {
     return availableRelationMembers.map((member) => {
       return {
         id: member.userTelegramID,
-        label: `${relationMemberOptionLabel(member)} · ID ${member.userTelegramID}`,
+        label: (memberSkillProfiles[member.userTelegramID]?.realName || member.realName || '').trim() || fullName(member),
+        username: (member.username || '').trim(),
       }
     })
   }, [availableRelationMembers, memberSkillProfiles])
 
-  const selectedRelationMemberOption = useMemo(() => {
-    const selectedID = Number(memberRelationDraft.otherUserID)
-    if (!Number.isInteger(selectedID) || selectedID <= 0) {
-      return null
-    }
-    return relationMemberOptions.find((item) => item.id === selectedID) ?? null
-  }, [memberRelationDraft.otherUserID, relationMemberOptions])
-
-  const filteredRelationMemberOptions = useMemo(() => {
-    const query = memberRelationPickerQuery.trim().toLowerCase()
-    if (query === '') {
-      return relationMemberOptions
-    }
-    return relationMemberOptions.filter((item) => item.label.toLowerCase().includes(query) || String(item.id).includes(query))
-  }, [memberRelationPickerQuery, relationMemberOptions])
-
-  useEffect(() => {
-    if (!memberRelationPickerOpen) {
-      return
-    }
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null
-      if (target && memberRelationPickerRef.current && !memberRelationPickerRef.current.contains(target)) {
-        setMemberRelationPickerOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handlePointerDown)
-    return () => document.removeEventListener('mousedown', handlePointerDown)
-  }, [memberRelationPickerOpen])
   const eventEditorDirty = useMemo(() => {
     if (!selectedEvent || activeSection !== 'event_templates' || activeEventView !== 'edit') {
       return false
@@ -693,6 +704,7 @@ export default function App() {
       eventEditor.publishAt !== toHourMinute(selectedEvent.pollPublishTime) ||
       eventEditor.startAt !== toHourMinute(selectedEvent.startTime) ||
       eventEditor.endAt !== toHourMinute(selectedEvent.endTime) ||
+      !equalEventMentions(eventEditor.mentions, selectedEvent.mentions) ||
       eventEditor.announcementText.trim() !== (selectedEvent.announcementText || '') ||
       eventEditor.announcementEnabled !== selectedEvent.announcementEnabled ||
       Number(eventEditor.announcementLeadMinutes) !== selectedAnnouncementLead ||
@@ -795,6 +807,7 @@ export default function App() {
 
   useEffect(() => {
     if (authLoading || !authUser) {
+      setGroupsLoaded(false)
       setGroups([])
       return
     }
@@ -802,6 +815,7 @@ export default function App() {
       try {
         const loadedGroups = await fetchGroups()
         setGroups(loadedGroups)
+        setGroupsLoaded(true)
 
         if (loadedGroups.length === 0) {
           return
@@ -888,6 +902,8 @@ export default function App() {
   }, [authConfig, authUser, authLoading])
 
   useEffect(() => {
+    // Keep the requested detail route while authentication and organizations load.
+    if (!groupsLoaded) return
     if (activeChatID === null) {
       setDetails(null)
       setMembers([])
@@ -899,8 +915,6 @@ export default function App() {
       setEventBilling(null)
       setGroupDebtSummary(null)
       setBillingDebtors([])
-      setBillingExpanded({})
-      setBillingPublishDraft({})
       setActiveHistoryEventID(null)
       setActivePollPostID(null)
       setArchivedEvents([])
@@ -918,8 +932,6 @@ export default function App() {
       setEventBilling(null)
       setGroupDebtSummary(null)
       setBillingDebtors([])
-      setBillingExpanded({})
-      setBillingPublishDraft({})
       setActiveHistoryEventID(null)
       setActivePollPostID(null)
       setArchivedEvents([])
@@ -927,10 +939,10 @@ export default function App() {
       return
     }
     void reloadActiveOrganization(activeChatID)
-  }, [activeChatID, groups])
+  }, [activeChatID, groups, groupsLoaded])
 
   useEffect(() => {
-    if (activeSection !== 'profile' || activeChatID === null) {
+    if (activeSection !== 'profile' || activeChatID === null || !authConfig?.enabled || !activePerms?.permissions?.profile_read) {
       setMyProfile(null)
       setMyProfileError('')
       return
@@ -958,7 +970,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [activeSection, activeChatID, success])
+  }, [activeSection, activeChatID, success, authConfig?.enabled, activePerms?.permissions?.profile_read])
 
   useEffect(() => {
     if (activeSection !== 'event_templates') {
@@ -967,7 +979,7 @@ export default function App() {
   }, [activeSection])
 
   useEffect(() => {
-    if (activeSection !== 'events' || activeChatID === null) {
+    if ((activeSection !== 'events' && activeSection !== 'overview') || activeChatID === null) {
       return
     }
     let cancelled = false
@@ -1062,6 +1074,7 @@ export default function App() {
         startAt: '19:00',
         endAt: '21:00',
         announcementText: '',
+        mentions: emptyEventMentions(),
         announcementEnabled: false,
         announcementLeadMinutes: '60',
         teamsAutoSplit: false,
@@ -1089,6 +1102,7 @@ export default function App() {
       startAt: toHourMinute(selectedEvent.startTime),
       endAt: toHourMinute(selectedEvent.endTime),
       announcementText: selectedEvent.announcementText || '',
+      mentions: selectedEvent.mentions ?? emptyEventMentions(),
       announcementEnabled: selectedEvent.announcementEnabled,
       announcementLeadMinutes: String(selectedEvent.announcementLeadMinutes || 60),
       teamsAutoSplit: selectedEvent.teamsAutoSplit,
@@ -1175,58 +1189,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [activeSection, activeChatID, activeHistoryEventID, success])
-
-  useEffect(() => {
-    if (activeSection !== 'docs') {
-      setDocsSideNavVisible(false)
-      return
-    }
-    let cancelled = false
-    const toc = document.querySelector('.docs-toc')
-    if (!toc) {
-      return
-    }
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (cancelled) return
-        const e = entries[0]
-        // Show the side nav when the main TOC is not visible.
-        setDocsSideNavVisible(!e.isIntersecting)
-      },
-      { threshold: 0.05 },
-    )
-    io.observe(toc)
-
-    const sectionEls = docsNavItems
-      .map((it) => document.getElementById(it.id))
-      .filter((el): el is HTMLElement => Boolean(el))
-
-    const sectionIO = new IntersectionObserver(
-      (entries) => {
-        if (cancelled) return
-        const visible = entries
-          .filter((x) => x.isIntersecting)
-          .sort((a, b) => (b.intersectionRatio ?? 0) - (a.intersectionRatio ?? 0))
-        if (visible.length > 0) {
-          const id = (visible[0].target as HTMLElement).id
-          if (id) setDocsActiveAnchor(id)
-        }
-      },
-      // Consider section active when its heading reaches upper half.
-      { threshold: [0.15, 0.35, 0.55] },
-    )
-    for (const el of sectionEls) {
-      sectionIO.observe(el)
-    }
-
-    return () => {
-      cancelled = true
-      io.disconnect()
-      sectionIO.disconnect()
-    }
-  }, [activeSection])
+  }, [activeSection, activeChatID, activeHistoryEventID, success, attendanceRevision])
 
   useEffect(() => {
     if (activeSection !== 'polls' || activeChatID === null) {
@@ -1383,14 +1346,14 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [activeSection, activeChatID, activeHistoryEventID, success])
+  }, [activeSection, activeChatID, activeHistoryEventID, success, attendanceRevision])
 
   useEffect(() => {
     if (activeSection !== 'billing' || activeChatID === null || !isAdmin) {
       setBillingDebtors([])
       setBillingLoading(false)
       setBillingError('')
-      setBillingPublishDraft({})
+
       return
     }
     let cancelled = false
@@ -1401,21 +1364,7 @@ export default function App() {
         if (cancelled) return
         const safe = Array.isArray(items) ? items : []
         setBillingDebtors(safe)
-        setBillingPublishDraft((prev) => {
-          const next: Record<number, boolean> = { ...prev }
-          const seen = new Set<number>()
-          for (const d of safe) {
-            const uid = Number(d.userID)
-            if (!Number.isFinite(uid) || uid === 0) continue
-            seen.add(uid)
-            if (typeof next[uid] !== 'boolean') next[uid] = true
-          }
-          for (const k of Object.keys(next)) {
-            const uid = Number(k)
-            if (!seen.has(uid)) delete next[uid]
-          }
-          return next
-        })
+
       })
       .catch((err) => {
         if (cancelled) return
@@ -1497,7 +1446,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [activeSection, activeChatID, activeHistoryEventID, success])
+  }, [activeSection, activeChatID, activeHistoryEventID, success, attendanceRevision])
 
   useEffect(() => {
     setHistoryDetailTab('distribution')
@@ -1745,6 +1694,16 @@ export default function App() {
       if (!silent) {
         setLoading(false)
       }
+    }
+  }
+
+  async function refreshActiveOrganization() {
+    if (!activeChatID || loading || refreshing) return
+    setRefreshing(true)
+    try {
+      await reloadActiveOrganization(activeChatID, { silent: true })
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -2011,7 +1970,7 @@ export default function App() {
       return
     }
     if (Number.isNaN(minVotesToHold) || minVotesToHold < 0) {
-      setError('Минимальное количество голосов должно быть >= 0')
+      setError('Минимальное количество голосов не может быть отрицательным')
       return
     }
     if (Number.isNaN(cancelLeadMinutes) || cancelLeadMinutes <= 0) {
@@ -2026,11 +1985,11 @@ export default function App() {
 	    const endMin = clockMinutes(eventForm.endAt)
 	    const publishMin = clockMinutes(eventForm.publishAt)
 	    if (startMin === null) {
-	      setError('Время начала должно быть в формате HH:MM')
+	      setError('Время начала должно быть в формате ЧЧ:ММ, например 19:30')
 	      return
 	    }
 	    if (endMin === null) {
-	      setError('Время окончания должно быть в формате HH:MM')
+	      setError('Время окончания должно быть в формате ЧЧ:ММ, например 19:30')
 	      return
 	    }
 	    if (endMin <= startMin) {
@@ -2038,7 +1997,7 @@ export default function App() {
 	      return
 	    }
 	    if (publishMin === null) {
-	      setError('Время публикации должно быть в формате HH:MM')
+	      setError('Время публикации должно быть в формате ЧЧ:ММ, например 19:30')
 	      return
 	    }
 	    if (publishWeekday === weekday && publishMin > startMin) {
@@ -2068,6 +2027,7 @@ export default function App() {
     try {
       const created = await createEvent(activeChatID, {
         name: eventForm.name.trim(),
+        mentions: eventForm.mentions,
         eventType,
         templateName,
         weekday,
@@ -2108,6 +2068,7 @@ export default function App() {
       startAt: '19:00',
       endAt: '21:00',
       announcementText: '',
+      mentions: emptyEventMentions(),
       announcementEnabled: false,
       announcementLeadMinutes: '60',
       teamsAutoSplit: false,
@@ -2203,7 +2164,7 @@ export default function App() {
       return
     }
     if (Number.isNaN(minVotesToHold) || minVotesToHold < 0) {
-      setError('Минимальное количество голосов должно быть >= 0')
+      setError('Минимальное количество голосов не может быть отрицательным')
       return
     }
     if (Number.isNaN(cancelLeadMinutes) || cancelLeadMinutes <= 0) {
@@ -2218,11 +2179,11 @@ export default function App() {
 	    const endMin = clockMinutes(eventEditor.endAt)
 	    const publishMin = clockMinutes(publishAt)
 	    if (startMin === null) {
-	      setError('Время начала должно быть в формате HH:MM')
+	      setError('Время начала должно быть в формате ЧЧ:ММ, например 19:30')
 	      return
 	    }
 	    if (endMin === null) {
-	      setError('Время окончания должно быть в формате HH:MM')
+	      setError('Время окончания должно быть в формате ЧЧ:ММ, например 19:30')
 	      return
 	    }
 	    if (endMin <= startMin) {
@@ -2230,7 +2191,7 @@ export default function App() {
 	      return
 	    }
 	    if (publishMin === null) {
-	      setError('Время публикации должно быть в формате HH:MM')
+	      setError('Время публикации должно быть в формате ЧЧ:ММ, например 19:30')
 	      return
 	    }
 	    if (publishWeekday === weekday && publishMin > startMin) {
@@ -2242,7 +2203,7 @@ export default function App() {
 	      return
 	    }
     if (costAmount !== undefined && (Number.isNaN(costAmount) || costAmount < 0)) {
-      setError('Стоимость должна быть числом >= 0')
+      setError('Укажите стоимость числом, не меньше нуля')
       return
     }
     const selectedPublishWeekday = selectedEvent.pollPublishWeekday || selectedEvent.startWeekday
@@ -2255,6 +2216,7 @@ export default function App() {
       publishAt !== toHourMinute(selectedEvent.pollPublishTime) ||
       eventEditor.startAt !== toHourMinute(selectedEvent.startTime) ||
       eventEditor.endAt !== toHourMinute(selectedEvent.endTime) ||
+      !equalEventMentions(eventEditor.mentions, selectedEvent.mentions) ||
       announcementText !== (selectedEvent.announcementText || '') ||
       announcementEnabled !== selectedEvent.announcementEnabled ||
       announcementLeadMinutes !== selectedAnnouncementLead ||
@@ -2280,6 +2242,7 @@ export default function App() {
       async () => {
         if (detailsChanged) {
           await updateEventDetails(activeChatID, activeEventID, {
+            mentions: eventEditor.mentions,
             name,
             eventType,
             weekday,
@@ -2311,13 +2274,6 @@ export default function App() {
       },
       'Событие обновлено',
     )
-  }
-
-  async function onPublishSettlementForEvent(eventID: number) {
-    if (activeChatID === null || eventID === 0) {
-      return
-    }
-    await runAction(() => publishEventSettlement(activeChatID, eventID), 'Расчёт опубликован')
   }
 
   async function onGenerateBillingForInstance(instanceID: number) {
@@ -2591,7 +2547,7 @@ export default function App() {
       return
     }
     try {
-      const statuses = eventBilling.players.map((player) => ({
+      const statuses = eventBilling.players.filter(player => !(player.passCovered && player.amountDue <= 0)).map((player) => ({
         userID: player.userID,
         paid: Boolean(eventBillingDraft[player.userID]),
       }))
@@ -2686,8 +2642,6 @@ export default function App() {
         relationType: 'prefer_together',
         weight: '5',
       })
-      setMemberRelationPickerQuery('')
-      setMemberRelationPickerOpen(false)
       setMemberSkillProfiles((prev) => ({ ...prev, [profile.userTelegramID]: profile }))
     } catch (err) {
       setMemberSkillError((err as Error).message)
@@ -2721,7 +2675,7 @@ export default function App() {
       const raw = (memberSkillDraft[skill.skillCode] ?? '5').trim()
       const value = Number(raw)
       if (!Number.isInteger(value) || value < 1 || value > 10) {
-        setMemberSkillError(`Оценка для "${skill.skillName}" должна быть целым числом 1..10`)
+        setMemberSkillError(`Оценка для "${skill.skillName}" должна быть целым числом от 1 до 10`)
         return
       }
       payload[skill.skillCode] = value
@@ -2778,17 +2732,6 @@ export default function App() {
     return base
   }
 
-  function onRelationMemberPickerChange(value: string) {
-    setMemberRelationPickerQuery(value)
-  }
-
-  function onRelationMemberSelect(optionID: number) {
-    const option = relationMemberOptions.find((item) => item.id === optionID)
-    setMemberRelationDraft((prev) => ({ ...prev, otherUserID: String(optionID) }))
-    setMemberRelationPickerQuery(option?.label || '')
-    setMemberRelationPickerOpen(false)
-  }
-
   function relationUserName(relation: PlayerRelation) {
     const member = memberByUserID.get(relation.relatedUserID)
     if (member) {
@@ -2820,7 +2763,7 @@ export default function App() {
       return
     }
     if (Number.isNaN(weight) || weight < 1 || weight > 10) {
-      setMemberSkillError('Вес связи должен быть от 1 до 10')
+      setMemberSkillError('Принципиальность должна быть от 1 до 10')
       return
     }
     setMemberSkillError('')
@@ -2833,8 +2776,6 @@ export default function App() {
       const next = await fetchMemberRelations(activeChatID, selectedMemberSkills.userTelegramID)
       setMemberRelations(next)
       setMemberRelationDraft((prev) => ({ ...prev, otherUserID: '', weight: '5' }))
-      setMemberRelationPickerQuery('')
-      setMemberRelationPickerOpen(false)
       setSuccess('Связь сохранена')
     } catch (err) {
       setMemberSkillError((err as Error).message)
@@ -2861,67 +2802,14 @@ export default function App() {
     }
   }
 
-  function renderOverview() {
-    if (!details) {
-      return <section className="content-card">Выбери организацию слева</section>
-    }
-
-    return (
-      <>
-        <section className="metrics-grid">
-          <article className="metric-card">
-            <p className="metric-label">Подписчики</p>
-            <p className="metric-value">{members.length}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Шаблоны</p>
-            <p className="metric-value">{templates.length}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">События</p>
-            <p className="metric-value">{events.length}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Общий долг группы</p>
-            <p className="metric-value">{formatMoney(groupDebtSummary?.totalDebt ?? 0)}</p>
-          </article>
-        </section>
-
-        <section className="content-card">
-          <h3>Организация</h3>
-          <div className="detail-grid">
-            <div>
-              <span>Название</span>
-              <strong>{details.group.title}</strong>
-            </div>
-            <div>
-              <span>chat_id</span>
-              <strong>{details.group.chatID}</strong>
-            </div>
-            <div>
-              <span>Таймзона</span>
-              <strong>{details.group.timezone}</strong>
-            </div>
-          </div>
-          <div className="manual-controls">
-            <button type="button" className="btn-secondary" onClick={() => void onPublishRegistration()}>
-              Опубликовать регистрацию
-            </button>
-          </div>
-        </section>
-      </>
-    )
+  function openStudioSection(section: Section, extra: Partial<RouteState> = {}) {
+    setMobileNavOpen(false)
+    navigateTo({ chatID: activeChatID, section, templateView: 'list', templateName: null, eventView: 'list', eventID: null, ...extra })
   }
 
-  function debtorDisplayName(d: GroupDebtor): string {
-    const full = `${d.firstName ?? ''} ${d.lastName ?? ''}`.trim()
-    if (full) {
-      return full
-    }
-    if (d.username) {
-      return `@${d.username}`
-    }
-    return `ID ${d.userID}`
+  function renderOverview() {
+    if (!details) return <section className="content-card">Выберите организацию</section>
+    return <StudioOverview details={details} members={members} debt={groupDebtSummary} history={eventHistory} loading={eventHistoryLoading} error={eventHistoryError} openEvent={id => openStudioSection('events', { historyEventID: id })} openMembers={() => openStudioSection('members')} openEvents={() => openStudioSection('events')} openBilling={() => openStudioSection('billing')} createEvent={() => openStudioSection('event_templates')}/>
   }
 
   function pollVoteDisplayName(vote: GroupPollVoteItem): string {
@@ -2965,7 +2853,7 @@ export default function App() {
       <section className="settings-group manual-vote-card">
         <p className="settings-group-title">Добавить голос игрока</p>
         {pollOptionsLoading ? <p className="muted">Загрузка вариантов голосования...</p> : null}
-        {pollOptionsError ? <p className="muted">Ошибка: {pollOptionsError}</p> : null}
+
         {sortedMembers.length === 0 ? <p className="muted">Список игроков пуст. Добавь игроков в организацию.</p> : null}
         {!pollOptionsLoading && !pollOptionsError && pollOptions.length === 0 ? (
           <p className="muted">В этом голосовании не найдено вариантов.</p>
@@ -2973,7 +2861,7 @@ export default function App() {
         <div className="settings-row settings-row-3 manual-vote-row">
           <label className="field">
             <span>Игрок</span>
-            <select
+            <Select
               value={manualVoteDraft.userID}
               onChange={(e) => setManualVoteDraft((prev) => ({ ...prev, userID: e.target.value }))}
             >
@@ -2983,11 +2871,11 @@ export default function App() {
                   {`${relationMemberOptionLabel(member)} · ID ${member.userTelegramID}`}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="field">
             <span>Вариант</span>
-            <select
+            <Select
               value={manualVoteDraft.choice}
               onChange={(e) => setManualVoteDraft((prev) => ({ ...prev, choice: e.target.value }))}
             >
@@ -3007,7 +2895,7 @@ export default function App() {
                   </option>
                 )
               })}
-            </select>
+            </Select>
           </label>
           <label className="field">
             <span className="field-label-placeholder" />
@@ -3020,1029 +2908,15 @@ export default function App() {
     )
   }
 
-  function scrollDocsTo(id: string) {
-    const el = document.getElementById(id)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }
-
-  function toggleDocsSideNav(next: boolean) {
-    setDocsSideNavCollapsed(next)
-    try {
-      window.localStorage.setItem('docsSideNavCollapsed', next ? '1' : '0')
-    } catch {
-      // ignore
-    }
-  }
-
-  function renderDocs() {
-    if (activeChatID === null) {
-      return <section className="content-card">Выбери организацию</section>
-    }
-
-    return (
-      <section className="docs-page">
-        <section className="docs-hero">
-          <div className="docs-hero-text">
-            <p className="docs-kicker">TeamTime Console</p>
-            <h2>Документация</h2>
-            <p className="muted">
-              Полный workflow продукта: от шаблонов и публикаций до распределения команд, партий, расчёта оплаты и контроля задолженностей.
-            </p>
-            <div className="docs-hero-actions">
-              <button type="button" className="btn-secondary" onClick={() => scrollDocsTo('docs-quickstart')}>
-                Быстрый старт
-              </button>
-              <button type="button" onClick={() => scrollDocsTo('docs-workflow')}>
-                Посмотреть workflow
-              </button>
-            </div>
-          </div>
-          <div className="docs-hero-figure" aria-hidden="true">
-            <img src="/docs/hero.svg" alt="" />
-          </div>
-        </section>
-
-        <section className="docs-toc">
-          <div className="docs-toc-head">
-            <h3>Оглавление</h3>
-            <p className="muted">Кликни по пункту, чтобы перейти к разделу.</p>
-          </div>
-          <div className="docs-toc-grid">
-            {docsNavItems.map(({ id, title }) => (
-              <button key={id} type="button" className="docs-toc-item" onClick={() => scrollDocsTo(id)}>
-                <span>{title}</span>
-                <span className="docs-toc-arrow" aria-hidden="true">
-                  →
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {docsSideNavCollapsed ? (
-          <button
-            type="button"
-            className="docs-sidenav-toggle docs-sidenav-fab"
-            aria-label="Показать боковую навигацию документации"
-            onClick={() => toggleDocsSideNav(false)}
-          >
-            <span className="hamburger" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </span>
-          </button>
-        ) : null}
-
-        <aside
-          className={docsSideNavVisible && !docsSideNavCollapsed ? 'docs-sidenav show' : 'docs-sidenav'}
-          aria-label="Навигация по документации"
-        >
-          <div className="docs-sidenav-head">
-            <div>
-              <strong>Документация</strong>
-            </div>
-            <button
-              type="button"
-              className="docs-sidenav-toggle"
-              aria-label="Скрыть боковую навигацию документации"
-              onClick={() => toggleDocsSideNav(true)}
-            >
-              <span className="hamburger" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </span>
-            </button>
-          </div>
-          <div className="docs-sidenav-list">
-            {docsNavItems.map((it) => (
-              <button
-                key={`side-${it.id}`}
-                type="button"
-                className={docsActiveAnchor === it.id ? 'docs-sidenav-item active' : 'docs-sidenav-item'}
-                onClick={() => scrollDocsTo(it.id)}
-              >
-                {it.title}
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        <section id="docs-quickstart" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Быстрый старт</h3>
-            <p className="muted">Минимальный путь, чтобы провести первую тренировку с голосованием и оплатой.</p>
-          </div>
-          <div className="docs-grid">
-            <article className="docs-card">
-              <h4>1) Создай шаблон голосования</h4>
-              <p className="muted">
-                В разделе <strong>Шаблоны голосований</strong> задай вопрос и варианты ответов.
-              </p>
-              <ul className="docs-list">
-                <li>Отметь варианты, которые участвуют в учёте посещения.</li>
-                <li>Если нужно, настрой веса вариантов (например, +2 места).</li>
-              </ul>
-            </article>
-            <article className="docs-card">
-              <h4>2) Создай шаблон события</h4>
-              <p className="muted">
-                В разделе <strong>Шаблоны событий</strong> настрой расписание, публикацию и стоимость.
-              </p>
-              <ul className="docs-list">
-                <li>Привяжи созданный шаблон голосования.</li>
-                <li>Укажи стоимость тренировки и настройки расчёта.</li>
-              </ul>
-            </article>
-            <article className="docs-card">
-              <h4>3) Проведи тренировку</h4>
-              <p className="muted">
-                В <strong>События</strong> открой нужную тренировку, проверь голоса, распределение и оплату.
-              </p>
-              <ul className="docs-list">
-                <li>При необходимости удали лишний голос (например, игрок не пришёл).</li>
-                <li>Нажми «Сформировать расчёт» и сохрани оплаты.</li>
-              </ul>
-            </article>
-          </div>
-        </section>
-
-        <section id="docs-templates-polls" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Шаблоны голосований</h3>
-            <p className="muted">Здесь задаётся вопрос и набор вариантов, которые дальше используются в тренировках.</p>
-          </div>
-          <div className="docs-media">
-            <div className="docs-ui-preview docs-ui-preview-compact" aria-label="Пример шаблона голосования">
-              <div className="template-head">
-                <h4>Шаблон голосования</h4>
-                <button type="button" className="btn-secondary" disabled>
-                  Создать шаблон
-                </button>
-              </div>
-              <form className="form-grid">
-                <h4>Название</h4>
-                <input value="Регистрация на тренировку" disabled />
-                <h4>Вопрос</h4>
-                <input value="Сколько человек придёт?" disabled />
-                <h4>Варианты</h4>
-                <div className="option-list">
-                  <div className="option-row">
-                    <input value="+1 (приду)" disabled />
-                    <label className="option-weight">
-                      <span>K</span>
-                      <input type="number" value={1} disabled />
-                    </label>
-                    <label className="option-accounting">
-                      <input type="checkbox" checked readOnly />
-                      <span>Учёт</span>
-                    </label>
-                    <button type="button" className="icon-btn danger" disabled>
-                      -
-                    </button>
-                  </div>
-                  <div className="option-row">
-                    <input value="+2 (я и друг)" disabled />
-                    <label className="option-weight">
-                      <span>K</span>
-                      <input type="number" value={2} disabled />
-                    </label>
-                    <label className="option-accounting">
-                      <input type="checkbox" checked readOnly />
-                      <span>Учёт</span>
-                    </label>
-                    <button type="button" className="icon-btn danger" disabled>
-                      -
-                    </button>
-                  </div>
-                  <div className="option-row">
-                    <input value="Не смогу" disabled />
-                    <label className="option-weight">
-                      <span>K</span>
-                      <input type="number" value={1} disabled />
-                    </label>
-                    <label className="option-accounting">
-                      <input type="checkbox" readOnly />
-                      <span>Учёт</span>
-                    </label>
-                    <button type="button" className="icon-btn danger" disabled>
-                      -
-                    </button>
-                  </div>
-                </div>
-                <button type="button" className="icon-btn add" disabled>
-                  +
-                </button>
-                <div className="split-forms">
-                  <button type="button" disabled>
-                    Сохранить шаблон
-                  </button>
-                  <button type="button" className="btn-danger" disabled>
-                    Удалить шаблон
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-          <div className="docs-callout">
-            <strong>Важно:</strong> в расчёт оплаты попадают только те варианты, которые помечены как «учёт».
-          </div>
-        </section>
-
-        <section id="docs-templates-events" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Шаблоны событий</h3>
-            <p className="muted">Расписание, публикации, стоимость и настройки расчёта для тренировки. Ниже описано, за что отвечает каждая настройка.</p>
-          </div>
-          <div className="docs-grid docs-grid-2">
-            <article className="docs-card">
-              <h4>Расписание</h4>
-              <p className="muted">Когда старт и конец, а также когда публикуется голосование.</p>
-            </article>
-            <article className="docs-card">
-              <h4>Стоимость</h4>
-              <p className="muted">Используется для «на человека» и перерасчёта при изменении состава.</p>
-            </article>
-          </div>
-
-          <div className="docs-setting-table">
-            <div className="docs-setting-row docs-setting-head">
-              <div>Настройка</div>
-              <div>Что делает</div>
-              <div>На что влияет</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Название</strong>
-                <small className="muted">имя события</small>
-              </div>
-              <div>Название тренировки/мероприятия, отображается в консоли и в публикациях.</div>
-              <div>Списки событий, сообщения в Telegram, отчёты.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Тип события</strong>
-                <small className="muted">тренировка / мероприятие</small>
-              </div>
-              <div>Категория события для фильтров и аналитики.</div>
-              <div>Фильтры в разделе «События», отображение в истории.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>День недели</strong>
-                <small className="muted">когда проходит</small>
-              </div>
-              <div>Определяет день проведения события по локальной таймзоне группы.</div>
-              <div>Планирование экземпляров, расчёт «следующей даты».</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Начало</strong>
-                <small className="muted">время старта</small>
-              </div>
-              <div>Время начала тренировки.</div>
-              <div>Переход статусов, отображение «Дата начала».</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Окончание</strong>
-                <small className="muted">время конца</small>
-              </div>
-              <div>Время окончания тренировки.</div>
-              <div>Переход на «На проверке» после окончания, отображение «Дата окончания».</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Шаблон голосования</strong>
-                <small className="muted">привязка</small>
-              </div>
-              <div>Какой шаблон использовать для публикации опроса.</div>
-              <div>Список вариантов, учёт (counted options), веса вариантов.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>День публикации опроса</strong>
-                <small className="muted">pollPublishWeekday</small>
-              </div>
-              <div>В какой день недели публиковать голосование (можно отличать от дня тренировки).</div>
-              <div>Автопубликация опроса, когда начинается сбор голосов.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Время публикации опроса</strong>
-                <small className="muted">pollPublishTime</small>
-              </div>
-              <div>Во сколько публиковать голосование.</div>
-              <div>Автопубликация опроса, «окно голосования».</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Публикации активны</strong>
-                <small className="muted">publishEnabled</small>
-              </div>
-              <div>Глобальный переключатель авто-публикаций для этого события.</div>
-              <div>Автопубликация опросов/уведомлений, появление события в расписании.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Анонс</strong>
-                <small className="muted">announcementEnabled</small>
-              </div>
-              <div>Включает/выключает сообщение-анонс перед тренировкой (если настроено).</div>
-              <div>Отправку анонса в группу Telegram.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Текст анонса</strong>
-                <small className="muted">announcementText</small>
-              </div>
-              <div>Текст, который будет отправлен в группу как анонс.</div>
-              <div>Контент сообщения, формат публикации.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>За сколько минут</strong>
-                <small className="muted">announcementLeadMinutes</small>
-              </div>
-              <div>За какое время до начала тренировки отправлять анонс.</div>
-              <div>Тайминг анонса.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Автораспределение команд</strong>
-                <small className="muted">teamsAutoSplit</small>
-              </div>
-              <div>Если включено, система может автоматически распределять игроков по командам (по рейтингу/правилам).</div>
-              <div>Вкладку «Распределение», кнопки автосплита и расчёт баланса.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Публиковать список команд</strong>
-                <small className="muted">teamsPublishList</small>
-              </div>
-              <div>Определяет, будет ли публиковаться состав команд в группу.</div>
-              <div>Кнопку/действие «Опубликовать состав» и текст публикации.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Размер команды</strong>
-                <small className="muted">teamSize</small>
-              </div>
-              <div>Целевое количество игроков в команде (используется в распределении).</div>
-              <div>Автораспределение, подсказки по заполнению команд.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Минимум голосов для проведения</strong>
-                <small className="muted">minVotesToHold</small>
-              </div>
-              <div>Минимальный порог “учтённых” голосов, чтобы тренировка считалась состоявшейся.</div>
-              <div>Логику статусов и уведомлений об отмене (если включено).</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Отмена: за сколько минут</strong>
-                <small className="muted">cancelLeadMinutes</small>
-              </div>
-              <div>За сколько минут до начала проверять порог голосов и при необходимости отменять.</div>
-              <div>Переход в «Не состоялось» и/или уведомления.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Уведомлять об отмене</strong>
-                <small className="muted">cancelNotifyEnabled</small>
-              </div>
-              <div>Включает сообщение в группу, если тренировка отменена по порогу голосов.</div>
-              <div>Отправку уведомления в Telegram.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Стоимость</strong>
-                <small className="muted">costAmount</small>
-              </div>
-              <div>Сумма, которая делится на количество учтённых “мест” (с учётом весов) и даёт «на человека».</div>
-              <div>Расчёт оплат, задолженности, публикации расчёта.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Расчёт включен</strong>
-                <small className="muted">settlementEnabled</small>
-              </div>
-              <div>Глобальный переключатель, делать ли расчёт оплаты для события.</div>
-              <div>Доступность вкладки «Оплата» и публикаций расчёта.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Публиковать расчёт до</strong>
-                <small className="muted">settlementPublishBefore</small>
-              </div>
-              <div>Если включено, можно публиковать расчёт до тренировки (предварительный).</div>
-              <div>Тайминг публикации и сценарий “предоплаты”.</div>
-            </div>
-
-            <div className="docs-setting-row">
-              <div>
-                <strong>Публиковать расчёт после</strong>
-                <small className="muted">settlementPublishAfter</small>
-              </div>
-              <div>Если включено, можно публиковать расчёт после тренировки.</div>
-              <div>Сценарий “оплата по факту”, контроль задолженностей.</div>
-            </div>
-          </div>
-        </section>
-
-        <section id="docs-workflow" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Жизненный цикл тренировки</h3>
-            <p className="muted">Статус меняется автоматически по времени начала/окончания тренировки и по состоянию оплат.</p>
-          </div>
-          <div className="docs-media">
-            <img className="docs-figure" src="/docs/workflow.svg" alt="" />
-          </div>
-          <div className="docs-grid docs-grid-2">
-            <article className="docs-card">
-              <h4>В голосовании</h4>
-              <p className="muted">
-                Активный сбор голосов. Длится до момента <strong>за 30 минут до старта</strong> (старт распределения).
-              </p>
-              <ul className="docs-list">
-                <li>В этот период Telegram-изменения (поставили/сняли голос) учитываются автоматически.</li>
-                <li>В расчёты и распределение попадают только «учтённые» варианты из шаблона голосования.</li>
-              </ul>
-            </article>
-            <article className="docs-card">
-              <h4>На распределении</h4>
-              <p className="muted">
-                Начинается <strong>за 30 минут до старта</strong> и длится до <strong>времени окончания</strong>.
-              </p>
-              <ul className="docs-list">
-                <li>В этот момент «окно голосования» закрыто: поздние изменения из Telegram больше не меняют учёт.</li>
-                <li>Админ распределяет игроков по командам, сохраняет и при необходимости публикует состав.</li>
-              </ul>
-            </article>
-            <article className="docs-card">
-              <h4>На проверке</h4>
-              <p className="muted">Этап контроля оплат после окончания тренировки.</p>
-              <ul className="docs-list">
-                <li>Появляется после окончания, если есть <strong>неоплаченные</strong> суммы по расчёту.</li>
-                <li>Админ может пересчитать «Сформировать расчёт» (если менялись голоса) и сохранить оплаты.</li>
-              </ul>
-            </article>
-            <article className="docs-card">
-              <h4>Завершено</h4>
-              <p className="muted">Финальный статус: долгов по расчёту не осталось.</p>
-              <ul className="docs-list">
-                <li>Ставится автоматически после окончания, если неоплаченных сумм нет.</li>
-                <li>Также станет «Завершено», когда все оплаты отмечены.</li>
-              </ul>
-            </article>
-          </div>
-        </section>
-
-        <section id="docs-votes" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Голоса и учёт</h3>
-            <p className="muted">Внутри тренировки доступна вкладка «Голоса» со списком выборов.</p>
-          </div>
-          <div className="docs-callout">
-            <strong>Админская правка:</strong> можно удалить конкретный голос кнопкой «−». Это приведёт к перерасчёту оплаты для тренировки.
-          </div>
-        </section>
-
-        <section id="docs-teams" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Команды и распределение</h3>
-            <p className="muted">Кто попадает в распределение и как работает автораспределение.</p>
-          </div>
-          <div className="docs-media">
-            <img className="docs-figure" src="/docs/teams.svg" alt="" />
-          </div>
-          <div className="docs-grid docs-grid-2">
-            <article className="docs-card">
-              <h4>Кто участвует</h4>
-              <p className="muted">Распределение строится на базе «учтённых» вариантов голосования.</p>
-              <ul className="docs-list">
-                <li>Берутся только варианты, отмеченные как <strong>учёт</strong> в шаблоне голосования.</li>
-                <li>У каждого варианта может быть <strong>вес</strong>: он добавляет «места» (например, +2).</li>
-                <li>Если у голоса есть дополнительные места, создаются «гости» как отдельные слоты.</li>
-              </ul>
-            </article>
-            <article className="docs-card">
-              <h4>Рейтинг игрока</h4>
-              <p className="muted">Нужен для баланса сил команд.</p>
-              <ul className="docs-list">
-                <li>Рейтинг считается как <strong>среднее</strong> по навыкам игрока.</li>
-                <li>Если у игрока нет оценок, используется нейтральная база <strong>5.0</strong>.</li>
-                <li>Гостевые слоты всегда идут с рейтингом <strong>5.0</strong>.</li>
-              </ul>
-            </article>
-          </div>
-
-          <div className="docs-callout">
-            <strong>Важно:</strong> автораспределение не “угадывает идеал”, оно даёт устойчивую базу, которую можно вручную донастроить drag-and-drop и сохранить.
-          </div>
-
-          <div className="docs-grid docs-grid-2">
-            <article className="docs-card">
-              <h4>Сколько команд и вместимость</h4>
-              <p className="muted">Система сама определяет A/B или A/B/C.</p>
-              <ul className="docs-list">
-                <li>По умолчанию распределяем в <strong>2 команды</strong>: A и B.</li>
-                <li>Команда C появляется, если игроков <strong>больше 14</strong> или если ранее уже была сохранена команда C.</li>
-                <li>Вместимость команд считается равномерно: разница максимум 1 игрок.</li>
-              </ul>
-            </article>
-            <article className="docs-card">
-              <h4>Как выбирается команда (встроенный алгоритм)</h4>
-              <p className="muted">Алгоритм пытается минимизировать дисбаланс рейтингов и учесть роли/связи.</p>
-              <ul className="docs-list">
-                <li>Сначала распределяются <strong>связующие</strong> (setter), затем <strong>либеро</strong>, затем все остальные.</li>
-                <li>Внутри каждой группы игроки идут по убыванию рейтинга.</li>
-                <li>Для каждого игрока выбирается команда с “лучшей” метрикой с учётом текущей силы, ролей и связей.</li>
-              </ul>
-            </article>
-          </div>
-
-          <div className="docs-grid docs-grid-2">
-            <article className="docs-card">
-              <h4>Роли (player type)</h4>
-              <p className="muted">Роли учитываются, чтобы не сложить всех ключевых игроков в одну команду.</p>
-              <ul className="docs-list">
-                <li>Поддерживаются роли типа <strong>setter</strong> и <strong>libero</strong> (если выставлены игрокам в профиле).</li>
-                <li>Алгоритм добавляет штраф за перекос по ролям, чтобы распределять их равномернее.</li>
-              </ul>
-            </article>
-            <article className="docs-card">
-              <h4>Связи игроков</h4>
-              <p className="muted">Связи влияют на выбор команды через штрафы/бонусы.</p>
-              <ul className="docs-list">
-                <li><strong>prefer_together</strong>: стараемся держать вместе (штраф если в разных командах, бонус если в одной).</li>
-                <li><strong>avoid_together</strong>: стараемся разводить по разным командам (штраф если попали вместе).</li>
-                <li>Вес связи усиливает эффект.</li>
-              </ul>
-            </article>
-          </div>
-
-          <div className="docs-callout">
-            <strong>Расширенный режим:</strong> если задан переменный окружения <strong>TEAM_SPLIT_SERVICE_URL</strong>, система сначала пробует внешний сервис распределения и при недоступности откатывается на встроенный алгоритм.
-          </div>
-        </section>
-
-        <section id="docs-sets" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Партии (сеты)</h3>
-            <p className="muted">Фиксируй счёт партий и публикуй результаты в группу.</p>
-          </div>
-          <div className="docs-grid">
-            <article className="docs-card">
-              <h4>2–3 команды</h4>
-              <p className="muted">Для каждой партии выбирается, какие команды играют, и задаётся счёт.</p>
-            </article>
-            <article className="docs-card">
-              <h4>Публикация</h4>
-              <p className="muted">Один клик, чтобы отправить итог по партиям в Telegram-группу.</p>
-            </article>
-            <article className="docs-card">
-              <h4>История</h4>
-              <p className="muted">Данные хранятся построчно, чтобы потом строить статистику.</p>
-            </article>
-          </div>
-        </section>
-
-        <section id="docs-billing" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Оплата и перерасчёт</h3>
-            <p className="muted">Вкладка «Оплата» показывает начисления и позволяет отметить оплативших.</p>
-          </div>
-          <div className="docs-callout">
-            <strong>Сформировать расчёт</strong> всегда пересчитывает стоимость на основании актуальных «учтённых» голосов (с учётом весов и настроек).
-          </div>
-          <div className="docs-media">
-            <div className="docs-ui-preview" aria-label="Пример вкладки оплаты">
-              <div className="template-head">
-                <h4>Оплата события</h4>
-              </div>
-              <div className="detail-grid">
-                <div>
-                  <span>Дата расчёта</span>
-                  <strong>20.02.2026, 19:00</strong>
-                </div>
-                <div>
-                  <span>Участников</span>
-                  <strong>12</strong>
-                </div>
-                <div>
-                  <span>На человека</span>
-                  <strong>350.00 ₽</strong>
-                </div>
-                <div>
-                  <span>Оплачено</span>
-                  <strong>7</strong>
-                </div>
-                <div>
-                  <span>Не оплачено</span>
-                  <strong>5</strong>
-                </div>
-                <div>
-                  <span>Долг по событию</span>
-                  <strong>1750.00 ₽</strong>
-                </div>
-              </div>
-              <div className="table-wrap table-wrap-spaced">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Игрок</th>
-                      <th>Сумма</th>
-                      <th className="col-center">Оплатил</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>Михаил Козлов</td>
-                      <td>350.00 ₽</td>
-                      <td className="col-center">
-                        <label className="toggle-field toggle-field-only">
-                          <input type="checkbox" checked readOnly />
-                        </label>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Анна Смирнова</td>
-                      <td>350.00 ₽</td>
-                      <td className="col-center">
-                        <label className="toggle-field toggle-field-only">
-                          <input type="checkbox" readOnly />
-                        </label>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>@player_nick</td>
-                      <td>700.00 ₽</td>
-                      <td className="col-center">
-                        <label className="toggle-field toggle-field-only">
-                          <input type="checkbox" readOnly />
-                        </label>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div className="manual-controls">
-                <button type="button" className="btn-secondary" disabled>
-                  Опубликовать расчёт
-                </button>
-                <button type="button" className="btn-secondary" disabled>
-                  Сформировать расчет
-                </button>
-                <button type="button" disabled>
-                  Сохранить оплаты
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="docs-debts" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Задолженности</h3>
-            <p className="muted">Список игроков, кто должен деньги, с деревом тренировок. Есть публикация в группу с чекбоксами.</p>
-          </div>
-          <div className="docs-media">
-            <div className="docs-ui-preview docs-ui-preview-compact" aria-label="Пример вкладки задолженностей">
-              <div className="template-head">
-                <h4>Задолженности</h4>
-                <button type="button" disabled>
-                  Опубликовать
-                </button>
-              </div>
-
-              <div className="table-wrap">
-                <table className="table billing-debtors-table">
-                  <colgroup>
-                    <col style={{ width: '44%' }} />
-                    <col style={{ width: '28%' }} />
-                    <col style={{ width: '20%' }} />
-                    <col style={{ width: '8%' }} />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th>Игрок</th>
-                      <th>Реальное ФИО</th>
-                      <th className="col-center">Долг за все тренировки</th>
-                      <th className="col-center">Публиковать</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="member-row">
-                      <td>
-                        <div className="person-cell">
-                          <strong>Михаил Дмитриевич</strong>
-                          <span>@iamjq1</span>
-                        </div>
-                      </td>
-                      <td>Михаил Козлов</td>
-                      <td className="col-center">
-                        <span className="badge badge-debt debt-badge">4000.00 ₽</span>
-                      </td>
-                      <td className="col-center">
-                        <label className="toggle-field toggle-field-only">
-                          <input type="checkbox" checked readOnly />
-                        </label>
-                      </td>
-                    </tr>
-
-                    <tr className="billing-expand-row">
-                      <td colSpan={4}>
-                        <div className="list-block debt-trainings" style={{ marginTop: 10 }}>
-                          <div className="billing-training-row clickable tree-first">
-                            <div className="billing-training-info">
-                              <div className="tree-gutter" aria-hidden="true">
-                                <span className="tree-elbow" />
-                              </div>
-                              <div className="billing-training-text">
-                                <strong>Волейбол в пятницу</strong>
-                                <p className="muted">20.02.2026, 19:00</p>
-                              </div>
-                            </div>
-                            <div className="billing-training-debt">
-                              <span className="badge badge-debt debt-badge">4000.00 ₽</span>
-                            </div>
-                            <div className="billing-training-spacer" aria-hidden="true" />
-                          </div>
-                          <div className="billing-training-row clickable tree-last">
-                            <div className="billing-training-info">
-                              <div className="tree-gutter" aria-hidden="true">
-                                <span className="tree-elbow" />
-                              </div>
-                              <div className="billing-training-text">
-                                <strong>Тренировка в воскресенье</strong>
-                                <p className="muted">23.02.2026, 11:00</p>
-                              </div>
-                            </div>
-                            <div className="billing-training-debt">
-                              <span className="badge badge-debt debt-badge">0.00 ₽</span>
-                            </div>
-                            <div className="billing-training-spacer" aria-hidden="true" />
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-
-                    <tr className="member-row">
-                      <td>
-                        <div className="person-cell">
-                          <strong>@player_nick</strong>
-                          <span>ID 123456</span>
-                        </div>
-                      </td>
-                      <td>-</td>
-                      <td className="col-center">
-                        <span className="badge badge-debt debt-badge">700.00 ₽</span>
-                      </td>
-                      <td className="col-center">
-                        <label className="toggle-field toggle-field-only">
-                          <input type="checkbox" checked readOnly />
-                        </label>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="docs-roles" className="docs-section">
-          <div className="docs-section-head">
-            <h3>Роли и доступы</h3>
-            <p className="muted">Админ видит больше разделов и может выполнять действия, влияющие на расчёты и публикации.</p>
-          </div>
-          <div className="docs-grid docs-grid-2">
-            <article className="docs-card">
-              <h4>Администратор</h4>
-              <p className="muted">Управляет шаблонами, правами, расчётами, публикациями и ручными корректировками.</p>
-            </article>
-            <article className="docs-card">
-              <h4>Участник</h4>
-              <p className="muted">Видит профиль и историю, в рамках выданных прав.</p>
-            </article>
-          </div>
-        </section>
-
-        <section className="docs-footer">
-          <p className="muted">Версия документации привязана к текущей версии консоли.</p>
-        </section>
-      </section>
-    )
-  }
-
   function renderBilling() {
-    if (activeChatID === null) {
-      return <section className="content-card">Выбери организацию</section>
-    }
-
-    const publishIncluded = Object.keys(billingPublishDraft)
-      .filter((k) => billingPublishDraft[Number(k)])
-      .map((k) => Number(k))
-      .filter((n) => Number.isFinite(n) && n !== 0)
-
-    return (
-      <section className="content-card">
-        <div className="template-head">
-          <h3>Задолженности</h3>
-          <button
-            type="button"
-            disabled={billingLoading || publishIncluded.length === 0}
-            onClick={() =>
-              void runAction(
-                async () => {
-                  if (activeChatID === null) return
-                  await publishGroupDebtors(activeChatID, publishIncluded)
-                },
-                'Задолженности опубликованы',
-              )
-            }
-          >
-            Опубликовать
-          </button>
-        </div>
-
-        {billingLoading ? <p className="muted">Загрузка задолженностей...</p> : null}
-        {billingError ? <p className="muted">Ошибка: {billingError}</p> : null}
-
-        {!billingLoading && !billingError && billingDebtors.length === 0 ? <p className="muted">Задолженностей нет</p> : null}
-
-        {!billingLoading && !billingError && billingDebtors.length > 0 ? (
-          <div className="table-wrap">
-            <table className="table billing-debtors-table">
-              <colgroup>
-                <col style={{ width: '44%' }} />
-                <col style={{ width: '28%' }} />
-                <col style={{ width: '20%' }} />
-                <col style={{ width: '8%' }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>Игрок</th>
-                  <th>Реальное ФИО</th>
-                  <th className="col-center">Долг за все тренировки</th>
-                  <th className="col-center">Публиковать</th>
-                </tr>
-              </thead>
-              <tbody>
-                {billingDebtors.flatMap((debtor) => {
-                  const expanded = Boolean(billingExpanded[debtor.userID])
-                  const rows: JSX.Element[] = []
-                  rows.push(
-                    <tr
-                      key={`debtor-${debtor.userID}`}
-                      className="member-row"
-                      onClick={() =>
-                        setBillingExpanded((prev) => ({
-                          ...prev,
-                          [debtor.userID]: !prev[debtor.userID],
-                        }))
-                      }
-                    >
-                      <td>
-                        <div className="person-cell">
-                          <strong>{debtorDisplayName(debtor)}</strong>
-                          <span>{debtor.username ? `@${debtor.username}` : `ID ${debtor.userID}`}</span>
-                        </div>
-                      </td>
-                      <td>{debtor.realName || '-'}</td>
-                      <td className="col-center">
-                        <span className="badge badge-debt debt-badge">{formatMoney(debtor.totalDebt)}</span>
-                      </td>
-                      <td className="col-center">
-                        <label
-                          className="toggle-field toggle-field-only"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={Boolean(billingPublishDraft[debtor.userID])}
-                            onChange={(e) =>
-                              setBillingPublishDraft((prev) => ({
-                                ...prev,
-                                [debtor.userID]: e.target.checked,
-                              }))
-                            }
-                          />
-                        </label>
-                      </td>
-                    </tr>,
-                  )
-
-                  if (expanded) {
-                    rows.push(
-                      <tr key={`debtor-expand-${debtor.userID}`} className="billing-expand-row">
-                        <td colSpan={4}>
-                          {debtor.trainings?.length ? (
-                            <div className="list-block debt-trainings" style={{ marginTop: 10 }}>
-                              {debtor.trainings.map((t, idx) => {
-                                const isFirst = idx === 0
-                                const isLast = idx === debtor.trainings.length - 1
-                                return (
-                                <div
-                                  key={`${debtor.userID}-${t.instanceID}`}
-                                  className={`billing-training-row clickable ${isFirst ? 'tree-first' : ''} ${isLast ? 'tree-last' : ''}`}
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    navigateTo({
-                                      chatID: activeChatID,
-                                      section: 'events',
-                                      historyEventID: t.instanceID,
-                                      templateView: 'list',
-                                      templateName: null,
-                                      eventView: 'list',
-                                      eventID: null,
-                                    })
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key !== 'Enter' && e.key !== ' ') return
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    navigateTo({
-                                      chatID: activeChatID,
-                                      section: 'events',
-                                      historyEventID: t.instanceID,
-                                      templateView: 'list',
-                                      templateName: null,
-                                      eventView: 'list',
-                                      eventID: null,
-                                    })
-                                  }}
-                                >
-                                  <div className="billing-training-info">
-                                    <div className="tree-gutter" aria-hidden="true">
-                                      <span className="tree-elbow" />
-                                    </div>
-                                    <div className="billing-training-text">
-                                      <strong>{t.eventName || `Событие #${t.instanceID}`}</strong>
-                                      <p className="muted">{formatDateTime(t.startAt)}</p>
-                                    </div>
-                                  </div>
-                                  <div className="billing-training-debt">
-                                    <span className="badge badge-debt debt-badge">{formatMoney(t.amountDue)}</span>
-                                  </div>
-                                  <div className="billing-training-spacer" aria-hidden="true" />
-                                </div>
-                                )
-                              })}
-                            </div>
-                          ) : (
-                            <p className="muted" style={{ marginTop: 10 }}>
-                              Нет привязанных тренировок
-                            </p>
-                          )}
-                        </td>
-                      </tr>,
-                    )
-                  }
-                  return rows
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </section>
-    )
+    if (activeChatID === null) return <section className="content-card">Выберите организацию</section>
+    return <BillingWorkspace key={activeChatID} chatID={activeChatID}><StudioBilling key={activeChatID} chatID={activeChatID} groupTitle={details?.group.title || 'Команда'} debtors={billingDebtors} loading={billingLoading} error={billingError} summaryChanged={setGroupDebtSummary} openEvent={id => openStudioSection('events', { historyEventID: id })}/></BillingWorkspace>
   }
 
   function renderMembers() {
     if (activeMemberID !== null) {
       return (
-        <section className="content-card">
+        <section className="content-card studio-player-profile">
           <div className="template-head">
             <button
               className="btn-secondary"
@@ -4063,36 +2937,30 @@ export default function App() {
             <h3>Карточка игрока</h3>
           </div>
           {memberSkillLoading ? <p className="muted">Загрузка навыков...</p> : null}
-          {memberSkillError ? <p className="muted">Ошибка: {memberSkillError}</p> : null}
+
           {!memberSkillLoading && !memberSkillError && !selectedMemberSkills ? <p className="muted">Игрок не найден</p> : null}
           {!memberSkillLoading && selectedMemberSkills ? (
-            <>
+            <div className="studio-player-profile-content">
               <div className="player-fifa-card">
                 <div className="player-avatar">{initialsFromProfile(selectedMemberSkills)}</div>
                 <div className="player-ident">
                   <p className="player-fio">
-                    {(() => {
-                      const fio = fullNamePartsFromProfile(selectedMemberSkills)
-                      return `${fio.lastName} ${fio.firstName} ${fio.patronymic}`
-                    })()}
+                    {selectedMemberSkills.realName?.trim() || fullName(selectedMemberSkills)}
                   </p>
                   <p className="player-meta">@{selectedMemberSkills.username || 'без_ника'}</p>
                   <p className="player-meta">ID: {selectedMemberSkills.userTelegramID}</p>
                 </div>
                 <div
                   className="player-overall"
-                  style={{
-                    borderColor: scoreColor(averageScore(selectedMemberSkills, skillsCatalog)),
-                    color: scoreColor(averageScore(selectedMemberSkills, skillsCatalog)),
-                  }}
                 >
-                  <span>OVERALL</span>
+                  <span>Рейтинг</span>
                   <strong>{averageScore(selectedMemberSkills, skillsCatalog)?.toFixed(1) ?? '-'}</strong>
                 </div>
               </div>
 
-              <div className="form-grid form-grid-3" style={{ marginTop: 16 }}>
-                <label className="field" style={{ gridColumn: '1 / -1' }}>
+              {activeChatID !== null && isAdmin && <TrainingPasses key={`${activeChatID}-${activeMemberID}`} chatID={activeChatID} userID={activeMemberID ?? undefined} canManage/>}
+<div className="studio-player-name-field">
+                <label className="field">
                   <span>Реальное имя</span>
                   <input
                     placeholder="Например: Иван Иванов"
@@ -4102,10 +2970,9 @@ export default function App() {
                 </label>
               </div>
 
-              <div className="skill-slider-grid">
-                <div className="player-type-block">
+              <section className="player-type-block" aria-labelledby="player-position-title">
                   <div className="player-type-head">
-                    <span className="skill-slider-name">Тип игрока</span>
+                    <h4 id="player-position-title">Амплуа</h4>
                     <span className="skill-slider-value">{playerTypeLabel(memberPlayerTypeDraft)}</span>
                   </div>
                   <div className="player-type-grid">
@@ -4115,6 +2982,7 @@ export default function App() {
                         type="button"
                         className={`player-type-card ${memberPlayerTypeDraft === typeCard.value ? 'active' : ''}`}
                         data-player-type={typeCard.value}
+                        aria-pressed={memberPlayerTypeDraft === typeCard.value}
                         onClick={() => setMemberPlayerTypeDraft(typeCard.value)}
                       >
                         <div className="player-type-image" aria-hidden>
@@ -4125,7 +2993,10 @@ export default function App() {
                       </button>
                     ))}
                   </div>
-                </div>
+              </section>
+              <section className="studio-player-skills" aria-labelledby="player-skills-title">
+                <h4 id="player-skills-title">Навыки</h4>
+                <div className="skill-slider-grid">
                 {profileSkills(selectedMemberSkills, skillsCatalog).map((skill) => (
                   <label className="skill-slider-row" key={skill.skillCode}>
                     <span className="skill-slider-name">{skill.skillName}</span>
@@ -4140,70 +3011,19 @@ export default function App() {
                     <span className="skill-slider-value">{memberSkillDraft[skill.skillCode] ?? String(normalizedSkillScore(skill.score))}/10</span>
                   </label>
                 ))}
-              </div>
+                </div>
+              </section>
               <section className="content-card relation-block">
                 <h4>Связи игрока</h4>
                 <div className="form-grid form-grid-3 relation-form-grid">
-                  <label className="field relation-member-field">
+                  <div className="field relation-member-field">
                     <span>Игрок</span>
-                    <div className={`relation-member-picker ${memberRelationPickerOpen ? 'open' : ''}`} ref={memberRelationPickerRef}>
-                      <button
-                        type="button"
-                        className={`relation-picker-trigger ${selectedRelationMemberOption ? '' : 'empty'}`}
-                        onClick={() => {
-                          setMemberRelationPickerOpen((prev) => !prev)
-                          setMemberRelationPickerQuery('')
-                        }}
-                        aria-haspopup="listbox"
-                        aria-expanded={memberRelationPickerOpen}
-                      >
-                        <span>{selectedRelationMemberOption?.label || 'Выбери игрока для связи'}</span>
-                        <span className="relation-picker-caret" aria-hidden="true">
-                          {memberRelationPickerOpen ? '▴' : '▾'}
-                        </span>
-                      </button>
-                      {memberRelationPickerOpen ? (
-                        <div className="relation-picker-dropdown">
-                          <div className="relation-picker-search">
-                            <input
-                              autoFocus
-                              placeholder="Поиск по реальному имени, нику или ID"
-                              value={memberRelationPickerQuery}
-                              onChange={(e) => onRelationMemberPickerChange(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Escape') {
-                                  setMemberRelationPickerOpen(false)
-                                }
-                                if (e.key === 'Enter' && filteredRelationMemberOptions.length > 0) {
-                                  e.preventDefault()
-                                  onRelationMemberSelect(filteredRelationMemberOptions[0].id)
-                                }
-                              }}
-                            />
-                          </div>
-                          <div className="relation-picker-options" role="listbox">
-                            {filteredRelationMemberOptions.length === 0 ? (
-                              <p className="relation-picker-empty muted">Игрок не найден</p>
-                            ) : (
-                              filteredRelationMemberOptions.map((option) => (
-                                <button
-                                  key={option.id}
-                                  type="button"
-                                  className={`relation-picker-option ${String(option.id) === memberRelationDraft.otherUserID ? 'active' : ''}`}
-                                  onClick={() => onRelationMemberSelect(option.id)}
-                                >
-                                  {option.label}
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </label>
+                    <PlayerPicker key={activeMemberID} options={relationMemberOptions} value={memberRelationDraft.otherUserID}
+                      onChange={(optionID) => setMemberRelationDraft((prev) => ({ ...prev, otherUserID: String(optionID) }))}/>
+                  </div>
                   <label className="field">
                     <span>Тип связи</span>
-                    <select
+                    <Select
                       className="ui-select"
                       value={memberRelationDraft.relationType}
                       onChange={(e) =>
@@ -4215,11 +3035,15 @@ export default function App() {
                     >
                       <option value="prefer_together">Играть вместе</option>
                       <option value="avoid_together">Не в одну команду</option>
-                    </select>
+                    </Select>
                   </label>
-                  <label className="field">
-                    <span>Вес (1-10)</span>
+                  <div className="field relation-priority-field">
+                    <div className="relation-priority-label">
+                      <label htmlFor="member-relation-priority">Принципиальность</label>
+                      <HelpTip label="Как работает принципиальность">Модуль автораспределения учитывает пожелания игроков при подборе команд. Чем выше значение, тем важнее учесть пожелание: 1 — желательно, 10 — очень важно.</HelpTip>
+                    </div>
                     <input
+                      id="member-relation-priority"
                       type="number"
                       min="1"
                       max="10"
@@ -4227,7 +3051,7 @@ export default function App() {
                       value={memberRelationDraft.weight}
                       onChange={(e) => setMemberRelationDraft((prev) => ({ ...prev, weight: e.target.value }))}
                     />
-                  </label>
+                  </div>
                 </div>
                 <div className="manual-controls">
                   <button type="button" className="btn-secondary" onClick={() => void onAddMemberRelation()}>
@@ -4246,7 +3070,7 @@ export default function App() {
                         <div>
                           <strong>{relationUserName(relation)}</strong>
                           <p>
-                            {relationTypeLabel(relation.relationType)} · вес {relation.weight}
+                            {relationTypeLabel(relation.relationType)} · принципиальность {relation.weight}/10
                           </p>
                         </div>
                         <div className="list-actions">
@@ -4263,23 +3087,23 @@ export default function App() {
                   </div>
                 )}
               </section>
-              <div className="manual-controls">
+              <div className="studio-player-save">
                 <button type="button" onClick={() => void onSaveMemberSkills()}>
                   Сохранить
                 </button>
               </div>
-            </>
+            </div>
           ) : null}
         </section>
       )
     }
 
     return (
-      <section className="content-card">
-        <div className="template-head">
-          <h3>Игроки группы</h3>
+      <section className="content-card studio-members-panel">
+        <div className="template-head" ref={membersHeadingRef}>
+          <h3>Состав команды</h3><div className="studio-view-switch" aria-label="Вид списка игроков"><button className={membersView==='cards'?'active':''} aria-pressed={membersView==='cards'} onClick={()=>setMembersView('cards')}><Icon name="grid" size={16}/>Карточки</button><button className={membersView==='list'?'active':''} aria-pressed={membersView==='list'} onClick={()=>setMembersView('list')}><Icon name="template" size={16}/>Список</button></div>
         </div>
-        {membersError ? <p className="muted">Подписчики временно недоступны: {membersError}</p> : null}
+
         <div className="form-grid form-grid-3 members-filters">
           <label className="field">
             <span>Поиск</span>
@@ -4291,7 +3115,7 @@ export default function App() {
           </label>
           <label className="field">
             <span>Тип игрока</span>
-            <select
+            <Select
               value={membersTypeFilter}
               onChange={(e) => setMembersTypeFilter(e.target.value as '' | 'attacker' | 'setter' | 'libero' | 'central')}
             >
@@ -4300,157 +3124,35 @@ export default function App() {
               <option value="setter">Пасующий</option>
               <option value="libero">Либеро</option>
               <option value="central">Центральный</option>
-            </select>
+            </Select>
           </label>
-          <label className="field">
-            <span>Результат</span>
-            <input value={`${filteredMembers.length} из ${members.length}`} readOnly />
-          </label>
+          <div className="field">
+            <span id="members-rating-label">Рейтинг</span>
+            <div className="studio-rating-range" role="group" aria-labelledby="members-rating-label">
+              <input type="number" inputMode="decimal" min="1" max="10" step="any" aria-label="Рейтинг от" placeholder="От 1" value={membersRatingMin} aria-invalid={Boolean(membersRatingError)} aria-describedby={membersRatingError ? 'members-rating-error' : undefined} onChange={e => setMembersRatingMin(e.target.value)}/>
+              <span aria-hidden="true">—</span>
+              <input type="number" inputMode="decimal" min="1" max="10" step="any" aria-label="Рейтинг до" placeholder="До 10" value={membersRatingMax} aria-invalid={Boolean(membersRatingError)} aria-describedby={membersRatingError ? 'members-rating-error' : undefined} onChange={e => setMembersRatingMax(e.target.value)}/>
+            </div>
+          </div>
         </div>
+        <div className="studio-member-filter-status">
+          <span role="status">Найдено {filteredMembers.length} из {members.length}</span>
+          {(membersSearch || membersTypeFilter || membersRatingMin || membersRatingMax) && <button type="button" className="studio-text-button" onClick={() => { setMembersSearch(''); setMembersTypeFilter(''); setMembersRatingMin(''); setMembersRatingMax('') }}>Сбросить фильтры</button>}
+        </div>
+        {membersRatingError && <p id="members-rating-error" className="studio-rating-error" role="status">{membersRatingError}</p>}
         {members.length === 0 ? (
           <p className="muted">Пока нет данных об игроках</p>
         ) : filteredMembers.length === 0 ? (
           <p className="muted">По текущим фильтрам игроков не найдено</p>
+        ) : membersView === 'cards' ? (
+          <StudioMembers members={paginatedMembers} profiles={memberSkillProfiles} catalog={skillsCatalog} open={member => void onOpenMemberCard(member)}/>
         ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Игрок</th>
-                  <th>Реальное имя</th>
-                  <th>Тип игрока</th>
-                  <th>
-                    <div className="members-head-title">Характеристики</div>
-                    <div className="members-skill-sort-grid">
-                      {skillsCatalog.map((skill) => (
-                        <div className="members-skill-sort-item" key={`sort-${skill.code}`}>
-                          <span>
-                            {skill.name}
-                            {membersSortOrderByCode.has(skill.code) ? (
-                              <em className="members-sort-order">{membersSortOrderByCode.get(skill.code)}</em>
-                            ) : null}
-                          </span>
-                          <div className="members-sort-arrows">
-                            <button
-                              type="button"
-                              className={`members-sort-arrow ${
-                                membersSortCriteria.some((item) => item.code === skill.code && item.direction === 'asc') ? 'active' : ''
-                              }`}
-                              onClick={() => onMembersSort(skill.code, 'asc')}
-                              aria-label={`Сортировать по ${skill.name} по возрастанию`}
-                              title={`Сортировать по ${skill.name} по возрастанию`}
-                            >
-                              ↑
-                            </button>
-                            <button
-                              type="button"
-                              className={`members-sort-arrow ${
-                                membersSortCriteria.some((item) => item.code === skill.code && item.direction === 'desc') ? 'active' : ''
-                              }`}
-                              onClick={() => onMembersSort(skill.code, 'desc')}
-                              aria-label={`Сортировать по ${skill.name} по убыванию`}
-                              title={`Сортировать по ${skill.name} по убыванию`}
-                            >
-                              ↓
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </th>
-                  <th>
-                    <div className="members-average-head">
-                      <span>Средняя</span>
-                      <div className="members-sort-arrows">
-                        <button
-                          type="button"
-                          className={`members-sort-arrow ${
-                            membersSortCriteria.some(
-                              (item) => item.code === MEMBERS_SORT_AVERAGE_CODE && item.direction === 'asc',
-                            )
-                              ? 'active'
-                              : ''
-                          }`}
-                          onClick={() => onMembersSort(MEMBERS_SORT_AVERAGE_CODE, 'asc')}
-                          aria-label="Сортировать по средней по возрастанию"
-                          title="Сортировать по средней по возрастанию"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className={`members-sort-arrow ${
-                            membersSortCriteria.some(
-                              (item) => item.code === MEMBERS_SORT_AVERAGE_CODE && item.direction === 'desc',
-                            )
-                              ? 'active'
-                              : ''
-                          }`}
-                          onClick={() => onMembersSort(MEMBERS_SORT_AVERAGE_CODE, 'desc')}
-                          aria-label="Сортировать по средней по убыванию"
-                          title="Сортировать по средней по убыванию"
-                        >
-                          ↓
-                        </button>
-                      </div>
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMembers.map((member) => (
-                  <tr key={member.userTelegramID} className="member-row" onClick={() => void onOpenMemberCard(member)}>
-                    <td>
-                      <div className="person-cell">
-                        <strong>{fullName(member)}</strong>
-                        <span>ID: {member.userTelegramID}</span>
-                      </div>
-                    </td>
-                    <td>
-                      {(memberSkillProfiles[member.userTelegramID]?.realName || member.realName || '').trim() ? (
-                        (memberSkillProfiles[member.userTelegramID]?.realName || member.realName || '').trim()
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                    <td>
-                      <span className="skill-chip">
-                        {playerTypeLabel(
-                          (memberSkillProfiles[member.userTelegramID]?.playerType || member.playerType || '') as
-                            | ''
-                            | 'attacker'
-                            | 'setter'
-                            | 'libero'
-                            | 'central',
-                        )}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="skill-chip-wrap">
-                        {profileSkills(memberSkillProfiles[member.userTelegramID] ?? null, skillsCatalog).map((skill) => (
-                          <span className="skill-chip" key={`${member.userTelegramID}-${skill.skillCode}`}>
-                            {skill.skillName}: {normalizedSkillScore(skill.score)}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td>
-                      {(() => {
-                        const avg = averageScore(memberSkillProfiles[member.userTelegramID] ?? null, skillsCatalog)
-                        const color = scoreColor(avg)
-                        return (
-                          <span className="score-pill" style={{ borderColor: color, color }}>
-                            {avg === null ? '-' : avg.toFixed(1)}
-                          </span>
-                        )
-                      })()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <MemberTable members={paginatedMembers} profiles={memberSkillProfiles} catalog={skillsCatalog} sortCriteria={membersSortCriteria} onSort={onMembersSort} open={member => void onOpenMemberCard(member)}/>
         )}
+        {filteredMembers.length > 0 && <Pagination total={filteredMembers.length} page={currentMembersPage} pageSize={membersPageSize} navigationLabel="Страницы игроков" onPageChange={page => {
+          setMembersPage(page)
+          membersHeadingRef.current?.scrollIntoView({ block: 'start' })
+        }} onPageSizeChange={size => { setMembersPageSize(size); setMembersPage(1) }}/>}
       </section>
     )
   }
@@ -4482,7 +3184,7 @@ export default function App() {
         </div>
 
         {templateEditorLoading ? <p className="muted">Загрузка шаблона...</p> : null}
-        {templateEditorError ? <p className="muted">Ошибка загрузки: {templateEditorError}</p> : null}
+
 
         {!templateEditorLoading && !templateEditorError ? (
           <form className="form-grid" onSubmit={onSaveTemplateEditor}>
@@ -4519,8 +3221,7 @@ export default function App() {
                     />
                   </label>
                   <label className="option-accounting">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={Boolean(templateEditor.counted[index])}
                       onChange={() => toggleTemplateEditorCounted(index)}
                     />
@@ -4611,8 +3312,7 @@ export default function App() {
                   />
                 </label>
                 <label className="option-accounting">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={Boolean(templateForm.counted[index])}
                     onChange={() => toggleTemplateFormCounted(index)}
                   />
@@ -4667,7 +3367,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="list-block">
+        <div className="list-block studio-poll-template-grid">
           {templates.length ? (
             templates.map((template) => (
               <div
@@ -4699,7 +3399,7 @@ export default function App() {
                   })
                 }}
               >
-                <div>
+                <div><span className="studio-template-symbol"><Icon name="poll" size={24}/></span>
                   <strong>{template.name}</strong>
                   <p>{template.question}</p>
                   <p className="muted">Учёт вариантов: {template.countedOptionsCount}</p>
@@ -4744,9 +3444,9 @@ export default function App() {
               })
             }
           >
-            ← К списку событий
+            ← К шаблонам событий
           </button>
-          <h3>Создать событие</h3>
+          <h3>Создать шаблон</h3>
         </div>
 
         <form className="event-editor-form" onSubmit={onCreateEvent}>
@@ -4762,14 +3462,14 @@ export default function App() {
             </label>
             <label className="field">
               <span>Тип события</span>
-              <select className="ui-select" value={eventForm.eventType} onChange={(e) => setEventForm((prev) => ({ ...prev, eventType: e.target.value as 'training' | 'activity' }))}>
+              <Select className="ui-select" value={eventForm.eventType} onChange={(e) => setEventForm((prev) => ({ ...prev, eventType: e.target.value as 'training' | 'activity' }))}>
                 <option value="training">Тренировка</option>
                 <option value="activity">Мероприятие</option>
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>День недели</span>
-              <select
+              <Select
                 className="ui-select"
                 value={eventForm.weekday}
                 onChange={(e) => setEventForm((prev) => ({ ...prev, weekday: e.target.value }))}
@@ -4780,7 +3480,7 @@ export default function App() {
                     {day.short} · {day.full}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Начало</span>
@@ -4815,7 +3515,7 @@ export default function App() {
           <div className="event-editor-row event-editor-row-poll">
             <label className="field">
               <span>День публикации опроса</span>
-              <select
+              <Select
                 className="ui-select"
                 value={eventForm.publishWeekday}
                 onChange={(e) => setEventForm((prev) => ({ ...prev, publishWeekday: e.target.value }))}
@@ -4826,7 +3526,7 @@ export default function App() {
                     {day.short} · {day.full}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Публикация опроса</span>
@@ -4839,7 +3539,7 @@ export default function App() {
             </label>
             <label className="field">
               <span>Шаблон опроса</span>
-              <select
+              <Select
                 className="ui-select"
                 value={eventForm.templateName}
                 onChange={(e) => setEventForm((prev) => ({ ...prev, templateName: e.target.value }))}
@@ -4851,7 +3551,7 @@ export default function App() {
                     {name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Максимум мест</span>
@@ -4875,6 +3575,7 @@ export default function App() {
               />
             </label>
           </div>
+          {activeChatID !== null && <EventMentionsEditor key={activeChatID} chatID={activeChatID} value={eventForm.mentions} onChange={mentions => setEventForm(prev => ({ ...prev, mentions }))}/>}
           <section className="settings-card settings-card-settings">
             <h4>Настройки</h4>
             <div className="settings-grid">
@@ -4882,8 +3583,7 @@ export default function App() {
                 <p className="settings-group-title">Анонс</p>
                 <div className="settings-row settings-row-2">
                   <label className="toggle-field toggle-field-inline">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={eventForm.announcementEnabled}
                       onChange={(e) => setEventForm((prev) => ({ ...prev, announcementEnabled: e.target.checked }))}
                     />
@@ -4891,7 +3591,7 @@ export default function App() {
                   </label>
                   <label className="field">
                     <span>Публиковать за</span>
-                    <select
+                    <Select
                       className="ui-select"
                       value={eventForm.announcementLeadMinutes}
                       onChange={(e) => setEventForm((prev) => ({ ...prev, announcementLeadMinutes: e.target.value }))}
@@ -4901,7 +3601,7 @@ export default function App() {
                           {item.label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                 </div>
               </div>
@@ -4909,8 +3609,7 @@ export default function App() {
                 <p className="settings-group-title">Расчёт</p>
                 <div className="settings-row settings-row-2">
                   <label className="toggle-field toggle-field-inline">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={eventForm.settlementEnabled}
                       onChange={(e) => setEventForm((prev) => ({ ...prev, settlementEnabled: e.target.checked }))}
                       disabled
@@ -4918,16 +3617,14 @@ export default function App() {
                     <span>Публиковать расчёт</span>
                   </label>
                   <label className="toggle-field toggle-field-inline">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={eventForm.settlementPublishBefore}
                       onChange={(e) => setEventForm((prev) => ({ ...prev, settlementPublishBefore: e.target.checked }))}
                     />
                     <span>Перед началом</span>
                   </label>
                   <label className="toggle-field toggle-field-inline">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={eventForm.settlementPublishAfter}
                       onChange={(e) => setEventForm((prev) => ({ ...prev, settlementPublishAfter: e.target.checked }))}
                     />
@@ -4964,8 +3661,7 @@ export default function App() {
                   <div className="field">
                     <span className="field-label-placeholder" aria-hidden="true">&nbsp;</span>
                     <label className="toggle-field toggle-field-inline">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={eventForm.cancelNotifyEnabled}
                         onChange={(e) => setEventForm((prev) => ({ ...prev, cancelNotifyEnabled: e.target.checked }))}
                       />
@@ -4976,44 +3672,7 @@ export default function App() {
               </div>
             </div>
           </section>
-          {eventForm.eventType === 'training' ? (
-            <section className="settings-card settings-card-teams">
-              <h4>Модуль деления на команды</h4>
-              <div className="settings-grid">
-                <div className="settings-row settings-row-3">
-                  <label className="field toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={eventForm.teamsAutoSplit}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamsAutoSplit: e.target.checked }))}
-                    />
-                    <span>Автоделение на команды</span>
-                  </label>
-                  <label className="field toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={eventForm.teamsPublishList}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamsPublishList: e.target.checked }))}
-                    />
-                    <span>Публиковать список</span>
-                  </label>
-                  {/*
-                  <label className="field">
-                    <span>Игроков в команде</span>
-                    <input
-                      type="number"
-                      min="2"
-                      step="1"
-                      value={eventForm.teamSize}
-                      onChange={(e) => setEventForm((prev) => ({ ...prev, teamSize: e.target.value }))}
-                    />
-                  </label>
-                  */}
-                </div>
-              </div>
-            </section>
-          ) : null}
-          <button type="submit">Создать событие</button>
+          <button type="submit">Создать шаблон</button>
         </form>
       </section>
     )
@@ -5037,7 +3696,7 @@ export default function App() {
                 })
               }
             >
-              ← К списку событий
+              ← К шаблонам событий
             </button>
             <h3>Событие не найдено</h3>
           </div>
@@ -5061,14 +3720,14 @@ export default function App() {
               })
             }
           >
-            ← К списку событий
+            ← К шаблонам событий
           </button>
           <h3>
-            Редактирование события #{selectedEvent.id}
+            Шаблон: {selectedEvent.name}
           </h3>
           <div className="list-actions">
             <button type="button" className="btn-secondary" onClick={() => void onCreateFromTemplate(selectedEvent.id)}>
-              Создать
+              Создать встречу
             </button>
             <button type="button" className="btn-secondary" onClick={() => void onToggleEventActivity()}>
               Статистика
@@ -5108,7 +3767,7 @@ export default function App() {
           <section className="content-card">
             <h4>Статистика события</h4>
             {eventActivityLoading ? <p className="muted">Загрузка активности...</p> : null}
-            {eventActivityError ? <p className="muted">Ошибка: {eventActivityError}</p> : null}
+
             {!eventActivityLoading && !eventActivityError && eventActivity ? (
               <div className="detail-grid">
                 <div>
@@ -5140,14 +3799,14 @@ export default function App() {
             </label>
             <label className="field">
               <span>Тип события</span>
-              <select className="ui-select" value={eventEditor.eventType} onChange={(e) => setEventEditor((prev) => ({ ...prev, eventType: e.target.value as 'training' | 'activity' }))}>
+              <Select className="ui-select" value={eventEditor.eventType} onChange={(e) => setEventEditor((prev) => ({ ...prev, eventType: e.target.value as 'training' | 'activity' }))}>
                 <option value="training">Тренировка</option>
                 <option value="activity">Мероприятие</option>
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>День недели</span>
-              <select
+              <Select
                 className="ui-select"
                 value={eventEditor.weekday}
                 onChange={(e) => setEventEditor((prev) => ({ ...prev, weekday: e.target.value }))}
@@ -5158,7 +3817,7 @@ export default function App() {
                     {day.short} · {day.full}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Начало</span>
@@ -5194,7 +3853,7 @@ export default function App() {
           <div className="event-editor-row event-editor-row-poll">
             <label className="field">
               <span>Шаблон опроса</span>
-              <select
+              <Select
                 className="ui-select"
                 value={eventEditor.templateName}
                 onChange={(e) => setEventEditor((prev) => ({ ...prev, templateName: e.target.value }))}
@@ -5205,11 +3864,11 @@ export default function App() {
                     {name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>День публикации</span>
-              <select
+              <Select
                 className="ui-select"
                 value={eventEditor.publishWeekday}
                 onChange={(e) => setEventEditor((prev) => ({ ...prev, publishWeekday: e.target.value }))}
@@ -5221,7 +3880,7 @@ export default function App() {
                     {day.short} · {day.full}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Время публикации</span>
@@ -5256,7 +3915,7 @@ export default function App() {
               />
             </label>
           </div>
-
+          {activeChatID !== null && <EventMentionsEditor key={activeChatID} chatID={activeChatID} value={eventEditor.mentions} onChange={mentions => setEventEditor(prev => ({ ...prev, mentions }))}/>}
           <section className="settings-card settings-card-settings">
             <h4>Настройки</h4>
             <div className="settings-grid">
@@ -5264,8 +3923,7 @@ export default function App() {
                 <p className="settings-group-title">Анонс</p>
                 <div className="settings-row settings-row-2">
                   <label className="field toggle-field">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={eventEditor.announcementEnabled}
                       onChange={(e) => setEventEditor((prev) => ({ ...prev, announcementEnabled: e.target.checked }))}
                     />
@@ -5273,7 +3931,7 @@ export default function App() {
                   </label>
                   <label className="field">
                     <span>Публиковать за</span>
-                    <select
+                    <Select
                       className="ui-select"
                       value={eventEditor.announcementLeadMinutes}
                       onChange={(e) => setEventEditor((prev) => ({ ...prev, announcementLeadMinutes: e.target.value }))}
@@ -5283,7 +3941,7 @@ export default function App() {
                           {item.label}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                 </div>
               </div>
@@ -5291,8 +3949,7 @@ export default function App() {
                 <p className="settings-group-title">Расчёт</p>
                 <div className="settings-row settings-row-3">
                   <label className="field toggle-field">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={eventEditor.settlementEnabled}
                       onChange={(e) => setEventEditor((prev) => ({ ...prev, settlementEnabled: e.target.checked }))}
                       disabled={!eventEditorCanEnableSettlement}
@@ -5300,16 +3957,14 @@ export default function App() {
                     <span>Публиковать расчёт</span>
                   </label>
                   <label className="field toggle-field">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={eventEditor.settlementPublishBefore}
                       onChange={(e) => setEventEditor((prev) => ({ ...prev, settlementPublishBefore: e.target.checked }))}
                     />
                     <span>Перед началом</span>
                   </label>
                   <label className="field toggle-field">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={eventEditor.settlementPublishAfter}
                       onChange={(e) => setEventEditor((prev) => ({ ...prev, settlementPublishAfter: e.target.checked }))}
                     />
@@ -5346,8 +4001,7 @@ export default function App() {
                   <div className="field">
                     <span className="field-label-placeholder" aria-hidden="true">&nbsp;</span>
                     <label className="toggle-field toggle-field-inline">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={eventEditor.cancelNotifyEnabled}
                         onChange={(e) => setEventEditor((prev) => ({ ...prev, cancelNotifyEnabled: e.target.checked }))}
                       />
@@ -5358,43 +4012,6 @@ export default function App() {
               </div>
             </div>
           </section>
-          {eventEditor.eventType === 'training' ? (
-            <section className="settings-card settings-card-teams">
-              <h4>Модуль деления на команды</h4>
-              <div className="settings-grid">
-                <div className="settings-row settings-row-3">
-                  <label className="field toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={eventEditor.teamsAutoSplit}
-                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamsAutoSplit: e.target.checked }))}
-                    />
-                    <span>Автоделение на команды</span>
-                  </label>
-                  <label className="field toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={eventEditor.teamsPublishList}
-                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamsPublishList: e.target.checked }))}
-                    />
-                    <span>Публиковать список</span>
-                  </label>
-                  {/*
-                  <label className="field">
-                    <span>Игроков в команде</span>
-                    <input
-                      type="number"
-                      min="2"
-                      step="1"
-                      value={eventEditor.teamSize}
-                      onChange={(e) => setEventEditor((prev) => ({ ...prev, teamSize: e.target.value }))}
-                    />
-                  </label>
-                  */}
-                </div>
-              </div>
-            </section>
-          ) : null}
 
           <button type="submit" disabled={!eventEditorDirty}>
             Сохранить
@@ -5415,7 +4032,7 @@ export default function App() {
     return (
       <section className="content-card">
         <div className="template-head">
-          <h3>События</h3>
+          <h3>Шаблоны событий</h3>
           <div className="list-actions">
             <button className="btn-secondary" onClick={() => setEventsMode(eventsMode === 'active' ? 'archived' : 'active')}>
               {eventsMode === 'active' ? 'Архив' : 'Активные'}
@@ -5433,7 +4050,7 @@ export default function App() {
                 })
               }
             >
-              Создать событие
+              Создать шаблон
             </button>
           </div>
         </div>
@@ -5441,11 +4058,11 @@ export default function App() {
         <div className="form-grid form-grid-3 members-filters">
           <label className="field">
             <span>Тип события</span>
-            <select value={eventsTypeFilter} onChange={(e) => setEventsTypeFilter(e.target.value as '' | 'training' | 'activity')}>
+            <Select value={eventsTypeFilter} onChange={(e) => setEventsTypeFilter(e.target.value as '' | 'training' | 'activity')}>
               <option value="">Все типы</option>
               <option value="training">Тренировка</option>
               <option value="activity">Мероприятие</option>
-            </select>
+            </Select>
           </label>
           <label className="field">
             <span>Режим</span>
@@ -5459,105 +4076,7 @@ export default function App() {
 
         <div className="list-block">
           {displayedEvents.length ? (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID / Название</th>
-                    <th>Тип</th>
-                    <th>Расписание</th>
-                    <th>Опрос</th>
-                    <th>Статус</th>
-                    <th>Стоимость</th>
-                    <th>Действие</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayedEvents.map((event) => (
-                    <tr
-                      key={event.id}
-                      className={eventsMode === 'active' ? 'member-row' : undefined}
-                      onClick={
-                        eventsMode === 'active'
-                          ? () =>
-                              navigateTo({
-                                chatID: activeChatID,
-                                section: 'event_templates',
-                                templateView: 'list',
-                                templateName: null,
-                                eventView: 'edit',
-                                eventID: event.id,
-                              })
-                          : undefined
-                      }
-                    >
-                      <td>
-                        <div className="person-cell">
-                          <strong>#{event.id} {event.name}</strong>
-                          <span>
-                            {event.announcementEnabled
-                              ? `Анонс: ${announcementLeadLabel(event.announcementLeadMinutes || 60)}`
-                              : 'Анонс: выключен'}
-                          </span>
-                        </div>
-                      </td>
-                      <td>{event.eventType === 'training' ? 'Тренировка' : 'Мероприятие'}</td>
-                      <td>
-                        <div className="person-cell">
-                          <strong>
-                            {weekdayLabel(event.startWeekday)} · {toHourMinute(event.startTime)} - {toHourMinute(event.endTime)}
-                          </strong>
-                          <span>
-                            Публикация: {weekdayLabel(event.pollPublishWeekday || event.startWeekday)} {toHourMinute(event.pollPublishTime)}
-                          </span>
-                        </div>
-                      </td>
-                      <td>{event.pollTemplate || 'не привязан'}</td>
-                      <td>
-                        <div className="person-cell">
-                          <strong>{event.publishEnabled ? 'Публикации активны' : 'Публикации отключены'}</strong>
-                          <span>
-                            Расчёт: {event.settlementEnabled ? 'вкл' : 'выкл'} · до: {event.settlementPublishBefore ? 'да' : 'нет'} · после:{' '}
-                            {event.settlementPublishAfter ? 'да' : 'нет'}
-                          </span>
-                        </div>
-                      </td>
-                      <td>{formatMoney(event.costAmount)}</td>
-                      <td>
-                        {eventsMode === 'active' ? (
-                          <div className="list-actions">
-                            <button
-                              className="btn-secondary"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void onCreateFromTemplate(event.id)
-                              }}
-                            >
-                              Создать
-                            </button>
-                            <button
-                              className="btn-danger btn-icon"
-                              title="В архив"
-                              aria-label="В архив"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void onArchiveEvent(event.id)
-                              }}
-                            >
-                              <span aria-hidden>🗃</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <button className="btn-secondary" onClick={() => void onUnarchiveEvent(event.id)}>
-                            Восстановить
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <StudioEventTemplates items={displayedEvents} archived={eventsMode==='archived'} open={id=>openStudioSection('event_templates',{eventView:'edit',eventID:id})} create={id=>void onCreateFromTemplate(id)} archive={id=>void onArchiveEvent(id)} restore={id=>void onUnarchiveEvent(id)}/>
           ) : (
             <p className="muted">{eventsTypeFilter ? 'По выбранному типу событий нет' : eventsMode === 'active' ? 'Событий пока нет' : 'Архив пуст'}</p>
           )}
@@ -5574,13 +4093,17 @@ export default function App() {
     if (activeHistoryEventID === null) {
       return (
         <section className="content-card">
-          <div className="template-head">
+          <div className="template-head" ref={historyHeadingRef}>
             <h3>События</h3>
+            <div className="studio-view-switch" role="group" aria-label="Вид событий">
+              <button type="button" className={eventsView === 'cards' ? 'active' : ''} aria-pressed={eventsView === 'cards'} onClick={() => setEventsView('cards')}><Icon name="grid" size={16}/>Плитки</button>
+              <button type="button" className={eventsView === 'list' ? 'active' : ''} aria-pressed={eventsView === 'list'} onClick={() => setEventsView('list')}><Icon name="list" size={16}/>Список</button>
+            </div>
           </div>
           <div className="form-grid form-grid-3 members-filters">
             <label className="field">
               <span>Статус</span>
-              <select
+              <Select
                 value={historyStatusFilter}
                 onChange={(e) =>
                   setHistoryStatusFilter(e.target.value as '' | 'in_voting' | 'on_distribution' | 'on_review' | 'completed' | 'not_held')
@@ -5592,7 +4115,7 @@ export default function App() {
                 <option value="on_review">На проверке</option>
                 <option value="not_held">Не состоялось</option>
                 <option value="completed">Завершено</option>
-              </select>
+              </Select>
             </label>
             <label className="field">
               <span>Период</span>
@@ -5604,58 +4127,14 @@ export default function App() {
             </label>
           </div>
           {eventHistoryLoading ? <p className="muted">Загрузка истории событий...</p> : null}
-          {eventHistoryError ? <p className="muted">Ошибка: {eventHistoryError}</p> : null}
+
           {!eventHistoryLoading && !eventHistoryError && eventHistory.length === 0 ? <p className="muted">Событий пока нет</p> : null}
 
-          {!eventHistoryLoading && filteredEventHistory.length > 0 ? (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>ID / Название</th>
-                    <th>Тип</th>
-                    <th>Статус</th>
-                    <th>Дата начала</th>
-                    <th>Дата окончания</th>
-                    <th>ID голосования</th>
-                    <th>Долг</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredEventHistory.map((item) => (
-                    <tr
-                      key={item.instanceID}
-                      className="member-row"
-                      onClick={() =>
-                        navigateTo({
-                          chatID: activeChatID,
-                          section: 'events',
-                          historyEventID: item.instanceID,
-                          templateView: 'list',
-                          templateName: null,
-                          eventView: 'list',
-                          eventID: null,
-                        })
-                      }
-                    >
-                      <td>
-                        <div className="person-cell">
-                          <strong>#{item.instanceID} · {item.name}</strong>
-                          <span>{item.publishEnabled ? 'Публикации активны' : 'Публикации отключены'}</span>
-                        </div>
-                      </td>
-                      <td>{item.eventType === 'training' ? 'Тренировка' : 'Мероприятие'}</td>
-                      <td>{historyStatusLabel(item.status)}</td>
-                      <td>{formatDateTime(item.nextStartAt)}</td>
-                      <td>{formatDateTime(item.endAt)}</td>
-                      <td>{item.latestPostID ? `#${item.latestPostID}` : 'не создано'}</td>
-                      <td>{formatMoney(item.debtAmount ?? 0)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+          {!eventHistoryLoading && filteredEventHistory.length > 0 ? <StudioEvents items={paginatedEventHistory} view={eventsView} open={id=>openStudioSection('events',{historyEventID:id})}/> : null}
+          {!eventHistoryLoading && !eventHistoryError && filteredEventHistory.length > 0 ? <Pagination total={filteredEventHistory.length} page={currentHistoryPage} pageSize={historyPageSize} onPageChange={page => {
+            setHistoryPage(page)
+            historyHeadingRef.current?.scrollIntoView({ block: 'start' })
+          }} onPageSizeChange={size => { setHistoryPageSize(size); setHistoryPage(1) }}/>: null}
           {!eventHistoryLoading && eventHistory.length > 0 && filteredEventHistory.length === 0 ? (
             <p className="muted">По выбранному статусу событий нет</p>
           ) : null}
@@ -5664,10 +4143,10 @@ export default function App() {
     }
 
     return (
-      <section className="content-card">
-        <div className="template-head">
+      <section className="content-card studio-event-detail">
+        <div className="studio-event-backbar">
           <button
-            className="btn-secondary"
+            className="studio-event-back"
             onClick={() =>
               navigateTo({
                 chatID: activeChatID,
@@ -5680,107 +4159,77 @@ export default function App() {
               })
             }
           >
-            ← К списку событий
+            <Icon name="back" size={17}/>Все события
           </button>
-          <h3>Событие #{activeHistoryEventID}</h3>
+          {selectedHistoryEvent && <button type="button" className="btn-danger studio-event-delete" onClick={() => void onDeleteEventInstanceForTest()}>Удалить событие</button>}
         </div>
         {eventHistoryLoading ? <p className="muted">Загрузка истории событий...</p> : null}
-        {eventHistoryError ? <p className="muted">Ошибка: {eventHistoryError}</p> : null}
+
 
         {!eventHistoryLoading && !selectedHistoryEvent ? <p className="muted">Событие не найдено</p> : null}
 
 	        {selectedHistoryEvent ? (
-	          <section className="team-split-board">
-	            <div className="team-split-head">
-	              <div>
-	                <strong>Распределение по командам: {selectedHistoryEvent.name}</strong>
-	                <p className="muted">
-	                  Статус: {historyStatusLabel(selectedHistoryEvent.status)} · Долг: {formatMoney(selectedHistoryEvent.debtAmount ?? 0)}
-	                  <br />
-	                  Начало: {formatDateTime(selectedHistoryEvent.nextStartAt)} · Окончание: {formatDateTime(selectedHistoryEvent.endAt)}
-	                </p>
-	              </div>
-	              <div className="list-actions">
-	                <button type="button" className="btn-danger" onClick={() => void onDeleteEventInstanceForTest()}>
-	                  Удалить событие
-	                </button>
-	              </div>
-	            </div>
+	          <section className="team-split-board studio-event-board">
+            <EventDetailHeader event={selectedHistoryEvent}/>
 
-            <div className="history-tabs">
+            <div className="history-tabs studio-event-tabs" role="group" aria-label="Разделы события">
               <button
                 type="button"
                 className={historyDetailTab === 'distribution' ? 'history-tab active' : 'history-tab'}
+                aria-pressed={historyDetailTab === 'distribution'}
                 onClick={() => setHistoryDetailTab('distribution')}
               >
-                Распределение
+                <Icon name="users" size={17}/>Состав
               </button>
               <button
                 type="button"
                 className={historyDetailTab === 'votes' ? 'history-tab active' : 'history-tab'}
+                aria-pressed={historyDetailTab === 'votes'}
                 onClick={() => setHistoryDetailTab('votes')}
                 disabled={selectedHistoryPostID === null}
                 title={selectedHistoryPostID === null ? 'Сначала выбери опрос' : undefined}
               >
-                Голоса
+                <Icon name="poll" size={17}/>Голоса
               </button>
-              <button
+              {isAdmin && selectedHistoryEvent.eventType === 'training' && <button type="button" className={historyDetailTab === 'attendance' ? 'history-tab active' : 'history-tab'} aria-pressed={historyDetailTab === 'attendance'} onClick={() => setHistoryDetailTab('attendance')}><Icon name="users" size={17}/>Посещаемость</button>}
+<button
                 type="button"
                 className={historyDetailTab === 'billing' ? 'history-tab active' : 'history-tab'}
+                aria-pressed={historyDetailTab === 'billing'}
                 onClick={() => setHistoryDetailTab('billing')}
               >
-                Оплата
+                <Icon name="wallet" size={17}/>Оплата
               </button>
               <button
                 type="button"
                 className={historyDetailTab === 'sets' ? 'history-tab active' : 'history-tab'}
+                aria-pressed={historyDetailTab === 'sets'}
                 onClick={() => setHistoryDetailTab('sets')}
                 disabled={selectedHistoryPostID === null}
                 title={selectedHistoryPostID === null ? 'Сначала выбери опрос' : undefined}
               >
-                Партии
+                <Icon name="score" size={17}/>Партии
               </button>
             </div>
 
+            {historyDetailTab !== 'billing' && historyDetailTab !== 'attendance' && !eventPollHistoryError && <EventPollContext
+              polls={eventPollHistory}
+              selectedPostID={selectedHistoryPostID}
+              loading={eventPollHistoryLoading}
+              onSelect={setSelectedHistoryPostID}
+              mode={historyDetailTab === 'votes' ? 'votes' : 'roster'}
+            />}
+
             {historyDetailTab === 'distribution' ? (
               <>
-                {eventPollHistoryLoading ? <p className="muted">Загружаю историю опросов...</p> : null}
-                {eventPollHistoryError ? <p className="muted">Ошибка: {eventPollHistoryError}</p> : null}
-                {!eventPollHistoryLoading && !eventPollHistoryError && eventPollHistory.length === 0 ? (
-                  <p className="muted">Пока нет опубликованных опросов для этого события.</p>
-                ) : null}
-
-                {!eventPollHistoryLoading && eventPollHistory.length > 0 ? (
-                  <div className="list-block">
-                    {eventPollHistory.map((item) => (
-                      <button
-                        key={item.postID}
-                        type="button"
-                        className={selectedHistoryPostID === item.postID ? 'history-poll-btn active' : 'history-poll-btn'}
-                        onClick={() => {
-                          setSelectedHistoryPostID(item.postID)
-                          setHistoryDetailTab('votes')
-                        }}
-                      >
-                        <span>#{item.postID} · {formatDateTime(item.publishedAt)}</span>
-                        <span>Учет: {item.countedVotes} / Всего: {item.totalVotes}</span>
-                        <span>{item.teamsConfigured ? 'Команды сохранены' : 'Команды не сохранены'}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
                 {selectedHistoryPostID !== null ? (
               <>
                 {teamSplitLoading ? <p className="muted">Загружаю участников...</p> : null}
-                {teamSplitError ? <p className="muted">Ошибка: {teamSplitError}</p> : null}
+
                 {!teamSplitLoading && teamSplit ? (
                   <>
                     {(() => {
                       const activeTeams = activeTeamCodes(teamSplit.players, teamCEnabled)
-                      const pairRows = teamPairProbabilities(teamSplit.players, teamCEnabled).filter((pair) =>
-                        activeTeams.includes(pair.left) && activeTeams.includes(pair.right),
-                      )
                       const formationRows = activeTeams
                         .map((teamCode) => ({
                           teamCode,
@@ -5830,15 +4279,16 @@ export default function App() {
                         >
                           <div className="team-column-head">
                             <div>
-                              <h5>{`Команда ${teamCode}`}</h5>
+                              <h5><span className="studio-team-letter" aria-hidden="true">{teamCode}</span>{`Команда ${teamCode}`}</h5>
                               {teamSplit.formations?.[teamCode]?.scheme ? (
                                 <small className="muted" title={teamSplit.formations?.[teamCode]?.analysis || ''}>
                                   Схема: {teamSplit.formations?.[teamCode]?.scheme}
                                 </small>
                               ) : null}
                             </div>
+                            <span className="studio-team-count">{playerCountLabel(teamSplit.players.filter(player => player.team === teamCode).length)}</span>
                             {teamCode === 'C' ? (
-                              <button type="button" className="team-remove-btn" onClick={removeTeamC} title="Убрать команду C">
+                              <button type="button" className="team-remove-btn" onClick={removeTeamC} title="Убрать команду C" aria-label="Убрать команду C">
                                 −
                               </button>
                             ) : null}
@@ -5865,7 +4315,7 @@ export default function App() {
                                 </article>
                               ))
                             })()}
-                            {teamSplit.players.filter((player) => player.team === teamCode).length === 0 ? <p className="muted">Пусто</p> : null}
+                            {teamSplit.players.filter((player) => player.team === teamCode).length === 0 ? <p className="studio-team-empty">{touchDragMode ? 'Выберите игрока и нажмите на эту команду' : 'Перетащите сюда игроков'}</p> : null}
                           </div>
                         </div>
                       )
@@ -5892,7 +4342,7 @@ export default function App() {
                                 onDropToTeam('unassigned')
                               }}
                             >
-                              <h5>Нераспределенные</h5>
+                              <div className="team-column-head"><h5>Без команды</h5><span className="studio-team-count">{playerCountLabel(unassignedPlayers.length)}</span></div>
                               <div className="team-players team-players-unassigned">
                                 {unassignedPlayers.map((player) => (
                                   <article
@@ -5910,27 +4360,22 @@ export default function App() {
                                     <small>{player.choiceLabel} · рейтинг {player.rating.toFixed(1)} · позиция -</small>
                                   </article>
                                 ))}
-                                {unassignedPlayers.length === 0 ? <p className="muted">Пусто</p> : null}
+                                {unassignedPlayers.length === 0 ? <p className="studio-unassigned-empty">Все игроки распределены</p> : null}
                               </div>
                             </div>
 
+                            <div className="studio-roster-toolbar"><span>Составы команд</span>{activeTeams.length === 2 && !activeTeams.includes('C') ? (
+                              <button type="button" className="btn-secondary" onClick={() => setTeamCEnabled(true)}><Icon name="plus" size={15}/>Добавить команду C</button>
+                            ) : null}</div>
                             <div className={activeTeams.length === 2 ? 'team-double-row' : 'team-triple-row'}>
                               {activeTeams.map((teamCode) => (
                                 <div key={teamCode}>{renderTeamColumn(teamCode)}</div>
                               ))}
-                              {activeTeams.length === 2 && !activeTeams.includes('C') ? (
-                                <div className="team-add-slot">
-                                  <button type="button" className="team-add-btn" onClick={() => setTeamCEnabled(true)} title="Добавить команду C">
-                                    +
-                                  </button>
-                                </div>
-                              ) : null}
                             </div>
                           </div>
 
                           {formationRows.length > 0 ? (
-                            <>
-                              <h5 className="team-analysis-title">Аналитика расстановки</h5>
+                            <LineupAnalysis>
                               <div className="team-analysis-list">
                                 {formationRows.map(({ teamCode, formation }) => (
                                   <article className="team-analysis-card" key={`analysis-${teamCode}`}>
@@ -5965,57 +4410,10 @@ export default function App() {
                                   </article>
                                 ))}
                               </div>
-                            </>
+                            </LineupAnalysis>
                           ) : null}
 
-                          <h5 className="team-forecast-title">Прогноз</h5>
-                          <div className="team-prob-list">
-                            {(() => {
-                              let orderedPairs = pairRows
-                              const hasABC = activeTeams.length === 3 && activeTeams.includes('A') && activeTeams.includes('B') && activeTeams.includes('C')
-                              if (hasABC) {
-                                const getPair = (left: ActiveTeamCode, right: ActiveTeamCode) => {
-                                  const direct = pairRows.find((pair) => pair.left === left && pair.right === right)
-                                  if (direct) {
-                                    return direct
-                                  }
-                                  const reverse = pairRows.find((pair) => pair.left === right && pair.right === left)
-                                  if (reverse) {
-                                    return { left, right, leftProb: reverse.rightProb, rightProb: reverse.leftProb }
-                                  }
-                                  return null
-                                }
-                                orderedPairs = [getPair('A', 'B'), getPair('C', 'A'), getPair('B', 'C')].filter(
-                                  (item): item is { left: ActiveTeamCode; right: ActiveTeamCode; leftProb: number; rightProb: number } => item !== null,
-                                )
-                              }
-                              return orderedPairs.map((pair) => {
-                              return (
-                                <div className="team-balance-row" key={`${pair.left}-${pair.right}`}>
-                                  <span className="team-balance-label team-balance-label-left" style={{ color: teamColor(pair.left) }}>
-                                    <strong>{`Команда ${pair.left}`}</strong>
-                                    <small className="team-balance-percent">{`${(pair.leftProb * 100).toFixed(0)}%`}</small>
-                                  </span>
-                                  <div className="team-balance-bar">
-                                    <div
-                                      className="team-balance-fill team-balance-fill-left"
-                                      style={{ width: `${(pair.leftProb * 100).toFixed(2)}%`, background: teamColor(pair.left) }}
-                                    />
-                                    <div
-                                      className="team-balance-fill team-balance-fill-right"
-                                      style={{ width: `${(pair.rightProb * 100).toFixed(2)}%`, background: teamColor(pair.right) }}
-                                    />
-                                    <div className="team-balance-marker" />
-                                  </div>
-                                  <span className="team-balance-label team-balance-label-right" style={{ color: teamColor(pair.right) }}>
-                                    <strong>{`Команда ${pair.right}`}</strong>
-                                    <small className="team-balance-percent">{`${(pair.rightProb * 100).toFixed(0)}%`}</small>
-                                  </span>
-                                </div>
-                              )
-                              })
-                            })()}
-                          </div>
+                          <TeamForecast players={teamSplit.players} includeC={teamCEnabled}/>
                         </>
                       )
                     })()}
@@ -6038,13 +4436,14 @@ export default function App() {
             ) : null}
 
             {historyDetailTab === 'votes' ? (
-              <section className="content-card">
+              <section className="content-card studio-event-votes">
+                {renderManualPollVoteForm(selectedHistoryPostID)}
                 <div className="template-head">
                   <h4>Голоса</h4>
                 </div>
                 {selectedHistoryPostID === null ? <p className="muted">Выбери опрос в списке выше.</p> : null}
                 {historyPollVotesLoading ? <p className="muted">Загрузка голосов...</p> : null}
-                {historyPollVotesError ? <p className="muted">Ошибка: {historyPollVotesError}</p> : null}
+
                 {!historyPollVotesLoading && !historyPollVotesError && selectedHistoryPostID !== null && historyPollVotes.length === 0 ? (
                   <p className="muted">По этому опросу пока нет голосов.</p>
                 ) : null}
@@ -6106,197 +4505,29 @@ export default function App() {
                     </table>
                   </div>
                 ) : null}
-                {renderManualPollVoteForm(selectedHistoryPostID)}
-                {selectedHistoryPostID !== null ? (
-                  <div className="manual-controls">
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() =>
-                        navigateTo({
-                          chatID: activeChatID,
-                          section: 'polls',
-                          pollPostID: selectedHistoryPostID,
-                          templateView: 'list',
-                          templateName: null,
-                          eventView: 'list',
-                          eventID: null,
-                        })
-                      }
-                    >
-                      Открыть голосование
-                    </button>
-                  </div>
-                ) : null}
               </section>
             ) : null}
 
             {historyDetailTab === 'sets' ? (
-              <section className="content-card">
-                <div className="template-head">
-                  <h4>Партии</h4>
-                </div>
-                {selectedHistoryPostID === null ? <p className="muted">Выбери опрос в списке выше.</p> : null}
-                {eventSetsLoading ? <p className="muted">Загрузка партий...</p> : null}
-                {eventSetsError ? <p className="muted">Ошибка: {eventSetsError}</p> : null}
-
-                {selectedHistoryPostID !== null ? (
-                  <>
-                    {(() => {
-                      const teams = teamSplit ? activeTeamCodes(teamSplit.players, teamCEnabled) : (['A', 'B'] as ActiveTeamCode[])
-                      const availableTeams = teams.length >= 2 ? teams : (['A', 'B'] as ActiveTeamCode[])
-                      const ensureOtherTeam = (t: ActiveTeamCode) => availableTeams.find((x) => x !== t) ?? availableTeams[0]
-
-                      return (
-                        <>
-                          <div className="set-list">
-                            {(eventSetRowsDraft.length ? eventSetRowsDraft : [{ left: availableTeams[0], right: availableTeams[1], leftScore: 0, rightScore: 0 }]).map(
-                              (row, idx) => (
-                                <div className="set-row" key={`set-row-${idx}`}>
-                                  <span className="muted">{`Партия ${idx + 1}`}</span>
-                                  <div className="set-row-main">
-                                    {availableTeams.length > 2 ? (
-                                      <select
-                                        className="set-team"
-                                        value={row.left}
-                                        onChange={(e) => {
-                                          const nextLeft = e.target.value as ActiveTeamCode
-                                          setEventSetRowsDraft((prev) =>
-                                            prev.map((r, j) => {
-                                              if (j !== idx) return r
-                                              const nextRight = nextLeft === r.right ? ensureOtherTeam(nextLeft) : r.right
-                                              return { ...r, left: nextLeft, right: nextRight }
-                                            }),
-                                          )
-                                        }}
-                                      >
-                                        {availableTeams.map((t) => (
-                                          <option key={`left-${idx}-${t}`} value={t}>
-                                            {t}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    ) : (
-                                      <strong className="set-team">{row.left}</strong>
-                                    )}
-
-                                    <div className="set-score">
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="99"
-                                        value={row.leftScore}
-                                        onChange={(e) => {
-                                          const value = Number(e.target.value)
-                                          setEventSetRowsDraft((prev) => prev.map((r, j) => (j === idx ? { ...r, leftScore: value } : r)))
-                                        }}
-                                      />
-                                      <span>:</span>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        max="99"
-                                        value={row.rightScore}
-                                        onChange={(e) => {
-                                          const value = Number(e.target.value)
-                                          setEventSetRowsDraft((prev) => prev.map((r, j) => (j === idx ? { ...r, rightScore: value } : r)))
-                                        }}
-                                      />
-                                    </div>
-
-                                    {availableTeams.length > 2 ? (
-                                      <select
-                                        className="set-team"
-                                        value={row.right}
-                                        onChange={(e) => {
-                                          const nextRight = e.target.value as ActiveTeamCode
-                                          setEventSetRowsDraft((prev) =>
-                                            prev.map((r, j) => {
-                                              if (j !== idx) return r
-                                              const nextLeft = nextRight === r.left ? ensureOtherTeam(nextRight) : r.left
-                                              return { ...r, left: nextLeft, right: nextRight }
-                                            }),
-                                          )
-                                        }}
-                                      >
-                                        {availableTeams.map((t) => (
-                                          <option key={`right-${idx}-${t}`} value={t}>
-                                            {t}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    ) : (
-                                      <strong className="set-team">{row.right}</strong>
-                                    )}
-                                  </div>
-                                  <button
-                                    type="button"
-                                    className="icon-btn danger set-del-btn"
-                                    title="Удалить партию"
-                                    disabled={(eventSetRowsDraft.length || 1) <= 1}
-                                    onClick={() => setEventSetRowsDraft((prev) => prev.filter((_, j) => j !== idx))}
-                                  >
-                                    −
-                                  </button>
-                                </div>
-                              ),
-                            )}
-
-                            <div className="set-add-row">
-                              <button
-                                type="button"
-                                className="set-add-btn"
-                                aria-label="Добавить партию"
-                                title="Добавить партию"
-                                onClick={() =>
-                                  setEventSetRowsDraft((prev) => [
-                                    ...prev,
-                                    {
-                                      left: prev[prev.length - 1]?.left ?? availableTeams[0],
-                                      right: prev[prev.length - 1]?.right ?? availableTeams[1],
-                                      leftScore: 0,
-                                      rightScore: 0,
-                                    },
-                                  ])
-                                }
-                              >
-                                +
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="manual-controls">
-                            {availableTeams.length > 2 ? (
-                              <button
-                                type="button"
-                                className="btn-secondary"
-                                onClick={() => setEventSetRowsDraft([])}
-                              >
-                                Сбросить
-                              </button>
-                            ) : null}
-                            <button type="button" onClick={() => void onSaveEventSets()}>
-                              Сохранить
-                            </button>
-                            <button type="button" className="btn-secondary" onClick={() => void onPublishEventSets()}>
-                              Опубликовать
-                            </button>
-                          </div>
-                        </>
-                      )
-                    })()}
-                  </>
-                ) : null}
-              </section>
+              <EventSetsEditor
+                rows={eventSetRowsDraft}
+                setRows={setEventSetRowsDraft}
+                teams={teamSplit ? activeTeamCodes(teamSplit.players, teamCEnabled) : ['A', 'B']}
+                loading={eventSetsLoading}
+                available={selectedHistoryPostID !== null}
+                onSave={() => void onSaveEventSets()}
+                onPublish={() => void onPublishEventSets()}
+              />
             ) : null}
 
-            {historyDetailTab === 'billing' ? (
+            {historyDetailTab === 'attendance' && activeChatID !== null && isAdmin && <TrainingAttendance key={`${activeChatID}-${activeHistoryEventID}`} chatID={activeChatID} instanceID={selectedHistoryEvent.instanceID} cancelled={selectedHistoryEvent.status === 'not_held'} startAt={selectedHistoryEvent.nextStartAt} onChanged={() => setAttendanceRevision(value => value + 1)}/>}
+{historyDetailTab === 'billing' ? (
               <section className="content-card">
                 <div className="template-head">
                   <h4>Оплата события</h4>
                 </div>
                 {eventBillingLoading ? <p className="muted">Загружаю оплаты...</p> : null}
-                {eventBillingError ? <p className="muted">Ошибка: {eventBillingError}</p> : null}
+
                 {!eventBillingLoading && !eventBillingError && !eventBilling ? (
                   <>
                     <p className="muted">Расчет по событию пока не создан.</p>
@@ -6333,7 +4564,7 @@ export default function App() {
                         <strong>{eventBilling.unpaidCount}</strong>
                       </div>
                       <div>
-                        <span>Долг по событию</span>
+                        <span>Осталось оплатить</span>
                         <strong>{formatMoney(eventBilling.debtAmount)}</strong>
                       </div>
                     </div>
@@ -6350,12 +4581,12 @@ export default function App() {
                           {eventBilling.players.map((player) => (
                             <tr key={player.userID}>
                               <td>{player.realName?.trim() || `${player.firstName ?? ''} ${player.lastName ?? ''}`.trim() || (player.username ? `@${player.username}` : `ID ${player.userID}`)}</td>
-                              <td>{formatMoney(player.amountDue)}</td>
+                              <td>{formatMoney(player.amountDue)}{player.passCovered && <small style={{display:"block",color:"var(--accent)"}}>Абонемент · 1 место</small>}</td>
                               <td className="col-center">
                                 <label className="toggle-field toggle-field-only">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(eventBillingDraft[player.userID])}
+                                  <Checkbox
+                                    aria-label={`Оплата: ${player.realName?.trim() || `${player.firstName ?? ''} ${player.lastName ?? ''}`.trim() || player.username || `Игрок ${player.userID}`}`}
+                                    disabled={Boolean(player.passCovered && player.amountDue <= 0)} checked={Boolean(eventBillingDraft[player.userID])}
                                     onChange={(e) =>
                                       setEventBillingDraft((prev) => ({
                                         ...prev,
@@ -6371,17 +4602,17 @@ export default function App() {
                       </table>
                     </div>
                     <div className="manual-controls">
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => void onPublishSettlementForEvent(selectedHistoryEvent.eventID)}
-                        disabled={
-                          (selectedHistoryEvent.pollTemplate || '').trim() === '' ||
-                          (templateCountedMap.get(selectedHistoryEvent.pollTemplate || '') ?? 0) === 0
-                        }
-                      >
-                        Опубликовать расчёт
-                      </button>
+                      {(!authConfig?.enabled || activePerms?.permissions.billing_manage) && <EventDebtReminder
+                        key={`${activeChatID}:${selectedHistoryEvent.instanceID}`}
+                        chatID={activeChatID}
+                        instanceID={selectedHistoryEvent.instanceID}
+                        eventName={selectedHistoryEvent.name}
+                        groupTitle={details?.group.title || 'Группа команды'}
+                        billing={eventBilling}
+                        pendingChanges={eventBilling.players.some(player => Boolean(eventBillingDraft[player.userID]) !== player.isPaid)}
+                        unavailable={eventBillingLoading || Boolean(eventBillingError)}
+                        onPublished={() => setSuccess('Задолженность опубликована в Telegram')}
+                      />}
                       <button
                         type="button"
                         className="btn-secondary"
@@ -6414,19 +4645,9 @@ export default function App() {
           <div className="template-head">
             <button
               className="btn-secondary"
-              onClick={() =>
-                navigateTo({
-                  chatID: activeChatID,
-                  section: 'polls',
-                  pollPostID: null,
-                  templateView: 'list',
-                  templateName: null,
-                  eventView: 'list',
-                  eventID: null,
-                })
-              }
+              onClick={() => openStudioSection('events', { historyEventID: selectedGroupPoll?.instanceID ?? null })}
             >
-              ← К списку голосований
+              {selectedGroupPoll?.instanceID ? '← К событию' : '← К событиям'}
             </button>
             <h3>Голосование #{activePollPostID}</h3>
           </div>
@@ -6443,7 +4664,7 @@ export default function App() {
               </div>
               <div>
                 <span>Статус</span>
-                <strong>{selectedGroupPoll.status || '-'}</strong>
+                <strong>{selectedGroupPoll.status === 'open' ? 'Открыто' : selectedGroupPoll.status === 'closed' ? 'Завершено' : selectedGroupPoll.status || '—'}</strong>
               </div>
               <div>
                 <span>Опубликовано</span>
@@ -6465,7 +4686,7 @@ export default function App() {
           )}
 
           {groupPollVotesLoading ? <p className="muted">Загрузка голосов...</p> : null}
-          {groupPollVotesError ? <p className="muted">Ошибка: {groupPollVotesError}</p> : null}
+
           {!groupPollVotesLoading && !groupPollVotesError && groupPollVotes.length === 0 ? <p className="muted">По этому опросу пока нет голосов</p> : null}
           {!groupPollVotesLoading && groupPollVotes.length > 0 ? (
             <div className="table-wrap">
@@ -6504,57 +4725,9 @@ export default function App() {
           <h3>Голосования</h3>
         </div>
         {groupPollsLoading ? <p className="muted">Загрузка голосований...</p> : null}
-        {groupPollsError ? <p className="muted">Ошибка: {groupPollsError}</p> : null}
+
         {!groupPollsLoading && !groupPollsError && groupPolls.length === 0 ? <p className="muted">Голосований пока нет</p> : null}
-        {!groupPollsLoading && groupPolls.length > 0 ? (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Событие</th>
-                  <th>Шаблон</th>
-                  <th>Вопрос</th>
-                  <th>Статус</th>
-                  <th>Учет/Всего</th>
-                  <th>Опубликовано</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groupPolls.map((poll) => (
-                  <tr
-                    key={poll.postID}
-                    className="member-row"
-                    onClick={() =>
-                      navigateTo({
-                        chatID: activeChatID,
-                        section: 'polls',
-                        pollPostID: poll.postID,
-                        templateView: 'list',
-                        templateName: null,
-                        eventView: 'list',
-                        eventID: null,
-                      })
-                    }
-                  >
-                    <td>#{poll.postID}</td>
-                    <td>
-                      {poll.eventName || 'Без события'}
-                      {poll.instanceID ? ` · instance #${poll.instanceID}` : ''}
-                    </td>
-                    <td>{poll.templateName || '-'}</td>
-                    <td>{poll.question || '-'}</td>
-                    <td>{poll.status || '-'}</td>
-                    <td>
-                      {poll.countedVotes} / {poll.totalVotes}
-                    </td>
-                    <td>{formatDateTime(poll.publishedAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
+        {!groupPollsLoading && groupPolls.length > 0 ? <StudioPolls items={groupPolls} open={id=>openStudioSection('polls',{pollPostID:id})}/> : null}
       </section>
     )
   }
@@ -6585,7 +4758,7 @@ export default function App() {
         </div>
 
         {groupGamesLoading ? <p className="muted">Загрузка игр...</p> : null}
-        {groupGamesError ? <p className="muted">Ошибка: {groupGamesError}</p> : null}
+
         {!groupGamesLoading && !groupGamesError && groupGames.length === 0 ? <p className="muted">Пока нет сохранённых партий</p> : null}
 
         {!groupGamesLoading && !groupGamesError && groupGames.length > 0 ? (
@@ -6618,7 +4791,7 @@ export default function App() {
                           </div>
                         </td>
                         <td className="col-center">
-                          <span className="game-score">{`${clampInt(row.score1, 0, 99)}:${clampInt(row.score2, 0, 99)}`}</span>
+                          <button type="button" className="game-score" aria-expanded={expanded} aria-label={`Составы команд: ${row.eventName}, партия ${row.ordinal}, счёт ${row.score1}:${row.score2}`} onClick={(event) => { event.stopPropagation(); void toggleRow(row) }}>{`${clampInt(row.score1, 0, 99)}:${clampInt(row.score2, 0, 99)}`}</button>
                         </td>
                         <td>
                           <strong>{`Команда ${row.team2}`}</strong>
@@ -6674,6 +4847,8 @@ export default function App() {
   }
 
   function renderContent() {
+    if (activeSection === 'profile') return renderProfile()
+    if (!groupsLoaded && !error) return <section className="content-card" role="status">Загружаем команды…</section>
     if (!loading && groups.length === 0) {
       return (
         <section className="content-card">
@@ -6683,7 +4858,7 @@ export default function App() {
       )
     }
     if (!details) {
-      return <section className="content-card">Выбери организацию</section>
+      return loading ? null : <section className="content-card">Выбери организацию</section>
     }
 
     switch (activeSection) {
@@ -6697,12 +4872,15 @@ export default function App() {
           )
         }
         return renderOverview()
+      case 'settings':
+        if (!isAdmin) return availableTemplateSections.length ? <div className="studio-org-settings"><OrganizationTemplates openEvents={can('event_templates_manage') ? () => openStudioSection('event_templates') : undefined} openPolls={can('templates_manage') ? () => openStudioSection('templates') : undefined}/></div> : <section className="content-card"><h3>Недостаточно прав</h3><p className="muted">Организация недоступна.</p></section>
+        return <OrganizationSettings key={activeChatID} group={details.group} members={loading || membersError ? null : members} roleTitle={activePerms?.roleTitle || 'Администратор'} canPublish={can('templates_manage')} publishRegistration={onPublishRegistration} openMembers={can('members_read') ? () => openStudioSection('members') : undefined} openDocumentation={() => openStudioSection('docs')} openEventTemplates={can('event_templates_manage') ? () => openStudioSection('event_templates') : undefined} openPollTemplates={can('templates_manage') ? () => openStudioSection('templates') : undefined}/>
       case 'billing':
         if (!isAdmin) {
           return (
             <section className="content-card">
               <h3>Недостаточно прав</h3>
-              <p className="muted">Раздел «Задолженности» доступен только администраторам.</p>
+              <p className="muted">Раздел «Взносы» доступен только администраторам.</p>
             </section>
           )
         }
@@ -6767,24 +4945,23 @@ export default function App() {
           )
         }
         return renderEvents()
-      case 'profile':
-        if (!can('profile_read')) {
-          return (
-            <section className="content-card">
-              <h3>Недостаточно прав</h3>
-              <p className="muted">Раздел «Профиль» недоступен.</p>
-            </section>
-          )
-        }
-        return renderProfile()
       case 'docs':
-        return renderDocs()
+        return <Documentation />
       default:
         return null
     }
   }
 
   function renderProfile() {
+    return <>
+      <ThemeSwitcher theme={productTheme} choose={chooseProductTheme}/>
+      {authConfig?.enabled && (can('profile_read')
+        ? renderProfileDetails()
+        : <section className="content-card"><h3>Профиль игрока</h3><p className="muted">Нет доступа к личной статистике игрока.</p></section>)}
+    </>
+  }
+
+  function renderProfileDetails() {
     if (activeChatID === null) {
       return <section className="content-card">Выбери организацию</section>
     }
@@ -6795,7 +4972,7 @@ export default function App() {
       return (
         <section className="content-card">
           <h3>Профиль</h3>
-          <p className="muted">Ошибка: {myProfileError}</p>
+          <p className="muted">Данные профиля недоступны.</p>
         </section>
       )
     }
@@ -6810,25 +4987,11 @@ export default function App() {
 
     return (
       <section className="content-card">
-        <div className="template-head">
-          <h3>Профиль</h3>
-        </div>
-        <div className="form-grid form-grid-3 members-filters">
-          <label className="field">
-            <span>Роль</span>
-            <input value={myProfile.roleTitle || myProfile.roleCode} readOnly />
-          </label>
-          <label className="field">
-            <span>Задолженность</span>
-            <input value={formatMoney(myProfile.debtAmount)} readOnly />
-          </label>
-          <label className="field">
-            <span>Тренировок</span>
-            <input value={`${myProfile.trainings.length} шт.`} readOnly />
-          </label>
-        </div>
+        <div className="studio-profile-hero"><span className="studio-profile-avatar">{memberInitials(authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Team Time')}</span><div><p className="studio-eyebrow">ВАШЕ МЕСТО В КОМАНДЕ</p><h2>{authUser ? `${authUser.firstName} ${authUser.lastName}` : 'Мой профиль'}</h2><p>{authUser?.username ? `@${authUser.username}` : details?.group.title}</p><span className="badge">{myProfile.roleTitle || myProfile.roleCode}</span></div><Icon name="ball" size={150}/></div>
+        <div className="metrics-grid studio-profile-metrics"><article className="metric-card"><span className="metric-label">Встреч в истории<Icon name="calendar" size={19}/></span><strong className="metric-value">{myProfile.trainings.length}</strong></article><article className="metric-card"><span className="metric-label">Осталось оплатить<Icon name="wallet" size={19}/></span><strong className="metric-value">{formatMoney(myProfile.debtAmount)}</strong></article><article className="metric-card"><span className="metric-label">Оплаченных встреч<Icon name="check" size={19}/></span><strong className="metric-value">{myProfile.trainings.filter(item=>item.isPaid).length}</strong></article></div>
 
-        <h4 style={{ marginTop: 18 }}>История</h4>
+        {activeChatID !== null && <TrainingPasses key={activeChatID} chatID={activeChatID} mine/>}
+<h4 style={{ marginTop: 18 }}>История</h4>
         {myProfile.trainings.length ? (
           <div className="table-wrap table-wrap-spaced">
             <table className="table">
@@ -6867,22 +5030,22 @@ export default function App() {
             <div className="form-grid form-grid-3 members-filters" style={{ marginTop: 12 }}>
               <label className="field">
                 <span>Участник</span>
-                <select className="ui-select" value={roleAssignUserID} onChange={(e) => setRoleAssignUserID(e.target.value)}>
+                <Select className="ui-select" value={roleAssignUserID} onChange={(e) => setRoleAssignUserID(e.target.value)}>
                   <option value="">Выбери участника</option>
                   {members.map((m) => (
                     <option key={m.userTelegramID} value={m.userTelegramID}>
                       {`${fullName(m)}${m.username ? ` (@${m.username})` : ''} · ${m.role}`}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label className="field">
                 <span>Роль</span>
-                <select className="ui-select" value={roleAssignCode} onChange={(e) => setRoleAssignCode(e.target.value)}>
+                <Select className="ui-select" value={roleAssignCode} onChange={(e) => setRoleAssignCode(e.target.value)}>
                   <option value="member">Участник</option>
                   <option value="captain">Капитан</option>
                   <option value="trainer">Тренер</option>
-                </select>
+                </Select>
               </label>
               <label className="field">
                 <span>&nbsp;</span>
@@ -6908,7 +5071,7 @@ export default function App() {
               </label>
             </div>
             {groupRolesLoading ? <p className="muted">Загрузка ролей...</p> : null}
-            {groupRolesError ? <p className="muted">Ошибка: {groupRolesError}</p> : null}
+
             {groupRoles.length ? (
               <div className="table-wrap table-wrap-spaced">
                 <table className="table">
@@ -6938,7 +5101,19 @@ export default function App() {
   }
 
   return (
-    <div className={mobileNavOpen ? 'console-shell nav-open' : 'console-shell'}>
+    <div className={`console-shell studio-product${mobileNavOpen ? ' nav-open' : ''}${sidebarCollapsed ? ' sidebar-collapsed' : ''}`} onInvalid={event => {
+      if (event.defaultPrevented) return
+      event.preventDefault()
+      const field = event.target as HTMLInputElement
+      const label = field.labels?.[0]?.querySelector('span')?.textContent || field.getAttribute('aria-label') || field.getAttribute('placeholder')
+      const message = field.validity.valueMissing ? (label ? `Заполните поле «${label}».` : 'Заполните обязательные поля.')
+        : field.validity.rangeUnderflow ? `Укажите значение не меньше ${field.min}${label ? ` в поле «${label}»` : ''}.`
+        : field.validity.rangeOverflow ? `Укажите значение не больше ${field.max}${label ? ` в поле «${label}»` : ''}.`
+        : label ? `Проверьте значение в поле «${label}».` : 'Проверьте заполненные поля.'
+      notifyError(message)
+      field.focus()
+    }}>
+      <ErrorNotifications/>
       <div className="mobile-topbar">
         <button
           type="button"
@@ -6950,26 +5125,28 @@ export default function App() {
           <span aria-hidden="true">{mobileNavOpen ? '✕' : '☰'}</span>
         </button>
         <div className="mobile-topbar-text">
-          <strong className="mobile-topbar-title">{details?.group.title || 'TeamTime Console'}</strong>
+          <strong className="mobile-topbar-title">{details?.group.title || 'TeamTime'}</strong>
           <span className="mobile-topbar-subtitle">{sections.find((s) => s.id === activeSection)?.title || 'Навигация'}</span>
         </div>
         <button
           type="button"
           className="btn-icon mobile-refresh-btn"
           aria-label="Обновить"
-          disabled={!activeChatID}
-          onClick={() => (activeChatID ? void reloadActiveOrganization(activeChatID) : undefined)}
+          title="Обновить данные команды"
+          disabled={!activeChatID || loading || refreshing}
+          onClick={() => void refreshActiveOrganization()}
         >
-          <span aria-hidden="true">⟳</span>
+          <Icon name="refresh" size={20}/>
         </button>
+        <HeaderProgress active={loading || refreshing}/>
       </div>
       <div className="sidebar-overlay" role="presentation" onClick={() => setMobileNavOpen(false)} />
       <aside className="console-sidebar">
         <div className="brand-block">
-          <div className="brand-mark">TT</div>
+          <button className="brand-mark" aria-label="На главную TeamTime" onClick={()=>openStudioSection('overview')}><img src="/icon.png" alt="" width="64" height="64"/></button>
           <div>
-            <p className="brand-title">TeamTime Console</p>
-            <p className="brand-subtitle">Управление организацией</p>
+            <p className="brand-title">teamtime.</p>
+            <p className="brand-subtitle">Время быть командой</p>
           </div>
           <button
             type="button"
@@ -6981,10 +5158,78 @@ export default function App() {
           </button>
         </div>
 
-        <section className="org-selector">
-          <p className="section-caption">Организация</p>
-          <select
+
+
+        <nav className="nav-menu" id="team-sidebar-nav" aria-label="Разделы команды">
+          <p className="section-caption">Справочники</p>
+          {sidebarSections.map((section) => (
+            <button
+              key={section.id}
+              className={activeSidebarSection === section.id ? 'nav-item active' : 'nav-item'}
+              aria-current={activeSidebarSection === section.id ? 'page' : undefined}
+              aria-label={section.title}
+              title={section.title}
+              onClick={() => {
+                setMobileNavOpen(false)
+                navigateTo({
+                  chatID: activeChatID,
+                  section: section.id,
+                  templateView: 'list',
+                  templateName: null,
+                  eventView: 'list',
+                  eventID: null,
+                })
+              }}
+            >
+              <span className="nav-icon"><Icon name={({overview:'grid',events:'calendar',members:'users',games:'score',polls:'poll',billing:'wallet',templates:'template',event_templates:'repeat',profile:'profile',settings:'organization',docs:'template'} as Record<Section,string>)[section.id]} size={22}/></span>
+              <span>
+                <strong>{section.title}</strong>
+                <small>{section.subtitle}</small>
+              </span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="studio-sidebar-footer">
+        {authConfig?.enabled && authUser ? (
+          <button
+            className="studio-sidebar-exit"
+            aria-label="Выйти"
+            title="Выйти"
+            onClick={() =>
+              void (async () => {
+                setMobileNavOpen(false)
+                await logoutAuth()
+                setAuthUser(null)
+                setDetails(null)
+                setGroups([])
+              })()
+            }
+          >
+            <Icon name="logout" size={20}/><span>Выйти</span>
+          </button>
+        ) : null}
+        <button type="button" className="studio-sidebar-toggle"
+          aria-label={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          title={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          aria-expanded={!sidebarCollapsed} aria-controls="team-sidebar-nav"
+          onClick={() => {
+            const next = !sidebarCollapsed
+            setSidebarCollapsed(next)
+            try { localStorage.setItem('teamtime-sidebar-collapsed', String(next)) } catch { /* The toggle still works without storage. */ }
+          }}>
+          <Icon name="chevron" size={20}/><span>Свернуть</span>
+        </button>
+        </div>
+      </aside>
+
+      <main className="console-main">
+        <header className="console-header"><a className="studio-wordmark" href="/">teamtime.</a>
+        <section className="studio-org-selector">
+          <span className="studio-org-label">Ваша команда</span>
+          <Select
             className="ui-select"
+            aria-label="Организация"
             value={activeChatID ?? ''}
             onChange={(e) => {
               const value = e.target.value
@@ -7008,66 +5253,33 @@ export default function App() {
                 {group.title}
               </option>
             ))}
-          </select>
+          </Select>
         </section>
-
-        <nav className="nav-menu" aria-label="Справочники">
-          <p className="section-caption">Справочники</p>
-          {visibleSections.map((section) => (
-            <button
-              key={section.id}
-              className={activeSection === section.id ? 'nav-item active' : 'nav-item'}
-              onClick={() => {
-                setMobileNavOpen(false)
-                navigateTo({
-                  chatID: activeChatID,
-                  section: section.id,
-                  templateView: 'list',
-                  templateName: null,
-                  eventView: 'list',
-                  eventID: null,
-                })
-              }}
-            >
-              <span className="nav-icon">{section.icon}</span>
-              <span>
-                <strong>{section.title}</strong>
-                <small>{section.subtitle}</small>
-              </span>
-            </button>
-          ))}
-        </nav>
-
-        {authConfig?.enabled && authUser ? (
-          <button
-            className="refresh-btn"
-            onClick={() =>
-              void (async () => {
-                setMobileNavOpen(false)
-                await logoutAuth()
-                setAuthUser(null)
-                setDetails(null)
-                setGroups([])
-              })()
-            }
-          >
-            Выйти
-          </button>
-        ) : null}
-      </aside>
-
-      <main className="console-main">
-        <header className="console-header">
-          <div>
-            <h1>{details?.group.title || 'TeamTime'}</h1>
-            <p>
-              {details ? `chat_id: ${details.group.chatID} • timezone: ${details.group.timezone}` : 'Выбери организацию в левом меню'}
-            </p>
+          <div className="studio-header-actions">
+            <button type="button" className="btn-icon btn-secondary studio-header-refresh" aria-label="Обновить данные команды" title="Обновить данные команды" disabled={!activeChatID || loading || refreshing} onClick={()=>void refreshActiveOrganization()}><Icon name="refresh" size={20}/></button>
+            <nav className="studio-header-nav" aria-label="Личный кабинет и помощь">
+              {headerSections.map(section => (
+                <button
+                  key={section.id}
+                  type="button"
+                  className={activeHeaderSection === section.id ? 'studio-header-link active' : 'studio-header-link'}
+                  aria-current={activeHeaderSection === section.id ? 'page' : undefined}
+                  aria-label={section.id === 'profile' ? 'Профиль' : section.title}
+                  title={section.id === 'profile' ? 'Профиль' : section.title}
+                  onClick={() => openStudioSection(section.id)}
+                >
+                  {section.id === 'profile' ? <Icon name="profile" size={22}/> : section.icon}
+                </button>
+              ))}
+            </nav>
           </div>
+          <HeaderProgress active={loading || refreshing}/>
         </header>
+        <div className="studio-scroll-area">
+        <div className="studio-workspace" data-section={activeSection}>
+          <div className="studio-page-content">
+          <h1 className="studio-visually-hidden">{activeSection === 'overview' ? 'Обзор команды' : sections.find(section => section.id === activeSection)?.title}</h1>
 
-        {loading ? <section className="content-card">Загрузка...</section> : null}
-        {error ? <section className="content-card alert error">{error}</section> : null}
         {success ? <section className={`toast toast-success ${successVisible ? 'show' : 'hide'}`}>{success}</section> : null}
 
         {authLoading ? (
@@ -7078,9 +5290,16 @@ export default function App() {
             <p className="muted">Авторизуйся через Telegram, чтобы видеть только свои админские группы.</p>
             <div id="telegram-login-widget" />
           </section>
-        ) : (
-          renderContent()
-        )}
+        ) : isTemplateSection(activeSection) ? (
+          <section className="content-card studio-template-workspace">
+            <OrganizationTemplateNavigation active={activeSection} available={availableTemplateSections} open={openStudioSection}/>
+            <div className="studio-template-content">{renderContent()}</div>
+          </section>
+        ) : renderContent()}
+          </div>
+        <footer className="studio-page-footer"><span>TeamTime · Время быть командой.</span></footer>
+        </div>
+        </div>
       </main>
 
       {confirmModal.open ? (

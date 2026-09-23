@@ -315,6 +315,7 @@ func handleStatefulText(bot *tele.Bot, store *postgres.Store, message tele.Messa
 			false,
 			true,
 			cost,
+			nil,
 		); err != nil {
 			_ = bot.SendMessage(chat, "Ошибка сохранения события: "+err.Error(), nil)
 			return

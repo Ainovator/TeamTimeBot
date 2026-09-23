@@ -47,7 +47,7 @@ export function formatMoney(value?: number | null): string {
   if (value === undefined || value === null) {
     return 'не указана'
   }
-  return `${value.toFixed(2)} ₽`
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)
 }
 
 export function ensureList<T>(value: T[] | null | undefined): T[] {

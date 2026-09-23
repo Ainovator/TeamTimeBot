@@ -1,0 +1,276 @@
+/* Product theme overrides. Studio's light palette stays in studio-theme.css. */
+.studio-appearance-heading { display:flex; align-items:start; justify-content:space-between; gap:20px; margin-bottom:24px; }
+.studio-appearance-heading h3 { margin:0; }
+.studio-appearance-heading p { margin:9px 0 0; font-size:13px; line-height:1.65; color:var(--text-muted); max-width:580px; }
+.studio-appearance-heading > svg { color:var(--accent); flex-shrink:0; }
+.studio-theme-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+@media(min-width:1101px) { .studio-theme-options { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+.studio-theme-option { display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; min-width:0; padding:14px; gap:0; text-align:left; background:var(--bg-panel); border:1px solid var(--border-color); color:var(--text-main); border-radius:13px; }
+.studio-theme-option:hover { background:var(--bg-main); color:var(--text-main); border-color:var(--accent); }
+.studio-theme-option[aria-pressed=true] { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); background:var(--bg-panel); }
+.studio-theme-option-title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:16px 0 7px; }
+.studio-theme-option-title > strong { font-size:15px; font-weight:550; line-height:1.4; }
+.studio-theme-selected { display:grid; place-items:center; width:23px; height:23px; flex-shrink:0; border:1px solid var(--border-color); border-radius:50%; }
+.studio-theme-option[aria-pressed=true] .studio-theme-selected { color:var(--bg-panel); background:var(--accent); border-color:var(--accent); }
+.studio-theme-description { font-size:12px; font-weight:400; color:var(--text-muted); line-height:1.6; }
+.studio-theme-option[data-theme-option=arena] { --preview-bg:#101c30; --preview-panel:#1a2b43; --preview-sidebar:#0d182a; --preview-accent:#69b7e8; --preview-hero:#24476a; }
+.studio-theme-option[data-theme-option=club] { --preview-bg:#eef2f6; --preview-panel:#fff; --preview-sidebar:#142b49; --preview-accent:#3267cf; --preview-hero:#203f66; }
+.studio-theme-option[data-theme-option=cherry] { --preview-bg:#171416; --preview-panel:#231d21; --preview-sidebar:#1c171a; --preview-accent:#e2a1b3; --preview-hero:#452332; }
+.studio-theme-option[data-theme-option=light] { --preview-bg:#f5f6f4; --preview-panel:#fff; --preview-sidebar:#e8f0e9; --preview-accent:#23634f; --preview-hero:#dfe9d7; }
+.studio-theme-preview { display:flex; min-height:132px; background:var(--preview-bg); border:1px solid #8193a528; border-radius:8px; overflow:hidden; }
+.studio-preview-sidebar { display:flex; flex-direction:column; align-items:center; gap:11px; width:37px; padding:14px 8px; background:var(--preview-sidebar); }
+.studio-preview-sidebar > i { display:block; width:13px; height:13px; border-radius:4px; background:var(--preview-accent); opacity:.45; }
+.studio-preview-sidebar > i:first-child { opacity:1; }
+.studio-preview-content { display:flex; flex-direction:column; gap:12px; padding:15px; flex:1; }
+.studio-preview-content > i { display:block; width:35%; height:5px; background:var(--preview-accent); border-radius:3px; }
+.studio-preview-content > span { display:flex; gap:8px; }
+.studio-preview-content b { display:block; flex:1; height:25px; background:var(--preview-panel); border:1px solid #8193a528; border-radius:4px; }
+.studio-preview-content > strong { display:block; height:38px; background:var(--preview-hero); border-radius:5px; }
+@media(max-width:700px) { .studio-theme-options { grid-template-columns:minmax(0,1fr); gap:15px; }.studio-theme-preview { min-height:120px; }.studio-appearance-heading p { font-size:12px; } }
+
+:root[data-theme=club] {
+ color-scheme:light;
+ --bg-main:#eef2f6; --bg-sidebar:#142b49; --bg-panel:#fff; --bg-panel-soft:#e5edf9; --bg-input:#fff;
+ --border-color:#d7e0eb; --text-main:#142b49; --text-muted:#5f728b;
+ --accent:#3267cf; --accent-strong:#2451ac; --success:#287352; --danger:#aa4e43;
+ --rating-lightness:32%;
+}
+:root[data-theme=club] .console-sidebar { background:#142b49; border-color:#284463; color:#edf3fc; }
+:root[data-theme=club] .nav-item { color:#b8c9dd; }
+:root[data-theme=club] .nav-item.active,:root[data-theme=club] .nav-item:hover { background:#284e79; color:#fff; }
+:root[data-theme=club] :is(.console-header,.mobile-topbar) { background:white; border-color:var(--border-color); }
+:root[data-theme=club] .console-sidebar .brand-title { color:#edf3fc; }
+:root[data-theme=club] .console-sidebar .brand-subtitle { color:#b8c9dd; }
+:root[data-theme=club] .console-sidebar > .refresh-btn { color:#b8c9dd; }
+:root[data-theme=club] .console-sidebar > .refresh-btn:hover { background:#284e79; color:white; }
+:root[data-theme=club] input::placeholder,:root[data-theme=club] textarea::placeholder { color:#788ba3; }
+:root[data-theme=club] :is(input,textarea):focus { box-shadow:0 0 0 3px #3267cf18; }
+:root[data-theme=club] :is(.btn-secondary,.btn-icon,.icon-btn,.history-tab,.history-poll-btn,.relation-picker-trigger):hover { background:var(--bg-panel-soft); border-color:#9eb7dd; }
+:root[data-theme=club] :is(.history-tab.active,.history-poll-btn.active,.metric-card:hover,.studio-event-item:hover,.studio-poll-item:hover,.event-card.clickable:hover,.list-row.clickable:hover) { border-color:#9eb7dd; }
+:root[data-theme=club] :is(.metric-card:hover,.studio-event-item:hover,.studio-poll-item:hover,.table .member-row:hover) { background:#f6f9fd; }
+:root[data-theme=club] .studio-person-avatar { background:#e0eafa; color:#315988; }
+:root[data-theme=club] :is(.studio-next-session,.studio-profile-hero) { background:linear-gradient(120deg,#203f66,#142b49); border-color:#2d507b; color:#f4f7fc; }
+:root[data-theme=club] :is(.studio-next-copy > p:not(.studio-eyebrow),.studio-next-copy .studio-eyebrow,.studio-profile-hero .studio-eyebrow,.studio-profile-hero > div > p:not(.studio-eyebrow)) { color:#c1d2e7; }
+:root[data-theme=club] .studio-court { color:#a8c8ec; opacity:.5; }
+:root[data-theme=club] .studio-court-lines > span { background:repeating-linear-gradient(90deg,transparent 0 13px,#a8c8ec30 13px 14px),repeating-linear-gradient(0deg,transparent 0 8px,#a8c8ec30 8px 9px); }
+:root[data-theme=club] .studio-court-ball { background:#183351; }
+:root[data-theme=club] .studio-profile-hero > svg { color:#a8c8ec; }
+:root[data-theme=club] .studio-profile-avatar { background:#335a84; color:#e4effd; }
+:root[data-theme=club] .player-fifa-card { background:#e5edf9; border-color:#cbd9ed; }
+:root[data-theme=club] .studio-poll-progress b { background:var(--accent); }
+:root[data-theme=club] .games-table .game-score:hover { background:#dae6f8; border-color:#9eb7dd; color:var(--accent); }
+:root[data-theme=club] :is(.modal-overlay,.sidebar-overlay) { background:#10233f80; }
+:root[data-theme=club] .studio-modal::backdrop { background:#10233f80; }
+:root[data-theme=club] .team-column-drop { box-shadow:0 0 0 2px #3267cf20; }
+:root[data-theme=club] .studio-forecast { background:#f7f9fd; }
+:root[data-theme=club] .skill-slider-row input[type=range]::-webkit-slider-runnable-track { background:linear-gradient(90deg,#dbe5f5,#789bd7); }
+:root[data-theme=club] .skill-slider-row input[type=range]::-moz-range-track { background:linear-gradient(90deg,#dbe5f5,#789bd7); }
+:root[data-theme=cherry] {
+ color-scheme:dark;
+ --bg-main:#171416; --bg-sidebar:#1c171a; --bg-panel:#231d21; --bg-panel-soft:#35232c; --bg-input:#1c181b;
+ --border-color:#403139; --text-main:#f2e9e5; --text-muted:#b8a6ad;
+ --accent:#e2a1b3; --accent-strong:#f1bbc9; --success:#a6c8b0; --danger:#eeaaa2;
+ --theme-action:#863d52; --theme-hover:#9c4961; --theme-rating:#c4a77d;
+ --rating-lightness:70%;
+ --dark-nav-active:#442633;
+ --dark-active-text:#f3c6d2;
+ --dark-placeholder:#9d8993;
+ --dark-focus-ring:#e2a1b315;
+ --dark-input-border:#75616a;
+ --dark-panel-hover:#2b2227;
+ --dark-border-active:#785260;
+ --dark-switch-active:#432935;
+ --dark-avatar-bg:#452e38;
+ --dark-avatar-text:#e9c4cf;
+ --dark-hero-from:#452332;
+ --dark-hero-to:#302129;
+ --dark-hero-border:#63404e;
+ --dark-hero-text:#d7b5c1;
+ --dark-court-grid:#c997a830;
+ --dark-court:#c997a8;
+ --dark-court-ball:#35232c;
+ --dark-hero-art:#d3a4b5;
+ --dark-profile-surface:#231d21b0;
+ --dark-profile-border:#65424f;
+ --dark-role-base-bg:#2c3430;
+ --dark-role-base-ink:#aac4ae;
+ --dark-role-attack-bg:#3b2b25;
+ --dark-role-attack-ink:#d4ad8b;
+ --dark-role-libero-bg:#332a3a;
+ --dark-role-libero-ink:#c1aed4;
+ --dark-role-central-bg:#263337;
+ --dark-role-central-ink:#a0bdc7;
+ --dark-role-overlay:#17141670;
+ --dark-role-border:#ffffff18;
+ --dark-warning-bg:#372b22;
+ --dark-warning-text:#dec099;
+ --dark-warning-border:#69523b;
+ --dark-admin-bg:#2c3530;
+ --dark-admin-text:#b4cdb1;
+ --dark-admin-border:#455544;
+ --dark-danger-bg:#40262b;
+ --dark-danger-border:#6f4148;
+ --dark-danger-hover:#532c32;
+ --dark-danger-hover-border:#a4606b;
+ --dark-danger-hover-text:#ffd6cf;
+ --dark-error-text:#f6b7af;
+ --dark-success-bg:#29352e;
+ --dark-success-border:#485e50;
+ --dark-success-text:#b5d6bf;
+ --dark-overlay:#0e0a0dc4;
+ --dark-action-soft:#54303f;
+ --dark-action-border:#805263;
+ --dark-team-a:#d4a078;
+ --dark-team-b:#91bfc4;
+ --dark-team-c:#b4bd83;
+ --dark-team-a-bg:#30241f;
+ --dark-team-a-border:#604736;
+ --dark-team-b-bg:#212f32;
+ --dark-team-b-border:#3f585d;
+ --dark-team-c-bg:#2b3023;
+ --dark-team-c-border:#535b3e;
+ --dark-drop-ring:#e2a1b32a;
+ --dark-team-letter:#17141680;
+ --dark-forecast-bg:#201a1e;
+ --dark-empty-stripe:#4a3942;
+ --dark-empty-base:#2c2429;
+ --dark-slider-from:#4b303d;
+ --dark-slider-to:#b87087;
+ --dark-slider-thumb:#f2e9e5;
+}
+
+:root[data-theme=arena] {
+ color-scheme:dark;
+ --bg-main:#101c30; --bg-sidebar:#0d182a; --bg-panel:#1a2b43; --bg-panel-soft:#243e59; --bg-input:#142238;
+ --border-color:#334a66; --text-main:#edf2f7; --text-muted:#a7bad0;
+ --accent:#69b7e8; --accent-strong:#a1d6f6; --success:#a8d5c2; --danger:#f0adbd;
+ --theme-action:#28608a; --theme-hover:#3277a7; --theme-rating:#c6e5fa;
+ --rating-lightness:72%;
+ --dark-nav-active:#24476a;
+ --dark-active-text:#c7e8ff;
+ --dark-placeholder:#8d9fb7;
+ --dark-focus-ring:#69b7e81f;
+ --dark-input-border:#5b7392;
+ --dark-panel-hover:#213651;
+ --dark-border-active:#507da3;
+ --dark-switch-active:#244361;
+ --dark-avatar-bg:#29455f;
+ --dark-avatar-text:#c0def2;
+ --dark-hero-from:#203e61;
+ --dark-hero-to:#172d49;
+ --dark-hero-border:#365d83;
+ --dark-hero-text:#b8d0e8;
+ --dark-court-grid:#82b6dc30;
+ --dark-court:#82b6dc;
+ --dark-court-ball:#1c3552;
+ --dark-hero-art:#8bb8da;
+ --dark-profile-surface:#101c30b0;
+ --dark-profile-border:#416584;
+ --dark-role-base-bg:#253d3e;
+ --dark-role-base-ink:#a7cfca;
+ --dark-role-attack-bg:#42322e;
+ --dark-role-attack-ink:#e1b697;
+ --dark-role-libero-bg:#30344c;
+ --dark-role-libero-ink:#b9bfe6;
+ --dark-role-central-bg:#243c50;
+ --dark-role-central-ink:#9fcce5;
+ --dark-role-overlay:#101c3070;
+ --dark-role-border:#ffffff18;
+ --dark-warning-bg:#3b3427;
+ --dark-warning-text:#e4c68f;
+ --dark-warning-border:#6b5838;
+ --dark-admin-bg:#263e3b;
+ --dark-admin-text:#afd4c7;
+ --dark-admin-border:#47655e;
+ --dark-danger-bg:#422e39;
+ --dark-danger-border:#795064;
+ --dark-danger-hover:#56394a;
+ --dark-danger-hover-border:#a8758c;
+ --dark-danger-hover-text:#ffd5df;
+ --dark-error-text:#f2b3c2;
+ --dark-success-bg:#243c39;
+ --dark-success-border:#466860;
+ --dark-success-text:#b5dace;
+ --dark-overlay:#070e1bcc;
+ --dark-action-soft:#274d6b;
+ --dark-action-border:#5181a5;
+ --dark-team-a:#e1b28c;
+ --dark-team-b:#83c9e2;
+ --dark-team-c:#bbc78d;
+ --dark-team-a-bg:#332c2b;
+ --dark-team-a-border:#635146;
+ --dark-team-b-bg:#1a3449;
+ --dark-team-b-border:#3c657e;
+ --dark-team-c-bg:#2a3531;
+ --dark-team-c-border:#586a4f;
+ --dark-drop-ring:#69b7e833;
+ --dark-team-letter:#101c3080;
+ --dark-forecast-bg:#15243a;
+ --dark-empty-stripe:#354d67;
+ --dark-empty-base:#243850;
+ --dark-slider-from:#2a4a65;
+ --dark-slider-to:#69b7e8;
+ --dark-slider-thumb:#edf2f7;
+}
+
+:where(html:is([data-theme=cherry],[data-theme=arena])) button { background:var(--theme-action); border-color:var(--theme-action); }
+:where(html:is([data-theme=cherry],[data-theme=arena])) button:hover { background:var(--theme-hover); border-color:var(--theme-hover); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.console-sidebar,.console-header,.mobile-topbar) { background:var(--bg-sidebar); border-color:var(--border-color); }
+:root:is([data-theme=cherry],[data-theme=arena]) .nav-item { color:var(--text-muted); }
+:root:is([data-theme=cherry],[data-theme=arena]) .nav-item.active { background:var(--dark-nav-active); color:var(--dark-active-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) .nav-item:hover { background:var(--bg-panel-soft); color:var(--accent); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.brand-mark,.primary-btn,.studio-calendar-days > button.today,.members-sort-arrow.active) { background:var(--theme-action); border-color:var(--theme-action); color:white; }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.brand-mark,.primary-btn):hover { background:var(--theme-hover); }
+:root:is([data-theme=cherry],[data-theme=arena]) input::placeholder,:root:is([data-theme=cherry],[data-theme=arena]) textarea::placeholder { color:var(--dark-placeholder); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(input,textarea):focus { box-shadow:0 0 0 3px var(--dark-focus-ring); }
+:root:is([data-theme=cherry],[data-theme=arena]) .option-weight input[type=number] { background:var(--bg-input); border-color:var(--dark-input-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.metric-card,.studio-debt-summary,.studio-debt-list,.studio-search,.studio-event-item,.studio-event-template,.studio-poll-item,.team-player-card,.player-type-card,.modal-card,.studio-modal,.relation-picker-dropdown,.relation-picker-option) { background:var(--bg-panel); border-color:var(--border-color); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.metric-card,.studio-event-item,.studio-poll-item):hover { background:var(--dark-panel-hover); border-color:var(--dark-border-active); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.btn-secondary,.btn-icon,.icon-btn,.history-tab,.history-poll-btn,.relation-picker-trigger):hover { background:var(--bg-panel-soft); border-color:var(--dark-border-active); color:var(--accent); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.history-tab.active,.history-poll-btn.active,.event-card.clickable:hover,.list-row.clickable:hover) { border-color:var(--dark-border-active); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.table .member-row:hover,.relation-picker-option:hover,.relation-picker-option.active) { background:var(--bg-panel-soft); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-view-switch button.active { background:var(--dark-switch-active); color:var(--dark-active-text); box-shadow:none; }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-person-avatar { background:var(--dark-avatar-bg); color:var(--dark-avatar-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.studio-next-session,.studio-profile-hero,.player-fifa-card) { background:linear-gradient(120deg,var(--dark-hero-from),var(--dark-hero-to)); border-color:var(--dark-hero-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-next-copy > p:not(.studio-eyebrow) { color:var(--dark-hero-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-court { color:var(--dark-court); opacity:.45; }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-court-lines > span { background:repeating-linear-gradient(90deg,transparent 0 13px,var(--dark-court-grid) 13px 14px),repeating-linear-gradient(0deg,transparent 0 8px,var(--dark-court-grid) 8px 9px); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-court-ball { background:var(--dark-court-ball); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-profile-hero > svg { color:var(--dark-hero-art); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.studio-profile-avatar,.player-avatar,.player-overall) { background:var(--dark-profile-surface); border-color:var(--dark-profile-border); color:var(--accent); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-member-card { --role-bg:var(--dark-role-base-bg); --role-ink:var(--dark-role-base-ink); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-member-card[data-role=attacker] { --role-bg:var(--dark-role-attack-bg); --role-ink:var(--dark-role-attack-ink); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-member-card[data-role=libero] { --role-bg:var(--dark-role-libero-bg); --role-ink:var(--dark-role-libero-ink); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-member-card[data-role=central] { --role-bg:var(--dark-role-central-bg); --role-ink:var(--dark-role-central-ink); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.studio-role-label,.studio-member-avatar) { background:var(--dark-role-overlay); border-color:var(--dark-role-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-member-rating { color:var(--theme-rating); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-member-skills b { opacity:.9; }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-poll-progress b { background:var(--accent); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-status.status-on_review { background:var(--dark-warning-bg); color:var(--dark-warning-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-status.status-not_held { background:var(--dark-danger-bg); color:var(--danger); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.badge-debt,.debt-badge,.studio-wallet,.team-analysis-status.warn,.studio-forecast-status.is-draft) { background:var(--dark-warning-bg); color:var(--dark-warning-text); border-color:var(--dark-warning-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.studio-debt-summary > div > strong,.studio-debt-amount,.studio-forecast-note) { color:var(--dark-warning-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) .badge-admin { background:var(--dark-admin-bg); color:var(--dark-admin-text); border-color:var(--dark-admin-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.btn-danger,.icon-btn.danger,.team-remove-btn) { background:var(--dark-danger-bg); color:var(--danger); border-color:var(--dark-danger-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.btn-danger,.icon-btn.danger,.team-remove-btn):hover { background:var(--dark-danger-hover); border-color:var(--dark-danger-hover-border); color:var(--dark-danger-hover-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.alert.error,.studio-error) { background:var(--dark-danger-bg); border-color:var(--dark-danger-border); color:var(--dark-error-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) .toast { background:var(--dark-success-bg); border-color:var(--dark-success-border); color:var(--dark-success-text); box-shadow:0 8px 30px #0003; }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.modal-overlay,.sidebar-overlay) { background:var(--dark-overlay); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-modal::backdrop { background:var(--dark-overlay); }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.modal-card,.studio-modal,.relation-picker-dropdown,.tt-select-popup) { box-shadow:0 16px 50px #0005; }
+:root:is([data-theme=cherry],[data-theme=arena]) :is(.studio-pay-button:hover,.games-table .game-score:hover) { background:var(--dark-action-soft); border-color:var(--dark-action-border); color:var(--dark-active-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) .team-split-board { --team-a:var(--dark-team-a); --team-b:var(--dark-team-b); --team-c:var(--dark-team-c); }
+:root:is([data-theme=cherry],[data-theme=arena]) .team-column[data-team=A] { background:var(--dark-team-a-bg); border-color:var(--dark-team-a-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) .team-column[data-team=B] { background:var(--dark-team-b-bg); border-color:var(--dark-team-b-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) .team-column[data-team=C] { background:var(--dark-team-c-bg); border-color:var(--dark-team-c-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) .team-column-drop { box-shadow:0 0 0 2px var(--dark-drop-ring); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-team-letter { background:var(--dark-team-letter); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-team-empty { border-color:var(--dark-input-border); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-forecast { background:var(--dark-forecast-bg); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-forecast-pairs.has-three .studio-forecast-pair { background:var(--bg-panel); }
+:root:is([data-theme=cherry],[data-theme=arena]) .studio-forecast-bar.is-empty { background:repeating-linear-gradient(135deg,var(--dark-empty-stripe) 0 5px,var(--dark-empty-base) 5px 10px); }
+:root:is([data-theme=cherry],[data-theme=arena]) .team-analysis-status.ok { background:var(--dark-success-bg); border-color:var(--dark-success-border); color:var(--dark-success-text); }
+:root:is([data-theme=cherry],[data-theme=arena]) .skill-slider-row input[type=range]::-webkit-slider-runnable-track { background:linear-gradient(90deg,var(--dark-slider-from),var(--dark-slider-to)); }
+:root:is([data-theme=cherry],[data-theme=arena]) .skill-slider-row input[type=range]::-moz-range-track { background:linear-gradient(90deg,var(--dark-slider-from),var(--dark-slider-to)); }
+:root:is([data-theme=cherry],[data-theme=arena]) .skill-slider-row input[type=range]::-webkit-slider-thumb { background:var(--dark-slider-thumb); }
+:root:is([data-theme=cherry],[data-theme=arena]) .skill-slider-row input[type=range]::-moz-range-thumb { background:var(--dark-slider-thumb); }

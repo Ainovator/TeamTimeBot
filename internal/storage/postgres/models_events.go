@@ -7,13 +7,14 @@ import (
 )
 
 type GroupEvent struct {
-	ID                      uint64  `gorm:"primaryKey"`
-	GroupID                 uint64  `gorm:"not null;index"`
-	PollTemplateID          *uint64 `gorm:"index"`
-	Name                    string  `gorm:"not null"`
-	EventType               string  `gorm:"not null;default:training"`
-	StartWeekday            int16   `gorm:"not null"`
-	PollPublishWeekday      int16   `gorm:"not null"`
+	Mentions                EventMentionSettings `gorm:"embedded"`
+	ID                      uint64               `gorm:"primaryKey"`
+	GroupID                 uint64               `gorm:"not null;index"`
+	PollTemplateID          *uint64              `gorm:"index"`
+	Name                    string               `gorm:"not null"`
+	EventType               string               `gorm:"not null;default:training"`
+	StartWeekday            int16                `gorm:"not null"`
+	PollPublishWeekday      int16                `gorm:"not null"`
 	PollPublishTime         string
 	StartTime               string `gorm:"not null"`
 	EndTime                 string `gorm:"not null"`

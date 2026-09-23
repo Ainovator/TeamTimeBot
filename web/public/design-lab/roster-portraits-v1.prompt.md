@@ -1,0 +1,11 @@
+# Демопортреты для страницы игроков
+
+Инструмент: встроенный `image_gen.imagegen`, режим генерации нового изображения. CLI и сторонние фотобанки не использовались.
+
+Файл проекта: `C:/Users/yojan/Desktop/TeamTime/TeamTimeBot/web/public/design-lab/roster-portraits-v1.png`.
+
+Размер: 1536 × 1024. Один атлас 3 × 2; CSS выбирает нужный портрет по позиции фона. Файл скопирован без изменения исходного изображения. Все шесть людей вымышлены.
+
+## Точный промпт
+
+Use case: photorealistic-natural. Asset type: one seamless photographic portrait sprite sheet for a fictional amateur volleyball club roster in an elegant pale sage green sports administration website. Generate a SINGLE contact sheet, exactly 3 equal columns by 2 equal rows, total 1536 by 1024 landscape aspect ratio, six perfectly square tiles with NO gutters, NO borders, NO text, NO logos, NO numbers, NO watermark. Each tile has exactly one DIFFERENT fictional adult player, waist-up athletic portrait, visible whole head and shoulders centered horizontally, generous headroom, subject fills 70 percent tile height, natural candid smile, plain crew-neck sports jersey, realistic skin texture. Consistent editorial sports photography with soft daylight and subtle film grain, premium but approachable local club, no glossy fashion retouching. The backgrounds are seamless muted studio colors. Tile top-left: man about 32, short dark brown hair, light stubble, forest green jersey, pale sage background. Tile top-middle: woman about 28, shoulder-length chestnut hair tied back, warm relaxed smile, off-white jersey, dusty warm peach background. Tile top-right: man about 34, very short dark hair and short beard, broad shoulders, dark moss jersey, warm sand background. Tile bottom-left: woman about 27, dark brown hair in low ponytail, confident kind expression, muted cream jersey, pale lilac background. Tile bottom-middle: man about 26, wavy dark blond hair, clean shaven, relaxed expression, dark navy jersey, muted powder blue background. Tile bottom-right: woman about 33, short straight dark hair bob, friendly smile, forest green jersey, muted blush background. Straight-on medium portrait camera, 85mm lens feel. Every tile is a standalone square photo in the precise 3x2 grid. People don't overlap tile edges. No props. No lettering of any kind. This is a UI asset for fictional demo profiles.

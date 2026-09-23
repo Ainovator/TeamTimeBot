@@ -1,0 +1,283 @@
+/* Studio refinement. Scoped so the other two directions keep their character. */
+.dl-studio,
+.dl-mini-studio {
+  font-family: 'Golos Text Variable', 'Segoe UI', sans-serif;
+  font-optical-sizing: auto;
+}
+
+.dl-studio {
+  --dl-bg: #f5f6f4;
+  --dl-panel: #fff;
+  --dl-text: #283631;
+  --dl-muted: #738078;
+  --dl-border: #e2e7e0;
+  --dl-accent: #23634f;
+  --dl-soft: #e8f0e9;
+  --dl-radius: 16px;
+  grid-template-columns: 88px minmax(0, 1fr);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.dl-studio-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 26px;
+  background: #fcfdfb;
+  border-right: 1px solid var(--dl-border);
+  padding: 23px 10px 22px;
+}
+
+.dl-rail-logo {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  color: #fff;
+  background: var(--dl-accent);
+  border: 0;
+  border-radius: 15px;
+}
+
+.dl-rail-logo:hover { background: #34755e; }
+
+.dl-studio-rail .dl-navigation {
+  flex-direction: column;
+  gap: 11px;
+  width: 100%;
+  margin-top: 13px;
+}
+
+.dl-studio-rail .dl-navigation button,
+.dl-rail-create {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 66px;
+  padding: 12px 4px;
+  background: transparent;
+  color: #7b887e;
+  border: 0;
+  border-radius: 14px;
+  font-size: 10px;
+  font-weight: 450;
+  line-height: 1.2;
+}
+
+.dl-studio-rail .dl-navigation svg { width: 22px; height: 22px; }
+.dl-studio-rail .dl-navigation .dl-nav-active { background: #e7f0e8; color: #23634f; font-weight: 600; }
+.dl-studio-rail .dl-navigation button:hover,
+.dl-rail-create:hover { background: #edf2ec; color: #23634f; }
+.dl-studio-rail .dl-navigation small {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  min-width: 14px;
+  padding: 1px 3px;
+  background: #edf1eb;
+  border: 0;
+  border-radius: 5px;
+  color: #81917f;
+  font-size: 8px;
+}
+
+.dl-studio .dl-rail-create { border-top: 1px solid var(--dl-border); border-radius: 0; margin-top: 4px; padding-top: 21px; font-size: 10px; }
+.dl-rail-season { margin-top: auto; padding-top: 80px; color: #b1b9af; font-size: 8px; letter-spacing: 1.5px; }
+
+.dl-studio .dl-app-header {
+  height: 91px;
+  padding: 0 37px;
+  background: #fcfdfb;
+}
+
+.dl-studio-identity { display: flex; align-items: center; gap: 23px; min-width: 0; }
+.dl-studio .dl-brand { font-size: 26px; letter-spacing: -1.2px; font-weight: 650; }
+.dl-studio .dl-brand-symbol { display: none; }
+.dl-identity-divider { width: 1px; height: 28px; background: var(--dl-border); }
+.dl-studio-club strong,
+.dl-studio-club small,
+.dl-studio-account small { display: block; }
+.dl-studio-club strong { font-size: 13px; font-weight: 550; }
+.dl-studio-club small { margin-top: 3px; font-size: 10px; color: var(--dl-muted); }
+.dl-studio-account { display: flex; align-items: center; gap: 13px; }
+.dl-studio-account-name { font-size: 12px; text-align: right; }
+.dl-studio-account small { font-size: 9px; color: var(--dl-muted); margin-top: 4px; }
+.dl-studio-account .dl-avatar { width: 36px; height: 36px; }
+
+.dl-studio .dl-content { padding: 36px 37px 0; }
+.dl-studio .dl-page-heading { margin-bottom: 30px; align-items: center; }
+.dl-studio .dl-eyebrow { font-size: 10px; font-weight: 450; letter-spacing: 1.1px; }
+.dl-studio .dl-page-heading h1 {
+  font-size: clamp(32px, 3.6cqw, 46px);
+  font-weight: 550;
+  letter-spacing: -1.7px;
+  line-height: 1.18;
+  margin: 13px 0 11px;
+}
+.dl-studio .dl-page-heading p:not(.dl-eyebrow) { font-size: 13px; }
+.dl-studio .dl-page-heading > .dl-button { margin-top: 0; }
+.dl-studio .dl-button { min-height: 44px; border-radius: 10px; font-size: 12px !important; font-weight: 500; padding: 12px 17px; }
+.dl-studio .dl-text-button { font-size: 11px !important; font-weight: 450; }
+.dl-studio .dl-stats { gap: 13px; margin-bottom: 27px; }
+.dl-studio .dl-stat { padding: 20px; border-color: #e5e9e2; }
+.dl-studio .dl-stat-label { font-size: 11px; letter-spacing: -.15px; }
+.dl-studio .dl-stat-label svg { display: block; width: 16px; height: 16px; opacity: .6; }
+.dl-studio .dl-stat > strong { font-size: 33px; line-height: 1.15; font-weight: 550; letter-spacing: -1.2px; margin: 14px 0 12px; font-variant-numeric: tabular-nums; }
+.dl-studio .dl-stat > small { font-size: 10px; }
+
+.dl-studio .dl-studio-feature { background: #e6eee7; border-color: #dce6dc; border-radius: 18px; min-height: 275px; }
+.dl-studio .dl-feature-copy { padding: 30px; }
+.dl-studio .dl-feature-copy h2 { font-size: clamp(26px, 2.8cqw, 37px); line-height: 1.28; letter-spacing: -.9px; font-weight: 500; margin: 17px 0 14px; }
+.dl-studio .dl-feature-copy > p { color: #6a7e6b; font-size: 12px; }
+.dl-studio .dl-feature-copy .dl-badge { font-size: 10px; border-color: #ceddce; background: #f6faf280; padding: 5px 9px; }
+.dl-studio .dl-studio-feature > .dl-court { width: 39%; top: 25px; right: -1%; color: #69816d; opacity: .75; }
+.dl-studio .dl-feature-bottom { margin-top: 24px; gap: 22px; }
+.dl-studio .dl-avatar { font-weight: 500; }
+.dl-studio .dl-section-title { margin-bottom: 18px; }
+.dl-studio .dl-section-title h2 { font-size: 17px; font-weight: 500; letter-spacing: -.5px; }
+.dl-studio .dl-week-strip { gap: 9px; margin-bottom: 25px; }
+.dl-studio .dl-week-strip button { border-radius: 13px; padding: 14px 6px 7px; }
+.dl-studio .dl-week-strip span { font-size: 11px; }
+.dl-studio .dl-week-strip strong { font-size: 23px; font-weight: 500; margin-top: 7px; }
+.dl-studio .dl-week-strip small { font-size: 8px; margin-top: 6px; }
+.dl-studio .dl-two-columns { grid-template-columns: 1fr 1fr; gap: 20px; }
+.dl-studio .dl-panel { padding: 24px; }
+.dl-studio .dl-teams .dl-section-title h2 { font-size: 15px; }
+.dl-studio .dl-teams-versus { margin: 23px 0; }
+.dl-studio .dl-team-circle { width: 39px; height: 39px; border-radius: 12px; font-size: 14px; }
+.dl-studio .dl-teams-versus strong { font-size: 12px; font-weight: 500; }
+.dl-studio .dl-teams-versus > div > span:last-child { font-size: 12px; }
+.dl-studio .dl-teams-versus small { display: block; font-size: 9px; margin: 2px 0 0; }
+.dl-studio .dl-balance { font-size: 11px; margin-bottom: 10px; }
+.dl-studio .dl-teams > .dl-text-button { margin-top: 16px; }
+.dl-studio .dl-activity-row { padding: 16px 0; gap: 11px; }
+.dl-studio .dl-activity-row strong { font-size: 12px; font-weight: 450; line-height: 1.5; }
+.dl-studio .dl-activity-row small { font-size: 10px; line-height: 1.6; margin-top: 4px; }
+.dl-studio .dl-activity-row .dl-avatar { width: 36px; height: 36px; }
+.dl-studio .dl-app-footer { font-size: 10px; margin-top: 32px; padding: 22px 0; }
+
+/* The same type scale follows the user into working screens and dialogs. */
+.dl-studio .dl-event-card { padding: 23px; }
+.dl-studio .dl-event-card h3 { font-size: 20px; font-weight: 500; }
+.dl-studio .dl-date-block strong { font-size: 35px; font-weight: 500; }
+.dl-studio .dl-date-block > span { font-size: 9px; }
+.dl-studio .dl-badge { font-size: 10px; }
+.dl-studio .dl-meta { font-size: 12px; }
+.dl-studio .dl-event-capacity { font-size: 12px; }
+.dl-studio .dl-event-capacity small { font-size: 10px; }
+.dl-studio .dl-search input,
+.dl-studio .dl-filters select { font-size: 13px; }
+.dl-studio .dl-player-card h2 { font-size: 19px; font-weight: 500; }
+.dl-studio .dl-player-role { font-size: 11px; }
+.dl-studio .dl-player-rating,
+.dl-studio .dl-player-rating > span { font-size: 12px; }
+.dl-studio .dl-player-rating small { font-size: 11px; }
+.dl-studio .dl-filter-tabs button { font-size: 12px; }
+.dl-studio .dl-billing-stats span { font-size: 12px; }
+.dl-studio .dl-billing-stats strong { font-size: 29px; }
+.dl-studio .dl-payment-row strong { font-size: 13px; }
+.dl-studio .dl-payment-status { font-size: 11px !important; }
+.dl-studio .dl-checkbox { font-size: 11px; }
+.dl-studio .dl-dialog { font-family: 'Golos Text Variable', 'Segoe UI', sans-serif; }
+.dl-studio .dl-dialog-heading h2 { font-weight: 550; }
+.dl-studio .dl-dialog-description { font-size: 13px; }
+.dl-studio .dl-form input { font-size: 13px; }
+.dl-studio .dl-form label,
+.dl-studio .dl-demo-note { font-size: 11px; }
+.dl-mini-studio .dl-mini-sidebar { width: 30px; gap: 13px; align-items: center; padding: 19px 8px 0 0; }
+.dl-mini-studio .dl-mini-sidebar i { width: 13px; height: 13px; border-radius: 5px; }
+.dl-mini-studio .dl-mini-main > strong { font-weight: 500; letter-spacing: -.8px; }
+
+@container design (max-width: 1100px) {
+  .dl-studio .dl-content { padding: 30px 28px 0; }
+  .dl-studio .dl-app-header { padding: 0 28px; }
+  .dl-studio .dl-stat { padding: 18px 15px; }
+  .dl-studio .dl-stat > strong { font-size: 30px; }
+  .dl-studio .dl-stat-label { font-size: 10px; }
+  .dl-studio .dl-stat-label svg { display: none; }
+  .dl-studio .dl-stat > small { font-size: 9px; }
+  .dl-studio .dl-feature-copy h2 { font-size: 29px; }
+  .dl-studio .dl-studio-feature > .dl-court { width: 36%; right: -3%; top: 57px; }
+  .dl-studio .dl-panel { padding: 21px; }
+  .dl-studio .dl-teams .dl-section-title h2 { font-size: 14px; }
+  .dl-studio .dl-activity-row strong { font-size: 11px; }
+  .dl-studio .dl-activity-row small { font-size: 9px; }
+  .dl-studio .dl-events-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container design (max-width: 800px) {
+  .dl-studio { grid-template-columns: 76px minmax(0, 1fr); }
+  .dl-studio-rail { padding-left: 8px; padding-right: 8px; }
+  .dl-studio-rail .dl-navigation button { font-size: 9px; }
+  .dl-studio .dl-content { padding: 25px 23px 0; }
+  .dl-studio .dl-app-header { height: 79px; padding: 0 23px; }
+  .dl-studio-identity { gap: 15px; }
+  .dl-studio-account-name { display: none; }
+  .dl-studio .dl-page-heading { flex-direction: column; align-items: flex-start; gap: 18px; }
+  .dl-studio .dl-page-heading h1 { font-size: 35px; }
+  .dl-studio .dl-page-heading p:not(.dl-eyebrow) { font-size: 12px; }
+  .dl-studio .dl-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dl-studio .dl-stat { padding: 20px; }
+  .dl-studio .dl-stat-label { font-size: 12px; }
+  .dl-studio .dl-stat > small { font-size: 10px; }
+  .dl-studio .dl-two-columns { grid-template-columns: 1fr; }
+  .dl-studio .dl-feature-copy { padding: 26px; }
+  .dl-studio .dl-feature-copy h2 { font-size: 28px; }
+  .dl-studio .dl-studio-feature > .dl-court { opacity: .3; right: -9%; top: 102px; }
+  .dl-studio .dl-activity-row strong { font-size: 13px; }
+  .dl-studio .dl-activity-row small { font-size: 11px; }
+  .dl-studio .dl-teams .dl-section-title h2 { font-size: 16px; }
+  .dl-studio .dl-events-grid { grid-template-columns: 1fr; }
+  .dl-studio .dl-app-footer { flex-direction: column; gap: 6px; font-size: 9px; }
+}
+
+@container design (max-width: 640px) {
+  .dl-studio { display: block; }
+  .dl-studio-rail { display: none; }
+  .dl-studio .dl-app-header { height: 78px; padding: 0 20px; }
+  .dl-studio .dl-brand { font-size: 24px; }
+  .dl-studio-identity { gap: 13px; }
+  .dl-studio-club strong { font-size: 12px; }
+  .dl-studio-club small { display: none; }
+  .dl-identity-divider { height: 21px; }
+  .dl-studio-account .dl-avatar { width: 31px; height: 31px; font-size: 9px; }
+  .dl-studio .dl-mobile-nav { background: #fcfdfb; padding: 0 12px 13px; }
+  .dl-studio .dl-mobile-nav .dl-navigation { gap: 4px; }
+  .dl-studio .dl-mobile-nav .dl-navigation button { flex: 1; min-width: 0; flex-direction: column; gap: 6px; padding: 10px 4px; border-radius: 12px; font-size: 10px; }
+  .dl-studio .dl-mobile-nav .dl-navigation svg { width: 20px; height: 20px; }
+  .dl-studio .dl-content { padding: 27px 20px 0; }
+  .dl-studio .dl-page-heading { gap: 17px; }
+  .dl-studio .dl-page-heading h1 { font-size: 33px; letter-spacing: -1.3px; margin: 14px 0 11px; }
+  .dl-studio .dl-eyebrow { font-size: 9px; letter-spacing: .7px; }
+  .dl-studio .dl-page-heading p:not(.dl-eyebrow) { font-size: 12px; line-height: 1.7; }
+  .dl-studio .dl-page-heading > .dl-button { margin-top: 17px; }
+  .dl-studio .dl-stats { gap: 10px; }
+  .dl-studio .dl-stat { padding: 19px 15px; }
+  .dl-studio .dl-stat-label { font-size: 10px; }
+  .dl-studio .dl-stat > strong { font-size: 29px; }
+  .dl-studio .dl-stat > small { font-size: 9px; }
+  .dl-studio .dl-feature-copy { padding: 25px 22px; }
+  .dl-studio .dl-feature-copy h2 { font-size: 28px; letter-spacing: -.8px; }
+  .dl-studio .dl-feature-copy > p { font-size: 11px; }
+  .dl-studio .dl-studio-feature > .dl-court { width: 58%; right: -23%; top: 130px; opacity: .23; }
+  .dl-studio .dl-feature-bottom { gap: 15px; }
+  .dl-studio .dl-section-title h2 { font-size: 17px; }
+  .dl-studio .dl-section-title .dl-text-button { font-size: 10px !important; }
+  .dl-studio .dl-week-strip { gap: 4px; }
+  .dl-studio .dl-week-strip button { border-radius: 10px; padding: 12px 3px 6px; }
+  .dl-studio .dl-week-strip span { font-size: 10px; }
+  .dl-studio .dl-week-strip strong { font-size: 20px; }
+  .dl-studio .dl-panel { padding: 21px; }
+  .dl-studio .dl-teams .dl-section-title h2 { font-size: 15px; }
+  .dl-studio .dl-activity-row strong { font-size: 11px; }
+  .dl-studio .dl-activity-row small { font-size: 10px; }
+  .dl-studio .dl-meta { font-size: 11px; }
+  .dl-studio .dl-player-card h2 { font-size: 22px; }
+  .dl-studio .dl-payment-row strong { font-size: 11px; }
+  .dl-studio .dl-dialog { padding: 23px; }
+}

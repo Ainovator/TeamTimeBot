@@ -1,0 +1,31 @@
+Mode: built-in image_gen
+Result: teamtime-sport-right-handed.png
+Edition: right-handed. Plus on wearer right shoulder; minus on wearer left shoulder.
+Visual verification: front view plus at viewer left, back view plus at viewer right; opposite shoulders show minus.
+
+Use case: product-mockup.
+Create one new premium PERFORMANCE SPORTS T-SHIRT concept for TeamTime, photographed professionally as a realistic apparel sample. Landscape 1536 x 1024 image with two large views side by side: FRONT on the left half, BACK on the right half. This is a new on-court athletic version, clearly different from the earlier casual cotton merch.
+
+REFERENCE 1: exact approved TT logo silhouette. Preserve the connected two capital Ts, equal tall stems, right-hand T lower and slight forward lean. White ink variation is allowed on this blue sports shirt; the shape must match.
+REFERENCE 2: previous TeamTime cotton merchandise, used only for brand continuity, name and Russian slogan. Replace its cotton fit and material with purpose-designed technical sportswear.
+
+GARMENT / DESIGN:
+- Rich cobalt blue #3267CF torso, deep graphite/navy #171D26 raglan shoulder and short-sleeve panels.
+- Slim athletic regular fit, tailored to the body but not a compression shirt; engineered raglan sleeves and freedom of shoulder movement; slightly curved athletic hem.
+- Matte lightweight fine technical interlock fabric with subtle real micro-mesh zones down the side panels and underarms; flat seams; clean narrow performance crew neck.
+- Restrained thin off-white piping along raglan lines and toward the side panels. Contemporary geometric panel construction, energetic but clean, premium volleyball / team-training clothing design.
+- Blue and graphite are SOLID fabric blocks, no printed gradients, no busy all-over graphics.
+- Small white exact TT symbol plus white lowercase "teamtime." lockup on wearer's LEFT chest, about 110 mm overall width.
+- Back: centered small white exact TT below collar; underneath a compact, carefully spaced two-line white Cyrillic slogan "ВРЕМЯ БЫТЬ" / "КОМАНДОЙ."; smaller lowercase white "teamtime." underneath. Keep upper-back graphic clean and readable; lower back mainly solid blue.
+- No player number, national flag, sports-company logos or sponsor marks.
+
+CRITICAL NEW FEATURE: DOMINANT-HAND SHOULDER MARKERS.
+This is the RIGHT-HANDED edition. Put a clear bold WHITE PLUS symbol "+" on the WEARER'S ANATOMICAL RIGHT SHOULDER, and a clear bold WHITE MINUS symbol "−" on the WEARER'S ANATOMICAL LEFT SHOULDER. Use the upper outer shoulder caps at the top of the sleeves, not collarbones or chest. Each marker about 25–30 mm, same stroke width, minimal flat geometry, not in a circle. The plus identifies the dominant arm. A minus is one simple horizontal bar.
+
+ABSOLUTE SCREEN-SPACE PLACEMENT TO AVOID MIRRORING ERRORS:
+LEFT-HALF FRONT VIEW: the shoulder on the VIEWER'S LEFT shows "+"; the shoulder on the VIEWER'S RIGHT shows "−".
+RIGHT-HALF BACK VIEW: the shoulder on the VIEWER'S LEFT shows "−"; the shoulder on the VIEWER'S RIGHT shows "+".
+The anatomical RIGHT shoulder keeps its plus when the shirt rotates. NEVER put plus and minus on the same shoulder. Do not confuse marker placement with the left-chest brand position. Ensure these four visible shoulder presentations are unambiguous and legible, with the outer shoulder areas turned just enough toward camera to reveal the marks. They must appear as actual prints on the shoulder-cap fabric.
+
+PHOTOGRAPHY / COMPOSITION:
+Exactly two fully visible shirts at equal scale, left frontal and right rear. Realistic invisible-body ghost-mannequin presentation, natural shoulder structure, believable fabric drape, subtle folds, no mannequin visible, no people, no hangers. Clean warm light-gray seamless studio, beautifully controlled soft directional light, light contact shadows. Product photograph with generous margins and polished sportswear catalog quality. Make the blue fabric vibrant and the white graphics crisp, with deep detailed dark shoulder panels. No board labels, no diagrams, no explanatory captions, no inset views, no extra plus/minus symbols floating outside garments, no watermarks or QR codes. All visible text limited to the specified garment branding and motto.

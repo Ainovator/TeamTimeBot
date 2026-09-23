@@ -1,0 +1,6 @@
+.dl-roster-tone-sage { --roster-tint: #dfe8db; --roster-ink: #426b51; }
+.dl-roster-tone-rose { --roster-tint: #eeddd4; --roster-ink: #9a6655; }
+.dl-roster-tone-sand { --roster-tint: #e9e1cd; --roster-ink: #8b7945; }
+.dl-roster-tone-lilac { --roster-tint: #e5e0ed; --roster-ink: #847097; }
+.dl-roster-tone-blue { --roster-tint: #dce5e9; --roster-ink: #60818f; }
+.dl-roster-portrait { display: block; aspect-ratio: 1; background-color: var(--roster-tint); background-image: url('/design-lab/roster-portraits-v1.png'); background-size: 300% 200%; background-position: var(--portrait-x) var(--portrait-y); background-repeat: no-repeat; flex-shrink: 0; }

@@ -8,6 +8,7 @@ export type Section =
   | 'games'
   | 'profile'
   | 'billing'
+  | 'settings'
   | 'docs'
 
 export type RouteState = {
@@ -62,6 +63,7 @@ export function parseRoute(pathname: string): RouteState {
       section === 'games' ||
       section === 'profile' ||
       section === 'billing' ||
+      section === 'settings' ||
       section === 'docs'
     ) {
       route.section = section
@@ -142,6 +144,7 @@ export function parseRoute(pathname: string): RouteState {
       section === 'games' ||
       section === 'profile' ||
       section === 'billing' ||
+      section === 'settings' ||
       section === 'docs'
     ) {
       route.section = section

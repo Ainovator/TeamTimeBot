@@ -79,31 +79,32 @@ type TemplateDetails struct {
 }
 
 type EventView struct {
-	ID                      uint64   `json:"id"`
-	Name                    string   `json:"name"`
-	EventType               string   `json:"eventType"`
-	StartWeekday            int      `json:"startWeekday"`
-	PollPublishWeekday      int      `json:"pollPublishWeekday"`
-	PollPublishTime         string   `json:"pollPublishTime"`
-	StartTime               string   `json:"startTime"`
-	EndTime                 string   `json:"endTime"`
-	AnnouncementText        string   `json:"announcementText"`
-	AnnouncementEnabled     bool     `json:"announcementEnabled"`
-	AnnouncementLeadMinutes int      `json:"announcementLeadMinutes"`
-	PublishEnabled          bool     `json:"publishEnabled"`
-	TeamsAutoSplit          bool     `json:"teamsAutoSplit"`
-	TeamsPublishList        bool     `json:"teamsPublishList"`
-	TeamSize                int      `json:"teamSize"`
-	MaxPlaces               int      `json:"maxPlaces"`
-	MinVotesToHold          int      `json:"minVotesToHold"`
-	CancelLeadMinutes       int      `json:"cancelLeadMinutes"`
-	CancelNotifyEnabled     bool     `json:"cancelNotifyEnabled"`
-	SettlementEnabled       bool     `json:"settlementEnabled"`
-	SettlementPublishBefore bool     `json:"settlementPublishBefore"`
-	SettlementPublishAfter  bool     `json:"settlementPublishAfter"`
-	CostAmount              *float64 `json:"costAmount"`
-	IsActive                bool     `json:"isActive"`
-	PollTemplate            string   `json:"pollTemplate"`
+	Mentions                EventMentionSettings `json:"mentions" gorm:"embedded"`
+	ID                      uint64               `json:"id"`
+	Name                    string               `json:"name"`
+	EventType               string               `json:"eventType"`
+	StartWeekday            int                  `json:"startWeekday"`
+	PollPublishWeekday      int                  `json:"pollPublishWeekday"`
+	PollPublishTime         string               `json:"pollPublishTime"`
+	StartTime               string               `json:"startTime"`
+	EndTime                 string               `json:"endTime"`
+	AnnouncementText        string               `json:"announcementText"`
+	AnnouncementEnabled     bool                 `json:"announcementEnabled"`
+	AnnouncementLeadMinutes int                  `json:"announcementLeadMinutes"`
+	PublishEnabled          bool                 `json:"publishEnabled"`
+	TeamsAutoSplit          bool                 `json:"teamsAutoSplit"`
+	TeamsPublishList        bool                 `json:"teamsPublishList"`
+	TeamSize                int                  `json:"teamSize"`
+	MaxPlaces               int                  `json:"maxPlaces"`
+	MinVotesToHold          int                  `json:"minVotesToHold"`
+	CancelLeadMinutes       int                  `json:"cancelLeadMinutes"`
+	CancelNotifyEnabled     bool                 `json:"cancelNotifyEnabled"`
+	SettlementEnabled       bool                 `json:"settlementEnabled"`
+	SettlementPublishBefore bool                 `json:"settlementPublishBefore"`
+	SettlementPublishAfter  bool                 `json:"settlementPublishAfter"`
+	CostAmount              *float64             `json:"costAmount"`
+	IsActive                bool                 `json:"isActive"`
+	PollTemplate            string               `json:"pollTemplate"`
 }
 
 type EventActivitySummary struct {
@@ -144,14 +145,15 @@ type EventHistoryItem struct {
 }
 
 type EventBillingParticipant struct {
-	UserID    int64      `json:"userID"`
-	RealName  string     `json:"realName"`
-	Username  string     `json:"username"`
-	FirstName string     `json:"firstName"`
-	LastName  string     `json:"lastName"`
-	AmountDue float64    `json:"amountDue"`
-	IsPaid    bool       `json:"isPaid"`
-	PaidAt    *time.Time `json:"paidAt,omitempty"`
+	PassCovered bool       `json:"passCovered"`
+	UserID      int64      `json:"userID"`
+	RealName    string     `json:"realName"`
+	Username    string     `json:"username"`
+	FirstName   string     `json:"firstName"`
+	LastName    string     `json:"lastName"`
+	AmountDue   float64    `json:"amountDue"`
+	IsPaid      bool       `json:"isPaid"`
+	PaidAt      *time.Time `json:"paidAt,omitempty"`
 }
 
 type EventBillingView struct {
@@ -2479,18 +2481,19 @@ func (s *Store) GetEventBilling(ctx context.Context, chatID int64, eventID uint6
 	}
 
 	type paymentRow struct {
-		UserID    int64
-		RealName  string
-		Username  string
-		FirstName string
-		LastName  string
-		AmountDue float64
-		IsPaid    bool
-		PaidAt    *time.Time
+		PassCovered bool
+		UserID      int64
+		RealName    string
+		Username    string
+		FirstName   string
+		LastName    string
+		AmountDue   float64
+		IsPaid      bool
+		PaidAt      *time.Time
 	}
 	var rows []paymentRow
 	if err := s.db.WithContext(ctx).
-		Table("event_settlement_payments esp").
+		Table("event_effective_payments esp").
 		Select(`
 			esp.user_id,
 			COALESCE(gm.real_name, '') AS real_name,
@@ -2499,7 +2502,7 @@ func (s *Store) GetEventBilling(ctx context.Context, chatID int64, eventID uint6
 			COALESCE(esp.last_name, '') AS last_name,
 			esp.amount_due,
 			esp.is_paid,
-			esp.paid_at
+			esp.paid_at, esp.pass_covered
 		`).
 		Joins("LEFT JOIN group_members gm ON gm.group_id = ? AND gm.user_telegram_id = esp.user_id AND gm.is_active = TRUE", group.ID).
 		Where("esp.settlement_id = ?", settlement.ID).
@@ -2514,14 +2517,15 @@ func (s *Store) GetEventBilling(ctx context.Context, chatID int64, eventID uint6
 	debt := 0.0
 	for _, row := range rows {
 		players = append(players, EventBillingParticipant{
-			UserID:    row.UserID,
-			RealName:  strings.TrimSpace(row.RealName),
-			Username:  row.Username,
-			FirstName: row.FirstName,
-			LastName:  row.LastName,
-			AmountDue: row.AmountDue,
-			IsPaid:    row.IsPaid,
-			PaidAt:    row.PaidAt,
+			UserID:      row.UserID,
+			RealName:    strings.TrimSpace(row.RealName),
+			Username:    row.Username,
+			FirstName:   row.FirstName,
+			LastName:    row.LastName,
+			AmountDue:   row.AmountDue,
+			IsPaid:      row.IsPaid,
+			PaidAt:      row.PaidAt,
+			PassCovered: row.PassCovered,
 		})
 		if row.IsPaid {
 			paidCount++
@@ -2593,18 +2597,19 @@ func (s *Store) GetEventBillingByInstance(ctx context.Context, chatID int64, ins
 	}
 
 	type paymentRow struct {
-		UserID    int64
-		RealName  string
-		Username  string
-		FirstName string
-		LastName  string
-		AmountDue float64
-		IsPaid    bool
-		PaidAt    *time.Time
+		PassCovered bool
+		UserID      int64
+		RealName    string
+		Username    string
+		FirstName   string
+		LastName    string
+		AmountDue   float64
+		IsPaid      bool
+		PaidAt      *time.Time
 	}
 	var rows []paymentRow
 	if err := s.db.WithContext(ctx).
-		Table("event_settlement_payments esp").
+		Table("event_effective_payments esp").
 		Select(`
 			esp.user_id,
 			COALESCE(gm.real_name, '') AS real_name,
@@ -2613,7 +2618,7 @@ func (s *Store) GetEventBillingByInstance(ctx context.Context, chatID int64, ins
 			COALESCE(esp.last_name, '') AS last_name,
 			esp.amount_due,
 			esp.is_paid,
-			esp.paid_at
+			esp.paid_at, esp.pass_covered
 		`).
 		Joins("LEFT JOIN group_members gm ON gm.group_id = ? AND gm.user_telegram_id = esp.user_id AND gm.is_active = TRUE", group.ID).
 		Where("esp.settlement_id = ?", settlement.ID).
@@ -2628,14 +2633,15 @@ func (s *Store) GetEventBillingByInstance(ctx context.Context, chatID int64, ins
 	debt := 0.0
 	for _, row := range rows {
 		players = append(players, EventBillingParticipant{
-			UserID:    row.UserID,
-			RealName:  strings.TrimSpace(row.RealName),
-			Username:  row.Username,
-			FirstName: row.FirstName,
-			LastName:  row.LastName,
-			AmountDue: row.AmountDue,
-			IsPaid:    row.IsPaid,
-			PaidAt:    row.PaidAt,
+			UserID:      row.UserID,
+			RealName:    strings.TrimSpace(row.RealName),
+			Username:    row.Username,
+			FirstName:   row.FirstName,
+			LastName:    row.LastName,
+			AmountDue:   row.AmountDue,
+			IsPaid:      row.IsPaid,
+			PaidAt:      row.PaidAt,
+			PassCovered: row.PassCovered,
 		})
 		if row.IsPaid {
 			paidCount++
@@ -2742,16 +2748,32 @@ func (s *Store) SaveEventBillingPayments(ctx context.Context, chatID int64, even
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", group.ID).Take(&TelegramGroup{}).Error; err != nil {
+			return err
+		}
 		if err := s.ensureSettlementPaymentsTx(ctx, tx, settlement.ID); err != nil {
 			return err
 		}
 
 		for userID, isPaid := range statuses {
+			var effective struct {
+				PassCovered   bool
+				AmountDue     float64
+				CoveredAmount float64
+			}
+			if err := tx.Table("event_effective_payments").Select("pass_covered, amount_due, covered_amount").Where("settlement_id = ? AND user_id = ?", settlement.ID, userID).Take(&effective).Error; err != nil {
+				return err
+			}
+			if effective.PassCovered && effective.AmountDue <= 0 {
+				continue
+			}
 			updates := map[string]interface{}{
-				"is_paid":    isPaid,
-				"updated_at": gorm.Expr("NOW()"),
+				"cash_amount_paid": 0,
+				"is_paid":          isPaid,
+				"updated_at":       gorm.Expr("NOW()"),
 			}
 			if isPaid {
+				updates["cash_amount_paid"] = gorm.Expr("GREATEST(0, amount_due - ?)", effective.CoveredAmount)
 				updates["paid_at"] = gorm.Expr("NOW()")
 			} else {
 				updates["paid_at"] = gorm.Expr("NULL")
@@ -2788,15 +2810,31 @@ func (s *Store) SaveEventBillingPaymentsByInstance(ctx context.Context, chatID i
 	}
 
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", group.ID).Take(&TelegramGroup{}).Error; err != nil {
+			return err
+		}
 		if err := s.ensureSettlementPaymentsTx(ctx, tx, settlement.ID); err != nil {
 			return err
 		}
 		for userID, isPaid := range statuses {
+			var effective struct {
+				PassCovered   bool
+				AmountDue     float64
+				CoveredAmount float64
+			}
+			if err := tx.Table("event_effective_payments").Select("pass_covered, amount_due, covered_amount").Where("settlement_id = ? AND user_id = ?", settlement.ID, userID).Take(&effective).Error; err != nil {
+				return err
+			}
+			if effective.PassCovered && effective.AmountDue <= 0 {
+				continue
+			}
 			updates := map[string]interface{}{
-				"is_paid":    isPaid,
-				"updated_at": gorm.Expr("NOW()"),
+				"cash_amount_paid": 0,
+				"is_paid":          isPaid,
+				"updated_at":       gorm.Expr("NOW()"),
 			}
 			if isPaid {
+				updates["cash_amount_paid"] = gorm.Expr("GREATEST(0, amount_due - ?)", effective.CoveredAmount)
 				updates["paid_at"] = gorm.Expr("NOW()")
 			} else {
 				updates["paid_at"] = gorm.Expr("NULL")
@@ -3098,7 +3136,7 @@ func (s *Store) GetGroupDebtSummary(ctx context.Context, chatID int64) (*GroupDe
 		UnpaidRows int64
 	}
 	if err := s.db.WithContext(ctx).
-		Table("event_settlement_payments esp").
+		Table("event_effective_payments esp").
 		Select("COALESCE(SUM(esp.amount_due), 0) AS total_debt, COUNT(*) AS unpaid_rows").
 		Joins("JOIN event_settlements es ON es.id = esp.settlement_id").
 		Where("es.group_id = ? AND esp.is_paid = FALSE", group.ID).
@@ -3131,7 +3169,7 @@ func (s *Store) ListGroupDebtors(ctx context.Context, chatID int64) ([]GroupDebt
 
 	var rows []row
 	if err := s.db.WithContext(ctx).
-		Table("event_settlement_payments esp").
+		Table("event_effective_payments esp").
 		Select(`
 			esp.user_id,
 			COALESCE(NULLIF(tu.username, ''), NULLIF(esp.username, ''), '') AS username,
@@ -3211,7 +3249,7 @@ func (s *Store) GetUserGroupProfile(ctx context.Context, chatID int64, userTeleg
 
 	var debt float64
 	if err := s.db.WithContext(ctx).
-		Table("event_settlement_payments esp").
+		Table("event_effective_payments esp").
 		Select("COALESCE(SUM(esp.amount_due), 0) AS total_debt").
 		Joins("JOIN event_settlements es ON es.id = esp.settlement_id").
 		Where("es.group_id = ? AND esp.user_id = ? AND esp.is_paid = FALSE", group.ID, userTelegramID).
@@ -3235,7 +3273,7 @@ func (s *Store) GetUserGroupProfile(ctx context.Context, chatID int64, userTeleg
 		Joins("JOIN event_poll_posts epp ON epp.id = epv.post_id").
 		Joins("JOIN event_instances ei ON ei.id = epp.instance_id").
 		Joins("LEFT JOIN event_settlements es ON es.instance_id = ei.id").
-		Joins("LEFT JOIN event_settlement_payments esp ON esp.settlement_id = es.id AND esp.user_id = epv.user_id").
+		Joins("LEFT JOIN event_effective_payments esp ON esp.settlement_id = es.id AND esp.user_id = epv.user_id").
 		Where("ei.group_id = ? AND epv.user_id = ?", group.ID, userTelegramID).
 		Order("ei.planned_start_at DESC, ei.id DESC").
 		Scan(&rows).Error; err != nil {
@@ -6264,7 +6302,7 @@ func (s *Store) ListEventHistory(ctx context.Context, chatID int64) ([]EventHist
 		if err := s.db.WithContext(ctx).
 			Table("event_settlements es").
 			Select("COALESCE(SUM(CASE WHEN esp.is_paid = FALSE THEN esp.amount_due ELSE 0 END), 0) AS debt_amount, COUNT(CASE WHEN esp.is_paid = FALSE THEN 1 END) AS unpaid_count").
-			Joins("LEFT JOIN event_settlement_payments esp ON esp.settlement_id = es.id").
+			Joins("LEFT JOIN event_effective_payments esp ON esp.settlement_id = es.id").
 			Where("es.group_id = ? AND es.instance_id = ?", group.ID, row.InstanceID).
 			Scan(&billing).Error; err == nil {
 			debtAmount = billing.DebtAmount

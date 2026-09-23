@@ -3,7 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TeamTimeBot Admin</title>
+    <title>TeamTime</title>
+    <script>
+      // Apply the saved product theme before the first paint. The design lab has its own themes.
+      if (!/^\/design-lab\/?$/.test(location.pathname)) {
+        let theme = 'arena';
+        try {
+          const saved = localStorage.getItem('teamtime-theme');
+          if (saved === 'light' || saved === 'cherry' || saved === 'club') theme = saved;
+        } catch {}
+        document.documentElement.dataset.theme = theme;
+      }
+    </script>
+    <style>
+      html[data-theme="arena"] { background:#101c30; color:#edf2f7; color-scheme:dark; }
+      html[data-theme="cherry"] { background:#171416; color:#f2e9e5; color-scheme:dark; }
+      html[data-theme="light"] { background:#f5f6f4; color:#283631; color-scheme:light; }
+      html[data-theme="club"] { background:#eef2f6; color:#142b49; color-scheme:light; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

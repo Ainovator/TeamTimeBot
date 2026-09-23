@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tele "gopkg.in/telebot.v4"
+	"gopkg.in/telebot.v4/internal/notifications"
 
 	"gopkg.in/telebot.v4/internal/storage/postgres"
 )
@@ -102,8 +103,13 @@ func (s *EventAnnouncementScheduler) tick(ctx context.Context) {
 			event.Timezone,
 		)
 
+		recipients, err := s.store.GetEventMentionRecipients(ctx, event.ChatID, event.EventID, "announcement")
+		if err != nil {
+			log.Printf("event_announcement: load mention recipients for event %d: %v", event.EventID, err)
+			continue
+		}
 		chat := tele.Chat{ID: event.ChatID, Type: tele.ChatGroup}
-		if err := s.bot.SendMessage(chat, message, nil); err != nil {
+		if err := notifications.SendHTML(s.bot, chat, notifications.Announcement(message, recipients), 0); err != nil {
 			log.Printf("event_announcement: send message failed for event %d chat %d: %v", event.EventID, event.ChatID, err)
 			continue
 		}

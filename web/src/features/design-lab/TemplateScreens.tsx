@@ -1,0 +1,78 @@
+import { Checkbox } from '../../components/Checkbox'
+import { Select } from '../../components/Select'
+import { useState, type FormEvent } from 'react'
+import { Badge, Icon, SectionTitle } from './components'
+import { BackButton, Empty, Notice, PageHeading, Search, money } from './screenComponents'
+import { initialEventTemplates, type EventTemplate, type PollTemplate } from './productDemoData'
+
+export function PollTemplatesScreen({ templates, onChange }: { templates: PollTemplate[]; onChange: (value: PollTemplate[]) => void }) {
+  const [draft, setDraft] = useState<PollTemplate | null>(null)
+  const [query, setQuery] = useState('')
+  const [notice, setNotice] = useState('')
+  function save(e: FormEvent) {
+    e.preventDefault()
+    if (!draft || !draft.name.trim() || !draft.question.trim() || draft.options.some(option => !option.text.trim())) return
+    onChange(templates.some(t => t.id === draft.id) ? templates.map(t => t.id === draft.id ? draft : t) : [...templates, draft])
+    setNotice(`Шаблон «${draft.name}» сохранён в примерочной`); setDraft(null)
+  }
+  if (draft) return <>
+    <BackButton onClick={() => setDraft(null)}>Все шаблоны голосований</BackButton>
+    <PageHeading eyebrow="КОНСТРУКТОР ГОЛОСОВАНИЯ" title={templates.some(t => t.id === draft.id) ? 'Настроим голосование' : 'Новое голосование'} description="Один раз задайте вопрос и варианты ответа. Используйте в событиях клуба."/>
+    <div className="dl-editor-layout"><form className="dl-panel dl-form dl-product-form" onSubmit={save}>
+      <SectionTitle title="Вопрос и ответы"/>
+      <label>Название шаблона<input required maxLength={70} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })}/></label>
+      <label>Вопрос<textarea required maxLength={250} rows={3} value={draft.question} onChange={e => setDraft({ ...draft, question: e.target.value })}/></label>
+      <div className="dl-section-title"><h3>Варианты ответа</h3><span className="dl-demo-note">{draft.options.length} / 10</span></div>
+      <p className="dl-demo-note">Включите «Учитывать», если ответ записывает человека на игру. Вес — число участников за один голос.</p>
+      <div className="dl-option-list">{draft.options.map((option, i) => <div className="dl-option-edit" key={i}>
+        <span className="dl-option-number">{String(i + 1).padStart(2, '0')}</span>
+        <input aria-label={`Ответ ${i + 1}`} required maxLength={100} value={option.text} onChange={e => setDraft({ ...draft, options: draft.options.map((o, j) => j === i ? { ...o, text: e.target.value } : o) })}/>
+        <label className="dl-check-line"><Checkbox checked={option.counted} onChange={e => setDraft({ ...draft, options: draft.options.map((o, j) => j === i ? { ...o, counted: e.target.checked, weight: e.target.checked ? 1 : 0 } : o) })}/>Учитывать</label>
+        <label className="dl-option-weight">Вес<input aria-label={`Вес ответа ${i + 1}`} type="number" min={option.counted ? 1 : 0} max={10} disabled={!option.counted} value={option.weight} onChange={e => setDraft({ ...draft, options: draft.options.map((o, j) => j === i ? { ...o, weight: Number(e.target.value) } : o) })}/></label>
+        <button className="dl-icon-button" type="button" aria-label={`Удалить ответ ${i + 1}`} disabled={draft.options.length <= 2} onClick={() => setDraft({ ...draft, options: draft.options.filter((_, j) => i !== j) })}><Icon name="close" size={16}/></button>
+      </div>)}</div>
+      <button className="dl-text-button" type="button" disabled={draft.options.length >= 10} onClick={() => setDraft({ ...draft, options: [...draft.options, { text: '', counted: false, weight: 0 }] })}><Icon name="plus" size={17}/>Добавить ответ</button>
+      <div className="dl-form-actions"><button className="dl-button dl-primary" type="submit"><Icon name="check" size={17}/>Сохранить шаблон</button><button className="dl-button dl-secondary" type="button" onClick={() => setDraft(null)}>Отмена</button></div>
+    </form><aside className="dl-editor-aside"><p className="dl-eyebrow">ТАК УВИДЯТ УЧАСТНИКИ</p><div className="dl-poll-preview"><div className="dl-preview-sender"><span className="dl-brand-symbol"><Icon name="ball" size={25}/></span><div><strong>Орбита · TeamTime</strong><small>Голосование клуба</small></div></div><h2>{draft.question || 'Ваш вопрос появится здесь'}</h2><p>Выберите один вариант</p>{draft.options.map((o, i) => <div className="dl-preview-option" key={i}><i/>{o.text || `Ответ ${i + 1}`}</div>)}<small>Предпросмотр · без публикации</small></div><div className="dl-tip"><Icon name="users"/><p><strong>{draft.options.filter(o => o.counted).length} варианта записывают на игру</strong><span>Остальные ответы помогают понять планы команды.</span></p></div></aside></div>
+  </>
+  const filtered = templates.filter(t => `${t.name} ${t.question}`.toLowerCase().includes(query.toLowerCase()))
+  return <>
+    <PageHeading eyebrow="МЕНЬШЕ ПОВТОРЯЮЩИХСЯ ДЕЙСТВИЙ" title="Шаблоны голосований" description="Готовые вопросы для записи на игру, тренировку и клубную встречу." action={<button className="dl-button dl-primary" onClick={() => { setNotice(''); setDraft({ id: Date.now(), name: '', question: '', options: [{ text: 'Буду', counted: true, weight: 1 }, { text: 'Пропущу', counted: false, weight: 0 }] }) }}><Icon name="plus" size={18}/>Создать шаблон</button>}/>
+    <Notice>{notice}</Notice><div className="dl-filters"><Search placeholder="Найти шаблон голосования" value={query} onChange={setQuery}/><span className="dl-demo-note">{filtered.length} шаблона</span></div>
+    <div className="dl-template-grid">{filtered.map((t, i) => <article className="dl-panel dl-template-card" key={t.id}><div className="dl-card-top"><span className="dl-tile-icon"><Icon name="poll" size={24}/></span><span className="dl-eyebrow">ШАБЛОН / {String(i + 1).padStart(2, '0')}</span></div><h2>{t.name}</h2><p>{t.question}</p><div className="dl-answer-chips">{t.options.map((o, index) => <span className={o.counted ? 'dl-counted-chip' : ''} key={index}>{o.counted && <Icon name="check" size={12}/>} {o.text}</span>)}</div><div className="dl-card-bottom"><small>{t.options.length} ответа · {t.options.filter(o => o.counted).length} в учёте</small><button className="dl-text-button" onClick={() => { setDraft(structuredClone(t)); setNotice('') }}>Настроить<Icon name="arrow" size={16}/></button></div></article>)}</div>
+    {!filtered.length && <Empty>Шаблоны не найдены. Попробуйте другое название.</Empty>}
+    <div className="dl-workflow-strip"><span><Icon name="template"/>Шаблон вопроса</span><Icon name="arrow" size={16}/><span><Icon name="calendar"/>Событие клуба</span><Icon name="arrow" size={16}/><span><Icon name="users"/>Готовый состав</span></div>
+  </>
+}
+
+const weekdays = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+
+export function EventTemplatesScreen({ templates }: { templates: PollTemplate[] }) {
+  const [items, setItems] = useState(initialEventTemplates)
+  const [draft, setDraft] = useState<EventTemplate | null>(null)
+  const [tab, setTab] = useState('Основное')
+  const [filter, setFilter] = useState('Все шаблоны')
+  const [notice, setNotice] = useState('')
+  function edit(item: EventTemplate) { setDraft({ ...item }); setTab('Основное'); setNotice('') }
+  function update<K extends keyof EventTemplate>(key: K, value: EventTemplate[K]) { if (draft) setDraft({ ...draft, [key]: value }) }
+  function save(e: FormEvent) {
+    e.preventDefault()
+    if (!draft || !draft.name.trim()) { setTab('Основное'); return }
+    if (draft.start >= draft.end) { setTab('Расписание'); setNotice('Окончание должно быть позже начала.'); return }
+    setItems(previous => previous.some(t => t.id === draft.id) ? previous.map(t => t.id === draft.id ? draft : t) : [...previous, draft])
+    setNotice(`Шаблон «${draft.name}» сохранён в примерочной`); setDraft(null)
+  }
+  function toggle(key: 'active' | 'publish' | 'autoTeams' | 'publishTeams' | 'settlement' | 'before' | 'after' | 'cancelNotify' | 'announcement', title: string, description: string) {
+    return <label className="dl-setting-row"><span><strong>{title}</strong><small>{description}</small></span><input type="checkbox" role="switch" checked={draft?.[key] ?? false} onChange={e => update(key, e.target.checked)}/></label>
+  }
+  if (draft) return <><BackButton onClick={() => setDraft(null)}>Все шаблоны событий</BackButton><PageHeading eyebrow="ВСТРЕЧИ, КОТОРЫЕ СТАЛИ ПРИВЫЧКОЙ" title={draft.name || 'Новое событие'} description="Расписание, запись и правила команды — в одном шаблоне."/>
+    <Notice>{notice}</Notice><div className="dl-editor-layout"><form className="dl-panel dl-form dl-product-form" onSubmit={save}>
+      <div className="dl-filter-tabs" role="group" aria-label="Настройки шаблона">{['Основное', 'Расписание', 'Правила'].map(t => <button type="button" key={t} className={tab === t ? 'dl-filter-active' : ''} aria-pressed={tab === t} onClick={() => setTab(t)}>{t}</button>)}</div>
+      {tab === 'Основное' && <><label>Название<input required maxLength={70} value={draft.name} onChange={e => update('name', e.target.value)}/></label><div className="dl-form-row"><label>Тип события<Select value={draft.type} onChange={e => update('type', e.target.value)}><option>Тренировка</option><option>Активность</option></Select></label><label>Шаблон голосования<Select value={draft.templateID} onChange={e => update('templateID', Number(e.target.value))}>{templates.map(t => <option value={t.id} key={t.id}>{t.name}</option>)}</Select></label></div><div className="dl-form-row"><label>Стоимость всего события, ₽<input type="number" min="0" max="500000" value={draft.price} onChange={e => update('price', Number(e.target.value))}/></label><label>Максимум участников<input type="number" min="2" max="100" value={draft.limit} onChange={e => update('limit', Number(e.target.value))}/></label></div>{toggle('active', 'Шаблон активен', 'Встреча появляется в расписании клуба')}</>}
+      {tab === 'Расписание' && <><SectionTitle title="Когда играем"/><label>День недели<Select value={draft.weekday} onChange={e => update('weekday', e.target.value)}>{weekdays.map(d => <option key={d}>{d}</option>)}</Select></label><div className="dl-form-row"><label>Начало<input type="time" required value={draft.start} onChange={e => update('start', e.target.value)}/></label><label>Окончание<input type="time" required value={draft.end} onChange={e => update('end', e.target.value)}/></label></div><SectionTitle title="Когда открываем запись"/>{toggle('publish', 'Публиковать голосование', 'По расписанию в чате команды')}<div className="dl-form-row"><label>День публикации<Select value={draft.pollDay} onChange={e => update('pollDay', e.target.value)}>{weekdays.map(d => <option key={d}>{d}</option>)}</Select></label><label>Время публикации<input type="time" required value={draft.pollTime} onChange={e => update('pollTime', e.target.value)}/></label></div>{toggle('announcement', 'Напоминать о встрече', 'Короткое сообщение перед началом')}<label>За сколько минут<input type="number" min="0" max="10080" value={draft.leadMinutes} onChange={e => update('leadMinutes', Number(e.target.value))}/></label><label>Текст напоминания<textarea rows={3} maxLength={1000} value={draft.text} onChange={e => update('text', e.target.value)}/></label></>}
+      {tab === 'Правила' && <><SectionTitle title="Составы и баланс"/>{toggle('autoTeams', 'Собирать команды автоматически', 'Учитывать позиции и уровень игроков')}{toggle('publishTeams', 'Показывать составы в чате', 'Публиковать список команд перед игрой')}<div className="dl-form-row"><label>Игроков в команде<input type="number" min="2" max="12" value={draft.teamSize} onChange={e => update('teamSize', Number(e.target.value))}/></label><label>Минимум участников<input type="number" min="2" max={draft.limit} value={draft.minVotes} onChange={e => update('minVotes', Number(e.target.value))}/></label></div><SectionTitle title="Отмена и расчёт"/><label>Проверить набор за … минут до начала<input type="number" min="0" max="10080" value={draft.cancelMinutes} onChange={e => update('cancelMinutes', Number(e.target.value))}/></label>{toggle('cancelNotify', 'Сообщать об отмене', 'Если для игры не хватает участников')}{toggle('settlement', 'Рассчитывать взнос автоматически', 'Разделить стоимость между участниками')}{toggle('before', 'Публиковать расчёт до игры', 'Показать предварительный взнос')}{toggle('after', 'Публиковать расчёт после игры', 'Показать окончательную сумму')}</>}
+      <div className="dl-form-actions"><button type="submit" className="dl-button dl-primary"><Icon name="check" size={17}/>Сохранить шаблон</button><button type="button" className="dl-button dl-secondary" onClick={() => setDraft(null)}>Отмена</button></div>
+    </form><aside className="dl-editor-aside"><p className="dl-eyebrow">НЕДЕЛЯ ПО ПЛАНУ</p><div className="dl-schedule-preview"><span className="dl-tile-icon"><Icon name="calendar" size={28}/></span><Badge muted={!draft.active}>{draft.active ? 'Каждую неделю' : 'На паузе'}</Badge><h2>{draft.name || 'Новое событие'}</h2><p>{draft.weekday} · {draft.start}–{draft.end}</p><div className="dl-schedule-timeline"><div><i/><span><strong>Открываем запись</strong><small>{draft.publish ? `${draft.pollDay}, ${draft.pollTime}` : 'Ручная публикация'}</small></span></div><div><i/><span><strong>Собираем состав</strong><small>До {draft.limit} участников{draft.autoTeams ? ` · команды по ${draft.teamSize}` : ''}</small></span></div><div><i/><span><strong>Встречаемся на игре</strong><small>{money(draft.price)} за событие</small></span></div></div></div><p className="dl-demo-note">Настройки сохраняются только в примерочной. Публикации в Telegram не запускаются.</p></aside></div></>
+  const filtered = items.filter(t => filter === 'Все шаблоны' || (filter === 'Активные' ? t.active : !t.active))
+  return <><PageHeading eyebrow="РЕГУЛЯРНОСТЬ СОБИРАЕТ КОМАНДУ" title="Шаблоны событий" description="У каждой встречи свой ритм. Задайте расписание — и возвращайтесь к игре." action={<button className="dl-button dl-primary" onClick={() => edit({ ...initialEventTemplates[0], id: Date.now(), name: '', active: false })}><Icon name="plus" size={18}/>Создать шаблон</button>}/><Notice>{notice}</Notice><div className="dl-filter-tabs">{['Все шаблоны', 'Активные', 'На паузе'].map(f => <button key={f} className={filter === f ? 'dl-filter-active' : ''} onClick={() => setFilter(f)}>{f}{f === 'Все шаблоны' && ` · ${items.length}`}</button>)}</div><div className="dl-recurring-list">{filtered.map(t => <article className="dl-panel dl-recurring-card" key={t.id}><div className="dl-recurring-day"><span>{t.weekday.slice(0, 3).toUpperCase()}</span><strong>{t.start}</strong><small>каждую неделю</small></div><div className="dl-recurring-copy"><div className="dl-card-top"><h2>{t.name}</h2><Badge muted={!t.active}>{t.active ? 'Активен' : 'На паузе'}</Badge></div><p>{t.type} · {t.start}–{t.end} · до {t.limit} игроков</p><div className="dl-recurring-tags"><span><Icon name="poll" size={15}/>{t.publish ? `Запись: ${t.pollDay.toLowerCase()}, ${t.pollTime}` : 'Запись вручную'}</span><span><Icon name="wallet" size={15}/>{money(t.price)} за событие</span></div></div><button className="dl-icon-button" aria-label={`Настроить событие «${t.name}»`} onClick={() => edit(t)}><Icon name="arrow"/></button></article>)}</div>{!filtered.length && <Empty>В этой категории пока нет шаблонов.</Empty>}<div className="dl-tip dl-tip-wide"><Icon name="repeat" size={24}/><p><strong>Один шаблон — много встреч</strong><span>Шаблон задаёт правила недели. Каждую конкретную тренировку вы найдёте в разделе «События».</span></p></div></>
+}

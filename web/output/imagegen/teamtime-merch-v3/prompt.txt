@@ -1,0 +1,48 @@
+Mode: built-in image_gen
+Result: teamtime-pro-sponsors-fitted.png
+Concept: fitted professional competition jersey, front and back on an anonymous generated athlete.
+User-supplied sponsor names: IBP, DuckLike. Their marks here are proposed typographic treatments, not verified official artwork.
+Additional illustrative sponsor names: PULSE, COURT LAB. Number 01 is a sample number.
+Visual verification: close-fitting torso and sleeves; IBP and DuckLike readable; anatomical right shoulder plus and left shoulder minus correct in both views.
+
+Use case: product-mockup.
+Create a new high-end PROFESSIONAL TEAM COMPETITION JERSEY design for TeamTime, with a truly CLOSE-FITTING / COMPRESSION athletic silhouette and a well-designed sponsor ecosystem. Photorealistic sportswear campaign product image, landscape 1536 x 1024.
+
+INPUT IMAGE 1: previous blue-and-graphite TeamTime shirt. Brand/color/shoulder-marker reference only; substantially redesign the garment into a serious fitted professional competition jersey with multiple sponsors. The previous loose silhouette must NOT be carried over.
+INPUT IMAGE 2: approved exact TeamTime TT symbol. Keep this distinctive connected two-T shape; use white on the jersey.
+
+PRESENTATION:
+Two large photographs of the same jersey side by side: FRONT view on the LEFT half, BACK view on the RIGHT half. Both worn by the SAME anonymous fictional adult male athlete with a realistic lean athletic physique. Crop naturally at base of neck to upper thighs, no face or head, no legs below mid-thigh. Show complete shoulders, both arms down and slightly separated from torso, full shirt and hem, plain graphite athletic shorts. Front athlete faces camera; rear athlete faces away. Same scale, no overlap between views. The garment visibly hugs chest, waist, shoulders, upper back and biceps. Torso shaping and arms must make the difference from a casual T-shirt obvious. Athletic proportions, not exaggerated bodybuilder muscle.
+
+GARMENT:
+Premium matte stretch technical jersey, thin performance-knit texture, very fitted sleeves gripping upper arms, high armholes, tailored tapered waist, slight stretch tension, close clean hem. Professional volleyball / team competition kit. Rich cobalt blue #3267CF as main torso; graphite/navy #171D26 raglan shoulders and sleeves. Angular dark side panels taper diagonally toward waist, a refined engineered pattern conveying speed, precise slender white piping. Subtle same-color geometric sublimation may appear in lower torso only, keeping all sponsor marks on clear uncluttered fields. Micro-perforated side ventilation and bonded seams. No loose cotton folds or oversized fit. Fabric stays opaque and matte.
+
+SPONSOR ART DIRECTION:
+A disciplined professional club-kit hierarchy, varied DISTINCT LOGOTYPES with consistent white ink, carefully aligned optical widths and ample breathing space. Believable advertising placements integrated into the garment. User-supplied names "IBP" and "DuckLike" are required and must be spelled exactly. They are speculative typographic sponsor treatments, not reproductions of verified official logos.
+Additional illustrative partner wordmarks: "PULSE" and "COURT LAB". Use these only as demo sponsor names, with distinctive compact geometric typographic treatments; no random filler text. No words "PARTNER", "SPONSOR", "DEMO" printed on the shirt.
+
+FRONT LAYOUT:
+- Wearer's LEFT upper chest: small exact TT crest with small "teamtime." underneath.
+- Wearer's RIGHT upper chest: small "COURT LAB" wordmark, thin neat rectangular outline is acceptable.
+- Across central upper/mid chest: PRIMARY SPONSOR "IBP", dominant bold custom wide technical sans-serif, slightly forward leaning, approximately 220 mm wide. Three clearly readable Latin capitals: I B P.
+- Directly below, smaller SECONDARY SPONSOR "DuckLike", distinctive rounded modern wordmark, exact uppercase D and L, approximately 160 mm wide. An understated tiny abstract duck-bill geometric motif may accompany this logotype, not a cartoon mascot.
+- Lower front just above the hem: a small tasteful "PULSE" mark aligned to the central graphic axis.
+- Sleeve sponsor near each cuff: one compact "PULSE" or "COURT LAB" logo, separated clearly from shoulder plus/minus markings.
+Do not stack every mark into one crowded rectangle; make it look like real professionally designed team sponsor positions.
+
+BACK LAYOUT:
+- Below collar: small exact TT symbol.
+- Beneath it, upper back nameplate "TEAMTIME" in crisp white athletic capitals.
+- Center back: a large professional player number "01", distinctive tall white athletic numerals, about 230 mm tall. This is the sample jersey number. Keep zero and one legible.
+- Below the number: sponsor "DuckLike" in white.
+- Near lower back: a small balanced horizontal row of "IBP" and "PULSE", visually separated.
+- At the very bottom above hem: small discreet single-line motto "ВРЕМЯ БЫТЬ КОМАНДОЙ." in white Cyrillic. The slogan is a finishing detail, not the main graphic.
+
+CRITICAL SHOULDER MARKERS / ANATOMICAL SIDES:
+Retain the RIGHT-HANDED edition. WHITE "+" on wearer's anatomical RIGHT shoulder cap; WHITE "−" on wearer's anatomical LEFT shoulder cap. Each ~25 mm, bold clean strokes, separate from sponsors, no circles.
+LEFT-HALF FRONT VIEW: viewer LEFT shoulder = "+", viewer RIGHT shoulder = "−".
+RIGHT-HALF BACK VIEW: viewer LEFT shoulder = "−", viewer RIGHT shoulder = "+".
+Do not reverse this. Ensure the outer upper shoulder-cap marks are visible in both views. The right arm's plus identifies the player's dominant hand.
+
+PHOTOGRAPHY:
+Light neutral studio background, controlled softbox lighting with gentle directional contrast, exceptional fabric detail, realistic skin and seams, polished professional kit-launch photography. Preserve print geometry over the curved shirt surface, minimal wrinkling over logos. Cool confident sports identity, blue/graphite/white palette. No presentation text outside the garments, no watermarks, no invented league badges, flags, real apparel company marks, medals or QR codes. Exactly two clean front/back views of ONE coherent kit.

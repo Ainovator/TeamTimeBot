@@ -55,7 +55,14 @@ export type ScheduleView = {
   isActive: boolean
 }
 
+export type EventMentionSettings = {
+  userIDs: number[]
+  onPoll: boolean
+  onAnnouncement: boolean
+}
+
 export type EventView = {
+  mentions?: EventMentionSettings
   id: number
   name: string
   eventType: 'training' | 'activity'
@@ -205,6 +212,7 @@ export type EventHistoryItem = {
 }
 
 export type EventBillingPlayer = {
+  passCovered?: boolean
   userID: number
   realName: string
   username: string

@@ -1,0 +1,627 @@
+{
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\api.go": {
+    "mtime": 1779708275.5292616,
+    "ast_hash": "314c6cdb1f66eb6c5dfbd9024d6c3f91",
+    "semantic_hash": "314c6cdb1f66eb6c5dfbd9024d6c3f91"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\bot.go": {
+    "mtime": 1779708160.4198265,
+    "ast_hash": "dbcad955c953b5e3d5202e91c980545a",
+    "semantic_hash": "dbcad955c953b5e3d5202e91c980545a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\client.go": {
+    "mtime": 1779708160.4718044,
+    "ast_hash": "3b021b91cb986fb2ef2152f320711ebc",
+    "semantic_hash": "3b021b91cb986fb2ef2152f320711ebc"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\cmd\\migrate\\main.go": {
+    "mtime": 1779707947.6048763,
+    "ast_hash": "dade7d186c1e27dd01848f384547c59d",
+    "semantic_hash": "dade7d186c1e27dd01848f384547c59d"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\cmd\\teamtimebot\\main.go": {
+    "mtime": 1779708180.0420823,
+    "ast_hash": "5e3211b5c92bddba0f46da68be5dff9b",
+    "semantic_hash": "5e3211b5c92bddba0f46da68be5dff9b"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\cmd\\web\\main.go": {
+    "mtime": 1779708180.0919156,
+    "ast_hash": "4f1f5e270db515284cf831b35fd79e4e",
+    "semantic_hash": "4f1f5e270db515284cf831b35fd79e4e"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00001_init.sql": {
+    "mtime": 1779707947.6058936,
+    "ast_hash": "7759f0380232b32cf3eaa7668e9e5682",
+    "semantic_hash": "7759f0380232b32cf3eaa7668e9e5682"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00002_group_admins.sql": {
+    "mtime": 1779707947.6068902,
+    "ast_hash": "ed50a93dde3d2f256a10b7e1250a6e1e",
+    "semantic_hash": "ed50a93dde3d2f256a10b7e1250a6e1e"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00003_group_events.sql": {
+    "mtime": 1779707947.6068902,
+    "ast_hash": "85c6b1491181d5ac442af2b63fa8d834",
+    "semantic_hash": "85c6b1491181d5ac442af2b63fa8d834"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00004_event_poll_link.sql": {
+    "mtime": 1779707947.6068902,
+    "ast_hash": "5c91e8717a040c479eea75e15eb29a67",
+    "semantic_hash": "5c91e8717a040c479eea75e15eb29a67"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00005_event_poll_posts_votes.sql": {
+    "mtime": 1779707947.6078787,
+    "ast_hash": "cdb6533d888acdd8dc9f531baed9a5c4",
+    "semantic_hash": "cdb6533d888acdd8dc9f531baed9a5c4"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00006_telegram_users.sql": {
+    "mtime": 1779707947.6078787,
+    "ast_hash": "ebe4bcd2e43e70eb7e83f8a3a46920ba",
+    "semantic_hash": "ebe4bcd2e43e70eb7e83f8a3a46920ba"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00007_group_members.sql": {
+    "mtime": 1779707947.6083882,
+    "ast_hash": "e4a22a6d94c8b71819061fbcc8107ca2",
+    "semantic_hash": "e4a22a6d94c8b71819061fbcc8107ca2"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00008_event_settlements.sql": {
+    "mtime": 1779707947.6088507,
+    "ast_hash": "4646f144380bbd93653461d805621eb4",
+    "semantic_hash": "4646f144380bbd93653461d805621eb4"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00009_event_counted_options.sql": {
+    "mtime": 1779707947.6091921,
+    "ast_hash": "ee4dea363f661843e2d06853ea32c0d5",
+    "semantic_hash": "ee4dea363f661843e2d06853ea32c0d5"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00010_event_cost_amount.sql": {
+    "mtime": 1779707947.6093004,
+    "ast_hash": "7bae0a94d52da64f51d3908839a76666",
+    "semantic_hash": "7bae0a94d52da64f51d3908839a76666"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00011_event_publish_time.sql": {
+    "mtime": 1779707947.6093004,
+    "ast_hash": "9783c5b923e4cd5ffe8690edbcd195b2",
+    "semantic_hash": "9783c5b923e4cd5ffe8690edbcd195b2"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00012_event_publish_weekday.sql": {
+    "mtime": 1779707947.6099606,
+    "ast_hash": "94a7f8277e334c5fbff194fa7941b49a",
+    "semantic_hash": "94a7f8277e334c5fbff194fa7941b49a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00013_event_announcements.sql": {
+    "mtime": 1779707947.6099606,
+    "ast_hash": "2a0fca923f99ec46c2d200477e571785",
+    "semantic_hash": "2a0fca923f99ec46c2d200477e571785"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00014_event_settlement_settings.sql": {
+    "mtime": 1779707947.6099606,
+    "ast_hash": "38e7adee9c1eb4fad411b5246ee6f29f",
+    "semantic_hash": "38e7adee9c1eb4fad411b5246ee6f29f"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00015_template_counted_options.sql": {
+    "mtime": 1779707947.610914,
+    "ast_hash": "bf3821cb36e6621ffdb0a24ac85bc632",
+    "semantic_hash": "bf3821cb36e6621ffdb0a24ac85bc632"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00016_event_publish_enabled.sql": {
+    "mtime": 1779707947.610914,
+    "ast_hash": "00ed319c0cd2a1865851f0d7c5a4de8d",
+    "semantic_hash": "00ed319c0cd2a1865851f0d7c5a4de8d"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00017_event_training_module.sql": {
+    "mtime": 1779707947.610914,
+    "ast_hash": "724e030f740dca23dcc1642ddcc34dee",
+    "semantic_hash": "724e030f740dca23dcc1642ddcc34dee"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00018_member_skills.sql": {
+    "mtime": 1779707947.611911,
+    "ast_hash": "7ba04fe8139f1fda74c353ecd0914820",
+    "semantic_hash": "7ba04fe8139f1fda74c353ecd0914820"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00019_event_team_split.sql": {
+    "mtime": 1779707947.611911,
+    "ast_hash": "70d03f3190e617232e0c1b72411e8bd6",
+    "semantic_hash": "70d03f3190e617232e0c1b72411e8bd6"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00020_event_team_assignment_team_c.sql": {
+    "mtime": 1779707947.611911,
+    "ast_hash": "92dfee6ddc8c9a8e38478f619a8b1b10",
+    "semantic_hash": "92dfee6ddc8c9a8e38478f619a8b1b10"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00021_group_members_player_type.sql": {
+    "mtime": 1779707947.6128666,
+    "ast_hash": "7b445c8082bf6e322a49c2d8e1af46c2",
+    "semantic_hash": "7b445c8082bf6e322a49c2d8e1af46c2"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00022_event_cancellation_settings.sql": {
+    "mtime": 1779707947.6128666,
+    "ast_hash": "fc2a787420732eeb1597c5dd5cdd7f95",
+    "semantic_hash": "fc2a787420732eeb1597c5dd5cdd7f95"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00023_player_relations.sql": {
+    "mtime": 1779707947.613377,
+    "ast_hash": "122df604b013ecf4de2b1cd6a2e064b9",
+    "semantic_hash": "122df604b013ecf4de2b1cd6a2e064b9"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00024_event_settlement_payments.sql": {
+    "mtime": 1779707947.613377,
+    "ast_hash": "a0635c5ab4bf7d9825113c9f937cae54",
+    "semantic_hash": "a0635c5ab4bf7d9825113c9f937cae54"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00025_event_instances.sql": {
+    "mtime": 1779707947.6138816,
+    "ast_hash": "a5ddd5c5490134ba4f78ed9f99e1ffca",
+    "semantic_hash": "a5ddd5c5490134ba4f78ed9f99e1ffca"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00026_event_instance_poll_link.sql": {
+    "mtime": 1779707947.6138816,
+    "ast_hash": "f366643d04c3b9693d9e6425ab384080",
+    "semantic_hash": "f366643d04c3b9693d9e6425ab384080"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00027_event_instance_snapshots.sql": {
+    "mtime": 1779707947.6143906,
+    "ast_hash": "5579c4f579e1ab75f08fee9c4fcea1db",
+    "semantic_hash": "5579c4f579e1ab75f08fee9c4fcea1db"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00028_group_roles.sql": {
+    "mtime": 1779707947.6148646,
+    "ast_hash": "cc8f4f55a56bf1e66858c71131b835c3",
+    "semantic_hash": "cc8f4f55a56bf1e66858c71131b835c3"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00029_event_poll_votes_multi.sql": {
+    "mtime": 1779707947.6148646,
+    "ast_hash": "270b75246b9d24af406b4b8de8c5ebc7",
+    "semantic_hash": "270b75246b9d24af406b4b8de8c5ebc7"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00030_poll_template_option_weights.sql": {
+    "mtime": 1779707947.6153896,
+    "ast_hash": "90a53827bd72a166fbe062937a895b71",
+    "semantic_hash": "90a53827bd72a166fbe062937a895b71"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00031_event_instance_poll_option_weights.sql": {
+    "mtime": 1779707947.6153896,
+    "ast_hash": "71c5838345f27fc34abc64fc6dac4de1",
+    "semantic_hash": "71c5838345f27fc34abc64fc6dac4de1"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00032_group_members_real_name.sql": {
+    "mtime": 1779707947.616151,
+    "ast_hash": "b803091933b7f4d228027d933636d585",
+    "semantic_hash": "b803091933b7f4d228027d933636d585"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00033_event_instance_sets.sql": {
+    "mtime": 1779707947.6162188,
+    "ast_hash": "18542ea8e7be8d2a4abf9c8dd70d3a46",
+    "semantic_hash": "18542ea8e7be8d2a4abf9c8dd70d3a46"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00034_event_instance_set_rows.sql": {
+    "mtime": 1779707947.6167293,
+    "ast_hash": "df1cbde2578484edb57409398f2e2d24",
+    "semantic_hash": "df1cbde2578484edb57409398f2e2d24"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00035_group_members_player_type_central.sql": {
+    "mtime": 1779707947.6169846,
+    "ast_hash": "1e2c9db6c7b0cbebfd0ed33ee375061b",
+    "semantic_hash": "1e2c9db6c7b0cbebfd0ed33ee375061b"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00036_skill_block.sql": {
+    "mtime": 1779707947.6169846,
+    "ast_hash": "68bd417868690d9883376637e7957e8f",
+    "semantic_hash": "68bd417868690d9883376637e7957e8f"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00037_event_template_max_places.sql": {
+    "mtime": 1779707947.6177275,
+    "ast_hash": "b43a7d287d3c463e0f046dae2a8cee78",
+    "semantic_hash": "b43a7d287d3c463e0f046dae2a8cee78"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\db\\migrations\\00038_fix_event_max_places_after_old_00037.sql": {
+    "mtime": 1779707947.6179323,
+    "ast_hash": "e6d7dc52db162bd2221f99a0b86392c2",
+    "semantic_hash": "e6d7dc52db162bd2221f99a0b86392c2"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\file.go": {
+    "mtime": 1779707947.619926,
+    "ast_hash": "ad53a1938a3d40c925aeb5ca7f4beea5",
+    "semantic_hash": "ad53a1938a3d40c925aeb5ca7f4beea5"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\go.mod": {
+    "mtime": 1779707947.619926,
+    "ast_hash": "2dca7b45d654a5336743c75f0a8a5de9",
+    "semantic_hash": "2dca7b45d654a5336743c75f0a8a5de9"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\handlers.go": {
+    "mtime": 1779707947.6208842,
+    "ast_hash": "6952ff8a7373c48874b71d6f4a0e0c12",
+    "semantic_hash": "6952ff8a7373c48874b71d6f4a0e0c12"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\inline.go": {
+    "mtime": 1779707947.6208842,
+    "ast_hash": "2815f4572ff60ece3b55ce326f114860",
+    "semantic_hash": "2815f4572ff60ece3b55ce326f114860"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\inline_article.go": {
+    "mtime": 1779707947.6213934,
+    "ast_hash": "0914d2a20fa7fac20b2c0c4a15fb0ef1",
+    "semantic_hash": "0914d2a20fa7fac20b2c0c4a15fb0ef1"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\inline_types.go": {
+    "mtime": 1779707947.6219063,
+    "ast_hash": "aff61069d7f309cc61dc0f7bae41f24e",
+    "semantic_hash": "aff61069d7f309cc61dc0f7bae41f24e"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\input_types.go": {
+    "mtime": 1779707947.6219063,
+    "ast_hash": "f43811380aa33f17ce533aff42693251",
+    "semantic_hash": "f43811380aa33f17ce533aff42693251"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\config\\config.go": {
+    "mtime": 1779720473.3811674,
+    "ast_hash": "4815269899252c2c0e0353d1c95f31f5",
+    "semantic_hash": "4815269899252c2c0e0353d1c95f31f5"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\polls\\question.go": {
+    "mtime": 1779707947.623466,
+    "ast_hash": "126253231ed29f8b219ab7b5e0de06a9",
+    "semantic_hash": "126253231ed29f8b219ab7b5e0de06a9"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\polls\\question_test.go": {
+    "mtime": 1779707947.6238377,
+    "ast_hash": "8c960e39b6478b30118480fb38e1d787",
+    "semantic_hash": "8c960e39b6478b30118480fb38e1d787"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\scheduler\\debug.go": {
+    "mtime": 1779707947.6238377,
+    "ast_hash": "a4979e31c9100381ec8e3d712efe6f8b",
+    "semantic_hash": "a4979e31c9100381ec8e3d712efe6f8b"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\scheduler\\event_announcement_scheduler.go": {
+    "mtime": 1779707947.6244643,
+    "ast_hash": "9583da883eba9c3f7d401593ca22abba",
+    "semantic_hash": "9583da883eba9c3f7d401593ca22abba"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\scheduler\\event_cancellation_scheduler.go": {
+    "mtime": 1779707947.6250472,
+    "ast_hash": "a04f3f72fd2570601a16609e488c5c75",
+    "semantic_hash": "a04f3f72fd2570601a16609e488c5c75"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\scheduler\\event_poll_scheduler.go": {
+    "mtime": 1779707947.6254942,
+    "ast_hash": "77a5c9e9fce524bf6db8528b892f0162",
+    "semantic_hash": "77a5c9e9fce524bf6db8528b892f0162"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\scheduler\\event_settlement_scheduler.go": {
+    "mtime": 1779707947.6257653,
+    "ast_hash": "7d637a6f077bab63cba9a6985220108a",
+    "semantic_hash": "7d637a6f077bab63cba9a6985220108a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\scheduler\\poll_scheduler.go": {
+    "mtime": 1779707947.6257653,
+    "ast_hash": "66af48a74712edb59ab77fc02e89912a",
+    "semantic_hash": "66af48a74712edb59ab77fc02e89912a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\models_events.go": {
+    "mtime": 1779707947.626675,
+    "ast_hash": "a2fb72a5a1c9fcd878dd8a07af278f68",
+    "semantic_hash": "a2fb72a5a1c9fcd878dd8a07af278f68"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\models_groups.go": {
+    "mtime": 1779707947.626675,
+    "ast_hash": "3d0e452fab965385af608930f3dc784d",
+    "semantic_hash": "3d0e452fab965385af608930f3dc784d"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\models_polls.go": {
+    "mtime": 1779707947.626675,
+    "ast_hash": "2fdef9660e42cbb331359eefc1f66d35",
+    "semantic_hash": "2fdef9660e42cbb331359eefc1f66d35"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\models_roles.go": {
+    "mtime": 1779707947.6276753,
+    "ast_hash": "74693a77a04e17b780884f0fb37ad0c1",
+    "semantic_hash": "74693a77a04e17b780884f0fb37ad0c1"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\models_teams.go": {
+    "mtime": 1779707947.6276753,
+    "ast_hash": "8165bfaaaa39d26775d51e8e5276b922",
+    "semantic_hash": "8165bfaaaa39d26775d51e8e5276b922"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\models_templates.go": {
+    "mtime": 1779707947.6276753,
+    "ast_hash": "116cada108a21b92318013e253bba79f",
+    "semantic_hash": "116cada108a21b92318013e253bba79f"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\schedule_spec.go": {
+    "mtime": 1779707947.6276753,
+    "ast_hash": "159bb1a5b71ce789084d5d814335b150",
+    "semantic_hash": "159bb1a5b71ce789084d5d814335b150"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\store.go": {
+    "mtime": 1779707947.630191,
+    "ast_hash": "c1e80bf44383288ba9bf18a279eeab08",
+    "semantic_hash": "c1e80bf44383288ba9bf18a279eeab08"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\store_events.go": {
+    "mtime": 1779707947.630191,
+    "ast_hash": "8ef86f8cf1cad84aa03b0b5fff9b2eaa",
+    "semantic_hash": "8ef86f8cf1cad84aa03b0b5fff9b2eaa"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\store_groups.go": {
+    "mtime": 1779707947.6311886,
+    "ast_hash": "04c1fe84a1801c7fff7a44556b059a0b",
+    "semantic_hash": "04c1fe84a1801c7fff7a44556b059a0b"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\store_instances.go": {
+    "mtime": 1779707947.6311886,
+    "ast_hash": "cafd5f19f0a5ef580c278d4669253127",
+    "semantic_hash": "cafd5f19f0a5ef580c278d4669253127"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\store_members.go": {
+    "mtime": 1779707947.632188,
+    "ast_hash": "68201bc7c029bc4a36b5221f39b4f2e5",
+    "semantic_hash": "68201bc7c029bc4a36b5221f39b4f2e5"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\store_roles.go": {
+    "mtime": 1779707947.632188,
+    "ast_hash": "93fabb73f1398518f57eed54e6905f9e",
+    "semantic_hash": "93fabb73f1398518f57eed54e6905f9e"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\store_schedules.go": {
+    "mtime": 1779707947.633196,
+    "ast_hash": "6accd4a28b055ebea3f069abb6fe96ae",
+    "semantic_hash": "6accd4a28b055ebea3f069abb6fe96ae"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\storage\\postgres\\store_templates.go": {
+    "mtime": 1779707947.633196,
+    "ast_hash": "45fc5bc47c0db8c1f94c4c166af17f0c",
+    "semantic_hash": "45fc5bc47c0db8c1f94c4c166af17f0c"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\telegram\\callbacks.go": {
+    "mtime": 1779707947.6341884,
+    "ast_hash": "9a4789158634208427a98658a4bd7ac1",
+    "semantic_hash": "9a4789158634208427a98658a4bd7ac1"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\telegram\\handlers.go": {
+    "mtime": 1779707947.6341884,
+    "ast_hash": "b1950f8b4fcaebc68c34065e95963241",
+    "semantic_hash": "b1950f8b4fcaebc68c34065e95963241"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\telegram\\poll_answers.go": {
+    "mtime": 1779707947.6341884,
+    "ast_hash": "6ad740e8bf89e076a901b55071665857",
+    "semantic_hash": "6ad740e8bf89e076a901b55071665857"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\telegram\\poll_command.go": {
+    "mtime": 1779708190.174752,
+    "ast_hash": "97ce7b1b8b01caa345854bf1fe436681",
+    "semantic_hash": "97ce7b1b8b01caa345854bf1fe436681"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\telegram\\session.go": {
+    "mtime": 1779707947.635187,
+    "ast_hash": "0af0ce32bccf5014874eda33051c11f5",
+    "semantic_hash": "0af0ce32bccf5014874eda33051c11f5"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\tzdata\\tzdata.go": {
+    "mtime": 1779707947.636187,
+    "ast_hash": "fe76803e3b2bf3b689d837e70781fb9d",
+    "semantic_hash": "fe76803e3b2bf3b689d837e70781fb9d"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\internal\\web\\server.go": {
+    "mtime": 1779707947.6371987,
+    "ast_hash": "592cbbdc5b6eb2c51320d621bd4c89e3",
+    "semantic_hash": "592cbbdc5b6eb2c51320d621bd4c89e3"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\message.go": {
+    "mtime": 1779707947.6371987,
+    "ast_hash": "0aa06813d87a0666a67c7c677b62c9a3",
+    "semantic_hash": "0aa06813d87a0666a67c7c677b62c9a3"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\ml\\server.py": {
+    "mtime": 1779707947.639187,
+    "ast_hash": "e1e68305d6052774a2f609a8a44e5300",
+    "semantic_hash": "e1e68305d6052774a2f609a8a44e5300"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\options.go": {
+    "mtime": 1779707947.639187,
+    "ast_hash": "a89fb226b6bce9ca47cb8b9c4318511f",
+    "semantic_hash": "a89fb226b6bce9ca47cb8b9c4318511f"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\telebot.go": {
+    "mtime": 1779707947.640187,
+    "ast_hash": "de8b95d167a61e677b1d0797bc33c7a6",
+    "semantic_hash": "de8b95d167a61e677b1d0797bc33c7a6"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\telebot_test.go": {
+    "mtime": 1779707947.640187,
+    "ast_hash": "ba8dbe380b284d0697c0dda7dd327b5a",
+    "semantic_hash": "ba8dbe380b284d0697c0dda7dd327b5a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\types.go": {
+    "mtime": 1779707947.640187,
+    "ast_hash": "b759cfab0ff4e8f474ac5cabcb88e800",
+    "semantic_hash": "b759cfab0ff4e8f474ac5cabcb88e800"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\package.json": {
+    "mtime": 1779707947.641188,
+    "ast_hash": "51b9e7f1592299a7f3a2a2820f252598",
+    "semantic_hash": "51b9e7f1592299a7f3a2a2820f252598"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\App.tsx": {
+    "mtime": 1789225087.9135633,
+    "ast_hash": "26d6522547fd5eafc7c126ade5a30956",
+    "semantic_hash": "26d6522547fd5eafc7c126ade5a30956"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\api.ts": {
+    "mtime": 1789225083.155967,
+    "ast_hash": "11298f68a35ef1cda2638fffffc86901",
+    "semantic_hash": "11298f68a35ef1cda2638fffffc86901"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\app\\constants.ts": {
+    "mtime": 1779707947.667122,
+    "ast_hash": "a5914c01b0f6505a473f3ea3cf05d5bc",
+    "semantic_hash": "a5914c01b0f6505a473f3ea3cf05d5bc"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\app\\navigation.tsx": {
+    "mtime": 1779707947.667122,
+    "ast_hash": "d86127934e78c2caa9a143541bf114ef",
+    "semantic_hash": "d86127934e78c2caa9a143541bf114ef"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\app\\router.ts": {
+    "mtime": 1779707947.6676347,
+    "ast_hash": "14fb5bc20b6b3055b99757eaa688cd00",
+    "semantic_hash": "14fb5bc20b6b3055b99757eaa688cd00"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\features\\history\\historyUtils.ts": {
+    "mtime": 1779707947.667974,
+    "ast_hash": "da506849979446879eb336d41b998302",
+    "semantic_hash": "da506849979446879eb336d41b998302"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\features\\members\\memberUtils.ts": {
+    "mtime": 1779707947.6689477,
+    "ast_hash": "2e219218c1dddd3be2d586deeee2bd1d",
+    "semantic_hash": "2e219218c1dddd3be2d586deeee2bd1d"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\features\\templates\\templateUtils.ts": {
+    "mtime": 1779707947.6689477,
+    "ast_hash": "e2cbbd068dc7796ed86cc8d0dd401058",
+    "semantic_hash": "e2cbbd068dc7796ed86cc8d0dd401058"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\main.tsx": {
+    "mtime": 1789225078.5908735,
+    "ast_hash": "94962b25f00e8fcdf3010fd718f84583",
+    "semantic_hash": "94962b25f00e8fcdf3010fd718f84583"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\src\\types.ts": {
+    "mtime": 1779707947.6700387,
+    "ast_hash": "caa61e92d8ca19ee300652909777bdbd",
+    "semantic_hash": "caa61e92d8ca19ee300652909777bdbd"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\tsconfig.json": {
+    "mtime": 1779707947.6711287,
+    "ast_hash": "1f812cb12651a585ef9da8be748b4005",
+    "semantic_hash": "1f812cb12651a585ef9da8be748b4005"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\vite.config.ts": {
+    "mtime": 1789226335.0378132,
+    "ast_hash": "a3ab73bd7951bd8680447a4ad67e6ce3",
+    "semantic_hash": "a3ab73bd7951bd8680447a4ad67e6ce3"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\.github\\workflows\\cd.yml": {
+    "mtime": 1779707947.6009338,
+    "ast_hash": "01af70241076dd87429289d7e4168a3d",
+    "semantic_hash": "01af70241076dd87429289d7e4168a3d"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\.github\\workflows\\ci.yml": {
+    "mtime": 1779707947.6019647,
+    "ast_hash": "48aecaa54ad039f5c4eb779d2253c25a",
+    "semantic_hash": "48aecaa54ad039f5c4eb779d2253c25a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\.github\\workflows\\logs.yml": {
+    "mtime": 1779707947.602324,
+    "ast_hash": "95fcdb522c612236c72126f103a5f90f",
+    "semantic_hash": "95fcdb522c612236c72126f103a5f90f"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\.travis.yml": {
+    "mtime": 1779707947.60294,
+    "ast_hash": "35351e29dfbfd1bd8969c983d209c2ce",
+    "semantic_hash": "35351e29dfbfd1bd8969c983d209c2ce"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\README.md": {
+    "mtime": 1779707947.6038628,
+    "ast_hash": "67e05a7c8f995908faaba2dcdae49a27",
+    "semantic_hash": "67e05a7c8f995908faaba2dcdae49a27"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\docker-compose.prod.yml": {
+    "mtime": 1779708199.2037902,
+    "ast_hash": "e4580996f693f90d0c056127a9d636c2",
+    "semantic_hash": "e4580996f693f90d0c056127a9d636c2"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\docker-compose.yml": {
+    "mtime": 1779707947.6179323,
+    "ast_hash": "3a8e64d1f268435e882c36c37f72b889",
+    "semantic_hash": "3a8e64d1f268435e882c36c37f72b889"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\docs\\CI_CD_RU.md": {
+    "mtime": 1779707947.618907,
+    "ast_hash": "6d6de07d4a17704143d43f10349890ab",
+    "semantic_hash": "6d6de07d4a17704143d43f10349890ab"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\docs\\PROJECT_OVERVIEW_RU.md": {
+    "mtime": 1779707947.618907,
+    "ast_hash": "0e229054d658d36cfdfd5a6d49794e8d",
+    "semantic_hash": "0e229054d658d36cfdfd5a6d49794e8d"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\docs\\WEB_ADMIN_RU.md": {
+    "mtime": 1779707947.618907,
+    "ast_hash": "b2cef7dd528ef837bf0d9a967ff5a83a",
+    "semantic_hash": "b2cef7dd528ef837bf0d9a967ff5a83a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\index.html": {
+    "mtime": 1779707947.641188,
+    "ast_hash": "d113492e54d2dc7a8c0ffd5aa8463757",
+    "semantic_hash": "d113492e54d2dc7a8c0ffd5aa8463757"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\docs\\billing.svg": {
+    "mtime": 1779707947.6421883,
+    "ast_hash": "1a74358b78c5d31d744633c909e35a23",
+    "semantic_hash": "1a74358b78c5d31d744633c909e35a23"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\docs\\hero.svg": {
+    "mtime": 1779707947.6421883,
+    "ast_hash": "93dcbf31556a221560740ef2010e7186",
+    "semantic_hash": "93dcbf31556a221560740ef2010e7186"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\docs\\teams.svg": {
+    "mtime": 1779707947.6431868,
+    "ast_hash": "539280182c4a0f2d5d6d31b3f949db17",
+    "semantic_hash": "539280182c4a0f2d5d6d31b3f949db17"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\docs\\templates.svg": {
+    "mtime": 1779707947.6436093,
+    "ast_hash": "39e02cce72e10f6e9067a71a7d40d2f5",
+    "semantic_hash": "39e02cce72e10f6e9067a71a7d40d2f5"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\docs\\workflow.svg": {
+    "mtime": 1779707947.643951,
+    "ast_hash": "1ec36080c3d24d14c1be1485dbc0c3ec",
+    "semantic_hash": "1ec36080c3d24d14c1be1485dbc0c3ec"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\player-types\\attacker.png": {
+    "mtime": 1779707947.6557772,
+    "ast_hash": "cdbc28dfcd6199d8addfc6cc252c4194",
+    "semantic_hash": "cdbc28dfcd6199d8addfc6cc252c4194"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\player-types\\attacker.svg": {
+    "mtime": 1779707947.6557772,
+    "ast_hash": "850451dbab5ed6b2da31abde46bd917a",
+    "semantic_hash": "850451dbab5ed6b2da31abde46bd917a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\player-types\\central.png": {
+    "mtime": 1779707947.6589215,
+    "ast_hash": "101ee88c6119c43a022edaab7328229f",
+    "semantic_hash": "101ee88c6119c43a022edaab7328229f"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\player-types\\central.svg": {
+    "mtime": 1779707947.6589215,
+    "ast_hash": "b82e67c465ec358a0278258277d30ce2",
+    "semantic_hash": "b82e67c465ec358a0278258277d30ce2"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\player-types\\libero.png": {
+    "mtime": 1779707947.6619685,
+    "ast_hash": "1b6e41ab308fcbb37200c8c4205e3a3a",
+    "semantic_hash": "1b6e41ab308fcbb37200c8c4205e3a3a"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\player-types\\libero.svg": {
+    "mtime": 1779707947.6619685,
+    "ast_hash": "33146adc02426155ff5fbd0c4ed95ff5",
+    "semantic_hash": "33146adc02426155ff5fbd0c4ed95ff5"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\player-types\\pass.png": {
+    "mtime": 1779707947.663388,
+    "ast_hash": "3ac4c65d9b138bbe1e86a9a07b1defa8",
+    "semantic_hash": "3ac4c65d9b138bbe1e86a9a07b1defa8"
+  },
+  "C:\\Users\\yojan\\Desktop\\TeamTime\\TeamTimeBot\\web\\public\\player-types\\setter.svg": {
+    "mtime": 1779707947.6639154,
+    "ast_hash": "952a9f0b718ddda0310d8f602217964f",
+    "semantic_hash": "952a9f0b718ddda0310d8f602217964f"
+  }
+}

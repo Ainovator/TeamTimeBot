@@ -1,0 +1,15 @@
+.studio-event-debt-action { display:grid; gap:6px; }
+.studio-event-debt-action > small { color:var(--text-muted); font-size:11px; }
+.studio-event-debt-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin:20px 0 12px; }
+.studio-event-debt-heading > h3 { font-size:15px; margin:0; }
+.studio-event-debt-recipients { max-height:240px; overflow:auto; border-block:1px solid var(--border-color); }
+.studio-event-debt-recipients > label { display:flex; align-items:center; gap:10px; min-height:48px; padding:10px 0; font-size:13px; cursor:pointer; }
+.studio-event-debt-recipients > label > span { flex:1; overflow-wrap:anywhere; }
+.studio-event-debt-recipients strong { flex-shrink:0; font-size:13px; font-weight:500; }
+.studio-event-debt-preview { display:grid; gap:10px; padding:16px; margin:20px 0; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-main); font-size:13px; }
+.studio-event-debt-preview > span { color:var(--text-muted); font-size:12px; }
+.studio-event-debt-preview > div { display:flex; align-items:baseline; justify-content:space-between; gap:14px; }
+.studio-event-debt-preview > div:last-child { margin-top:6px; padding-top:12px; border-top:1px solid var(--border-color); }
+.studio-event-debt-preview strong { font-weight:500; }
+.studio-event-debt-preview > div > strong { flex-shrink:0; }
+.studio-event-debt-mention { color:var(--accent); overflow-wrap:anywhere; }
